@@ -1,0 +1,4 @@
+BasedOnStyle: Google
+ColumnLimit: 100
+SortIncludes: CaseSensitive
+IncludeBlocks: Regroup

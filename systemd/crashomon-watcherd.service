@@ -1,0 +1,26 @@
+[Unit]
+Description=Crashomon Crash Watcher
+Documentation=https://github.com/your-org/crashomon
+After=local-fs.target
+Wants=local-fs.target
+
+[Service]
+Type=simple
+ExecStart=/usr/libexec/crashomon/crashomon-watcherd \
+    --db-path=/var/crashomon \
+    --max-size=100M \
+    --max-age=7d
+Restart=always
+RestartSec=2
+
+# Resource limits — stay well under 20MB total overhead budget.
+MemoryMax=20M
+CPUWeight=50
+
+# Ensure the crash directory exists.
+RuntimeDirectory=crashomon
+StateDirectory=crashomon
+LogsDirectory=crashomon
+
+[Install]
+WantedBy=multi-user.target
