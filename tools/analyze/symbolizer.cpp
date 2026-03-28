@@ -31,7 +31,8 @@ std::string RunCapture(const std::string& cmd) {
   std::string out;
   char buf[256];
   while (fgets(buf, sizeof(buf), fp)) out += buf;
-  pclose(fp);
+  int rc = pclose(fp);
+  if (rc != 0) return "";
   return out;
 }
 
@@ -63,7 +64,7 @@ std::vector<std::string> QueryAddrLine(const std::string& binary,
   // Build: addr2line -e <module> -f -s -p <offset1> <offset2> ...
   // -f: print function name  -s: strip directory  -p: pretty-print (one line)
   // We use plain -f (two lines per addr) for simpler parsing.
-  std::string cmd = addr2line + " -e " + ShellQuote(binary) + " -f -s";
+  std::string cmd = ShellQuote(addr2line) + " -e " + ShellQuote(binary) + " -f -s";
   for (const auto& r : refs) {
     char hex[32];
     snprintf(hex, sizeof(hex), " 0x%016" PRIx64, r.offset);

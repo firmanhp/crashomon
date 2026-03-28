@@ -49,31 +49,25 @@ std::string FormatTombstone(const MinidumpInfo& info) {
 
   out << kSeparator << "\n";
 
-  // Process/thread line.
-  char header[256];
-  snprintf(header, sizeof(header),
-           "pid: %" PRIu32 ", tid: %" PRIu32 ", name: %s  >>> %s <<<\n",
-           info.pid, info.crashing_tid,
-           info.process_name.c_str(), info.process_name.c_str());
-  out << header;
+  // Process/thread line — written directly to avoid fixed-size buffer truncation.
+  out << "pid: " << info.pid
+      << ", tid: " << info.crashing_tid
+      << ", name: " << info.process_name
+      << "  >>> " << info.process_name << " <<<\n";
 
   // Signal line.
   auto [sig_name, code_name] = SplitSignalInfo(info.signal_info);
 
-  char sig_line[256];
+  char hex_addr[32];
+  snprintf(hex_addr, sizeof(hex_addr), "0x%016" PRIx64, info.fault_addr);
   if (code_name.empty()) {
-    snprintf(sig_line, sizeof(sig_line),
-             "signal %" PRIu32 " (%s), fault addr 0x%016" PRIx64 "\n",
-             info.signal_number, sig_name.c_str(), info.fault_addr);
+    out << "signal " << info.signal_number
+        << " (" << sig_name << "), fault addr " << hex_addr << "\n";
   } else {
-    snprintf(sig_line, sizeof(sig_line),
-             "signal %" PRIu32 " (%s), code %" PRIu32 " (%s), "
-             "fault addr 0x%016" PRIx64 "\n",
-             info.signal_number, sig_name.c_str(),
-             info.signal_code, code_name.c_str(),
-             info.fault_addr);
+    out << "signal " << info.signal_number
+        << " (" << sig_name << "), code " << info.signal_code
+        << " (" << code_name << "), fault addr " << hex_addr << "\n";
   }
-  out << sig_line;
 
   out << "timestamp: " << info.timestamp << "\n";
 
@@ -105,16 +99,11 @@ std::string FormatTombstone(const MinidumpInfo& info) {
   // Other threads.
   for (size_t t = 1; t < info.threads.size(); ++t) {
     const auto& ti = info.threads[t];
-    char thread_header[128];
     if (ti.name.empty()) {
-      snprintf(thread_header, sizeof(thread_header),
-               "\n--- --- --- thread %" PRIu32 " --- --- ---\n", ti.tid);
+      out << "\n--- --- --- thread " << ti.tid << " --- --- ---\n";
     } else {
-      snprintf(thread_header, sizeof(thread_header),
-               "\n--- --- --- thread %" PRIu32 " (%s) --- --- ---\n",
-               ti.tid, ti.name.c_str());
+      out << "\n--- --- --- thread " << ti.tid << " (" << ti.name << ") --- --- ---\n";
     }
-    out << thread_header;
     AppendFrames(out, ti.frames);
   }
 

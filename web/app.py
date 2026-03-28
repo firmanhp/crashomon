@@ -8,7 +8,8 @@ import re
 import shutil
 from pathlib import Path
 
-from flask import Flask, abort, redirect, render_template, request, url_for
+from flask import Flask, abort, flash, redirect, render_template, request, url_for
+from werkzeug.utils import secure_filename
 
 from web import analyzer, models, symbol_store
 
@@ -56,7 +57,10 @@ def create_app(
     def crashes():
         process = request.args.get("process", "")
         signal = request.args.get("signal", "")
-        page = max(1, int(request.args.get("page", 1)))
+        try:
+            page = max(1, int(request.args.get("page", 1)))
+        except ValueError:
+            page = 1
         per_page = 25
         offset = (page - 1) * per_page
         rows = models.get_crashes(
@@ -100,9 +104,12 @@ def create_app(
 
         dmp_file = request.files.get("minidump")
         if dmp_file and dmp_file.filename:
+            safe_name = secure_filename(dmp_file.filename)
+            if not safe_name:
+                return abort(400)
             tmp_dir = app.config["DB_PATH"].parent / "tmp"
             tmp_dir.mkdir(parents=True, exist_ok=True)
-            dmp_path = tmp_dir / dmp_file.filename
+            dmp_path = tmp_dir / safe_name
             dmp_file.save(str(dmp_path))
             try:
                 report = analyzer.analyze_minidump(
@@ -151,9 +158,13 @@ def create_app(
         """Accept a debug binary, extract symbols, store in symbol store."""
         f = request.files.get("binary")
         if f and f.filename:
+            safe_name = secure_filename(f.filename)
+            if not safe_name:
+                flash("Invalid filename.", "error")
+                return redirect(url_for("symbols"))
             tmp_dir = app.config["DB_PATH"].parent / "tmp"
             tmp_dir.mkdir(parents=True, exist_ok=True)
-            bin_path = tmp_dir / f.filename
+            bin_path = tmp_dir / safe_name
             f.save(str(bin_path))
             try:
                 symbol_store.add_binary(
@@ -161,8 +172,8 @@ def create_app(
                     bin_path,
                     dump_syms=app.config["DUMP_SYMS"],
                 )
-            except (RuntimeError, FileNotFoundError):
-                pass
+            except (RuntimeError, FileNotFoundError) as exc:
+                flash(f"Symbol extraction failed: {exc}", "error")
         return redirect(url_for("symbols"))
 
     @app.delete("/symbols/<module>/<build_id>")
@@ -188,9 +199,12 @@ def create_app(
 
         binary = request.files.get("binary")
         if binary and binary.filename:
+            safe_name = secure_filename(binary.filename)
+            if not safe_name:
+                return {"status": "error", "message": "invalid filename"}, 400
             tmp_dir = app.config["DB_PATH"].parent / "tmp"
             tmp_dir.mkdir(parents=True, exist_ok=True)
-            bin_path = tmp_dir / binary.filename
+            bin_path = tmp_dir / safe_name
             binary.save(str(bin_path))
             try:
                 dest = symbol_store.add_binary(
@@ -210,9 +224,12 @@ def create_app(
         if not dmp_file or not dmp_file.filename:
             return {"status": "error", "message": "no minidump provided"}, 400
 
+        safe_name = secure_filename(dmp_file.filename)
+        if not safe_name:
+            return {"status": "error", "message": "invalid filename"}, 400
         tmp_dir = app.config["DB_PATH"].parent / "tmp"
         tmp_dir.mkdir(parents=True, exist_ok=True)
-        dmp_path = tmp_dir / dmp_file.filename
+        dmp_path = tmp_dir / safe_name
         dmp_file.save(str(dmp_path))
 
         ts = datetime.datetime.now(datetime.UTC).strftime("%Y-%m-%dT%H:%M:%SZ")

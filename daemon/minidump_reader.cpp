@@ -73,9 +73,10 @@ absl::StatusOr<MinidumpInfo> ReadMinidump(const std::string& path) {
   info.fault_addr = process_state.crash_address();
   info.signal_info = process_state.crash_reason();
 
-  const auto& exc = *process_state.exception_record();
-  info.signal_number = exc.code();
-  info.signal_code = exc.flags();
+  if (const auto* exc = process_state.exception_record()) {
+    info.signal_number = exc->code();
+    info.signal_code = exc->flags();
+  }
 
   // Low-level pass: PID from misc info, registers from thread context.
   // We open a second Minidump instance rather than mutating the processor's.

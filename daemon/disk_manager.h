@@ -2,6 +2,9 @@
 //
 // Prunes old minidump files from the database directory to stay within
 // configurable size and age limits. Deletes oldest files first.
+//
+// This header is internal to crashomon-watcherd.
+// absl::Status/absl::StatusOr are safe here — this is not a public API.
 
 #pragma once
 
