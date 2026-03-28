@@ -6,8 +6,8 @@ include(GoogleTest)
 set(TEST_SOURCES
   test_tombstone_formatter.cpp
   test_disk_manager.cpp
+  test_log_parser.cpp
   # test_minidump_reader.cpp  — Phase 5: requires fixture .dmp files
-  # test_log_parser.cpp       — Phase 3
 )
 
 add_executable(crashomon_tests ${TEST_SOURCES})
@@ -28,6 +28,7 @@ target_sources(crashomon_tests PRIVATE
   ${CMAKE_SOURCE_DIR}/daemon/tombstone_formatter.cpp
   ${CMAKE_SOURCE_DIR}/daemon/disk_manager.cpp
   ${CMAKE_SOURCE_DIR}/daemon/minidump_reader.cpp
+  ${CMAKE_SOURCE_DIR}/tools/analyze/log_parser.cpp
 )
 
 target_include_directories(crashomon_tests

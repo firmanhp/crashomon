@@ -122,11 +122,11 @@ cd web && ruff check . && ruff format --check . && pytest tests/
 - [x] systemd unit file
 
 ### Phase 3 — Analysis tools
-- [ ] `tools/analyze/log_parser.cpp/.h` + unit tests
-- [ ] `tools/analyze/minidump_analyzer.cpp/.h`
-- [ ] `tools/analyze/symbolizer.cpp/.h`
-- [ ] `tools/analyze/main.cpp`
-- [ ] `tools/syms/crashomon-syms` script
+- [x] `tools/analyze/log_parser.cpp/.h` + unit tests (26 tests)
+- [x] `tools/analyze/minidump_analyzer.cpp/.h`
+- [x] `tools/analyze/symbolizer.cpp/.h`
+- [x] `tools/analyze/main.cpp`
+- [x] `tools/syms/crashomon-syms` script
 
 ### Phase 4 — Web UI
 - [ ] `web/symbol_store.py` + pytest tests
