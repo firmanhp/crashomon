@@ -56,7 +56,7 @@ The watcher daemon uses ≤ 20 MB RSS at idle.
 
 ```bash
 # Clone
-git clone https://github.com/your-org/crashomon.git
+git clone https://github.com/firmanhp/crashomon.git
 cd crashomon
 
 # Configure + build all C/C++ targets

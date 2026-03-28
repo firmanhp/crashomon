@@ -1,6 +1,6 @@
 [Unit]
 Description=Crashomon Crash Watcher
-Documentation=https://github.com/your-org/crashomon
+Documentation=https://github.com/firmanhp/crashomon
 After=local-fs.target
 Wants=local-fs.target
 
