@@ -136,9 +136,9 @@ cd web && ruff check . && ruff format --check . && pytest tests/
 - [x] Templates (base, dashboard, crashes, crash_detail, symbols, upload)
 
 ### Phase 5 — Examples & integration tests
-- [ ] `examples/segfault.c`, `abort.c`, `multithread_crash.c`
-- [ ] Generate test fixtures (on Linux)
-- [ ] Integration test scripts
+- [x] `examples/segfault.c`, `abort.c`, `multithread_crash.c`
+- [x] Generate test fixtures (on Linux) — `test/gen_fixtures.sh`
+- [x] Integration test scripts — `test/integration_test.sh`
 
 ## Open questions
 

@@ -7,7 +7,7 @@ set(TEST_SOURCES
   test_tombstone_formatter.cpp
   test_disk_manager.cpp
   test_log_parser.cpp
-  # test_minidump_reader.cpp  — Phase 5: requires fixture .dmp files
+  test_minidump_reader.cpp
 )
 
 add_executable(crashomon_tests ${TEST_SOURCES})
@@ -45,4 +45,9 @@ if(breakpad_SOURCE_DIR)
   target_include_directories(crashomon_tests SYSTEM PRIVATE "${breakpad_SOURCE_DIR}/src")
 endif()
 
-gtest_discover_tests(crashomon_tests)
+gtest_discover_tests(crashomon_tests
+  # Pass the fixtures directory so test_minidump_reader.cpp can locate .dmp files.
+  # Tests skip gracefully (GTEST_SKIP) when the fixture files are absent.
+  PROPERTIES
+    ENVIRONMENT "CRASHOMON_FIXTURES_DIR=${CMAKE_CURRENT_SOURCE_DIR}/fixtures"
+)
