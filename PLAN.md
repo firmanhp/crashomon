@@ -44,7 +44,7 @@ ON DEVELOPER MACHINE
 
 | Component | Language | Role |
 |-----------|----------|------|
-| `lib/` → `libcrashomon.so` | C11 | LD_PRELOAD / linkable client library |
+| `lib/` → `libcrashomon.so` | C++17 (C API) | LD_PRELOAD / linkable client library; C-compatible public header |
 | `daemon/` → `crashomon-watcherd` | C++17 | inotify watcher, tombstone formatter, disk manager |
 | `tools/analyze/` → `crashomon-analyze` | C++17 | CLI: symbolicate minidump or tombstone text |
 | `tools/syms/crashomon-syms` | Python | Ingest debug binaries into symbol store |
@@ -56,15 +56,29 @@ ON DEVELOPER MACHINE
 |------------|------------|
 | sentry-native (Crashpad backend) | Crash capture, out-of-process minidump writing |
 | crashpad_handler | ptrace-based minidump writer (via sentry-native) |
+| Abseil (`absl::Status`, `absl::StatusOr`) | Internal error handling — no exceptions |
 | Breakpad minidump-processor | Minidump parsing in watcherd |
-| Breakpad minidump_stackwalk | Offline symbolication in analyze/web |
-| Breakpad dump_syms | DWARF → .sym extraction (build-time) |
+| Breakpad `minidump_stackwalk` | Offline symbolication in analyze/web |
+| Breakpad `dump_syms` | DWARF → .sym extraction (build-time) |
+| Google Benchmark | Microbenchmarks (opt-in: `-DENABLE_BENCHMARKS=ON`) |
+
+All C/C++ dependencies are fetched via CMake FetchContent — no system-install required.
+Exception: zlib (system library, required by Breakpad: `find_package(ZLIB REQUIRED)`).
+
+## Constraints
+
+- **`-fno-exceptions`**: All C++ compiled without exceptions. Use `absl::Status`/`absl::StatusOr` for error handling.
+- **Freestanding public APIs**: No Abseil types in public or cross-library interfaces. Public C API (`lib/crashomon.h`) uses only C types. `absl::Status`/`absl::StatusOr` confined to `.cpp` and internal headers.
+- **FetchContent for all project deps**: sentry-native, GoogleTest, Abseil, Breakpad (custom CMake wrapper in `cmake/breakpad.cmake`), Google Benchmark.
 
 ## Build commands
 
 ```bash
 # Build all (C/C++ components)
 cmake -B build && cmake --build build
+
+# With benchmarks
+cmake -B build -DENABLE_BENCHMARKS=ON && cmake --build build
 
 # Run unit tests
 ctest --test-dir build
@@ -86,26 +100,26 @@ cd web && ruff check . && ruff format --check . && pytest tests/
 ## Implementation phases
 
 ### Phase 0 — Guardrails (do this first)
-- [ ] Top-level `CMakeLists.txt` with compiler flags, FetchContent stubs
-- [ ] `.clang-format` (Google style)
-- [ ] `.clang-tidy` config
-- [ ] `pyproject.toml` (ruff)
-- [ ] GoogleTest scaffolding (`test/CMakeLists.txt`)
-- [ ] pytest scaffolding (`web/tests/conftest.py`)
-- [ ] Verify: empty test suite builds and passes
+- [x] Top-level `CMakeLists.txt` with compiler flags, FetchContent stubs
+- [x] `.clang-format` (Google style)
+- [x] `.clang-tidy` config
+- [x] `pyproject.toml` (ruff)
+- [x] GoogleTest scaffolding (`test/CMakeLists.txt`)
+- [x] pytest scaffolding (`web/tests/conftest.py`)
+- [x] Verify: empty test suite builds and passes
 
 ### Phase 1 — Client library
-- [ ] `lib/crashomon.h` + `lib/crashomon.c`
-- [ ] LD_PRELOAD constructor/destructor
-- [ ] sentry_init with Crashpad backend, env var config
-- [ ] Public API: set_tag, add_breadcrumb, set_abort_message
+- [x] `lib/crashomon.h` + `lib/crashomon.cpp` (C++17 implementation, C-compatible header)
+- [x] LD_PRELOAD constructor/destructor
+- [x] sentry_init with Crashpad backend, env var config
+- [x] Public API: set_tag, add_breadcrumb, set_abort_message
 
 ### Phase 2 — Watcher daemon
-- [ ] `daemon/tombstone_formatter.cpp/.h` + unit tests
-- [ ] `daemon/disk_manager.cpp/.h` + unit tests
-- [ ] `daemon/minidump_reader.cpp/.h` + unit tests (using fixture .dmp files)
-- [ ] `daemon/main.cpp` (inotify loop)
-- [ ] systemd unit file
+- [x] `daemon/tombstone_formatter.cpp/.h` + unit tests (14 tests)
+- [x] `daemon/disk_manager.cpp/.h` + unit tests (11 tests)
+- [x] `daemon/minidump_reader.cpp/.h` (fixture-based tests deferred to Phase 5)
+- [x] `daemon/main.cpp` (inotify loop, SIGTERM, arg parsing)
+- [x] systemd unit file
 
 ### Phase 3 — Analysis tools
 - [ ] `tools/analyze/log_parser.cpp/.h` + unit tests
@@ -130,5 +144,4 @@ cd web && ruff check . && ruff format --check . && pytest tests/
 
 - Crashpad database directory structure: exact path where minidumps land
 - `crashpad_handler` lifecycle with multiple LD_PRELOAD processes (shared handler?)
-- Breakpad minidump-processor CMake build
 - Cross-compilation story for ARM/ARM64 target

@@ -126,8 +126,8 @@ After evaluating multiple approaches, we chose **sentry-native with Crashpad bac
   - `crashomon_set_abort_message(msg)` — sets annotation for abort message capture
 
 **Files**:
-- `lib/crashomon.h` — public API header
-- `lib/crashomon.c` — constructor/destructor, init logic, API wrappers
+- `lib/crashomon.h` — public API header (pure C, C-compatible, freestanding — no project deps required to consume)
+- `lib/crashomon.cpp` — C++17 implementation; constructor/destructor, init logic, API wrappers
 - `lib/CMakeLists.txt`
 
 **Build output**: `libcrashomon.so` (shared, for LD_PRELOAD) + `libcrashomon.a` (static, for explicit linking) + `crashpad_handler` binary
@@ -372,7 +372,7 @@ crashomon/
 ├── lib/                        # libcrashomon.so/.a (client library)
 │   ├── CMakeLists.txt
 │   ├── crashomon.h
-│   └── crashomon.c
+│   └── crashomon.cpp
 ├── daemon/                     # crashomon-watcherd (inotify watcher)
 │   ├── CMakeLists.txt
 │   ├── main.cpp
@@ -437,9 +437,18 @@ set(SENTRY_PIC ON CACHE BOOL "" FORCE)
 FetchContent_MakeAvailable(sentry)
 ```
 
-**Breakpad tools** (for minidump_stackwalk and dump_syms):
-- Option A: FetchContent from Breakpad repo, build only the processor tools
-- Option B: Expect them system-installed and document the dependency
+**Breakpad** (for minidump-processor library, `minidump_stackwalk`, and `dump_syms`):
+FetchContent from upstream Breakpad. Custom CMake wrapper at `cmake/breakpad.cmake` defines targets
+since Breakpad has no native CMake build. Targets: `breakpad_processor` (library), `minidump_stackwalk`
+(executable), `breakpad_dump_syms` (executable), `breakpad_libdisasm` (internal, vendored disassembler).
+All Breakpad targets compiled with `-w` (no warnings-as-errors for third-party code).
+
+**Abseil** (internal error handling):
+FetchContent. Granular CMake targets — only `absl::status` and `absl::statusor` linked per component.
+Internal only: `absl::Status`/`absl::StatusOr` must not appear in public interfaces.
+
+**Google Benchmark** (opt-in microbenchmarks):
+FetchContent, gated behind `-DENABLE_BENCHMARKS=ON`.
 
 ---
 
@@ -449,7 +458,7 @@ FetchContent_MakeAvailable(sentry)
 |---|---|---|
 | Crash capture + signal handling | **Reuse**: sentry-native (Crashpad backend) | 0 |
 | Out-of-process minidump writing | **Reuse**: crashpad_handler (via sentry-native) | 0 |
-| LD_PRELOAD shim + sentry init | **Build**: ~150-250 LOC C | Low |
+| LD_PRELOAD shim + sentry init | **Build**: ~150-250 LOC C++17 (C API) | Low |
 | Watcher daemon (inotify + formatting) | **Build**: ~800-1200 LOC C++ | Medium |
 | Minidump parsing (in watcher) | **Reuse**: Breakpad minidump processor | 0 |
 | Symbol ingestion tool | **Build**: ~100-200 LOC script (wraps dump_syms) | Low |
@@ -488,7 +497,7 @@ FetchContent_MakeAvailable(sentry)
 ### Compiler flags (CMake)
 
 ```cmake
-# Applied to ALL C/C++ targets
+# Language standards
 set(CMAKE_C_STANDARD 11)
 set(CMAKE_C_STANDARD_REQUIRED ON)
 set(CMAKE_C_EXTENSIONS OFF)
@@ -497,20 +506,24 @@ set(CMAKE_CXX_STANDARD 17)
 set(CMAKE_CXX_STANDARD_REQUIRED ON)
 set(CMAKE_CXX_EXTENSIONS OFF)
 
-add_compile_options(
+# Applied to ALL targets (including deps — consistent ABI, no exception mismatch)
+add_compile_options(-O3 -g)
+add_compile_options($<$<COMPILE_LANGUAGE:CXX>:-fno-exceptions>)
+
+# Applied ONLY to our targets via crashomon_warnings interface library
+# (not to third-party deps — avoids -Werror breaking sentry-native, Breakpad, etc.)
+add_library(crashomon_warnings INTERFACE)
+target_compile_options(crashomon_warnings INTERFACE
   -Wall -Wextra -Wpedantic -Werror
   -Wshadow -Wconversion -Wsign-conversion
   -Wnull-dereference -Wdouble-promotion
   -Wformat=2 -Wformat-security
   -fstack-protector-strong
 )
-
-# Release build (default for target deployment)
-set(CMAKE_BUILD_TYPE Release)  # -O3
-# Debug build for development: cmake -DCMAKE_BUILD_TYPE=Debug
 ```
 
-Note: `-Wall -Wextra -Wpedantic -Werror` are applied only to OUR targets, NOT to fetched dependencies (sentry-native, GoogleTest). Use `target_compile_options()` on our targets or wrap FetchContent dependencies with modified flags.
+Third-party deps (sentry-native, GoogleTest, Abseil, Breakpad) are compiled with `-w`
+(suppress all warnings) where needed. They must NOT inherit `-Werror`.
 
 ### clang-format
 
@@ -536,8 +549,9 @@ Follow [Google C++ Style Guide](https://google.github.io/styleguide/cppguide.htm
 - Return by value, rely on copy elision ([TotW #77](https://abseil.io/tips/77))
 - Prefer `std::make_unique` over `new` ([TotW #126](https://abseil.io/tips/126))
 - Use structured bindings where they improve readability ([TotW #140](https://abseil.io/tips/140))
-- Prefer `std::optional` over sentinel values ([TotW #153](https://abseil.io/tips/153))
 - Avoid `std::move` on return statements (defeats NRVO) ([TotW #11](https://abseil.io/tips/11))
+- **No exceptions**: use `absl::Status` and `absl::StatusOr<T>` for error handling. All C++ is compiled with `-fno-exceptions`. Never use `try`/`catch`/`throw`.
+- **Freestanding public interfaces**: `absl::Status`/`absl::StatusOr` and other Abseil types must not appear in public or cross-library headers. Consumers of `lib/crashomon.h` must not need to add Abseil as a dependency.
 
 ### clang-tidy
 

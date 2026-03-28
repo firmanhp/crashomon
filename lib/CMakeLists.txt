@@ -1,13 +1,13 @@
-# libcrashomon — C11 client library
+# libcrashomon — C++17 client library (C-compatible public header)
 # Thin wrapper around sentry-native (Crashpad backend).
 # Supports LD_PRELOAD (via constructor/destructor) and explicit linking.
 
 add_library(crashomon_client SHARED
-  crashomon.c
+  crashomon.cpp
 )
 
 add_library(crashomon_client_static STATIC
-  crashomon.c
+  crashomon.cpp
 )
 set_target_properties(crashomon_client_static PROPERTIES OUTPUT_NAME crashomon)
 

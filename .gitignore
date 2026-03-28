@@ -1,1 +1,32 @@
+# CMake build directories
+build/
+build-*/
+
+# CMake user-specific files
+CMakeUserPresets.json
+
+# IDE files
+.vscode/
+.idea/
+*.swp
+*.swo
+*~
+
+# Compiled artifacts (build products only, not source)
+*.o
+*.a
+*.so
+*.so.*
+
+# Python cache
+__pycache__/
+*.pyc
+*.pyo
+.pytest_cache/
+.ruff_cache/
+*.egg-info/
+dist/
+.venv/
+
+# Claude Code project settings (local machine context, not repo config)
 .claude/
