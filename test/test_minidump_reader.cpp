@@ -10,9 +10,10 @@
 
 #include "daemon/minidump_reader.h"
 
-#include <sys/stat.h>
+#include <cstdlib>
 #include <filesystem>
 #include <string>
+#include <unistd.h>
 
 #include "gtest/gtest.h"
 

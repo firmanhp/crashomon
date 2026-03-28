@@ -28,8 +28,8 @@ FAIL=0
 
 # ── Helpers ─────────────────────────────────────────────────────────────────
 
-log_pass() { echo "  PASS: $*"; ((PASS++)); }
-log_fail() { echo "  FAIL: $*" >&2; ((FAIL++)); }
+log_pass() { echo "  PASS: $*"; PASS=$((PASS + 1)); }
+log_fail() { echo "  FAIL: $*" >&2; FAIL=$((FAIL + 1)); }
 
 check() {
   local desc="$1"; shift
@@ -119,11 +119,12 @@ if [[ -f "${CRASHOMON_ANALYZE}" ]]; then
       continue
     fi
     # analyze must exit 0 and print non-empty output.
-    output="$("${CRASHOMON_ANALYZE}" "${dmp}" 2>&1 || true)"
-    if [[ -n "${output}" ]]; then
-      log_pass "analyze ${name}: produced output"
+    output="$("${CRASHOMON_ANALYZE}" "${dmp}" 2>&1)"
+    analyze_exit=$?
+    if [[ "${analyze_exit}" -eq 0 && -n "${output}" ]]; then
+      log_pass "analyze ${name}: exited 0 and produced output"
     else
-      log_fail "analyze ${name}: empty output"
+      log_fail "analyze ${name}: exited ${analyze_exit} or produced empty output"
     fi
   done
 else

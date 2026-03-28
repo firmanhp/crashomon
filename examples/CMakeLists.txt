@@ -8,6 +8,7 @@ add_executable(example_segfault segfault.c)
 target_compile_options(example_segfault PRIVATE
   -Wall -Wextra -Wpedantic -Werror -Wshadow -Wconversion -Wsign-conversion
   -Wdouble-promotion -Wformat=2 -Wformat-security -fstack-protector-strong
+  -O3 -g
   # Intentional null deref — this IS the crash we want to test.
   -Wno-null-dereference
 )
@@ -23,6 +24,7 @@ target_link_libraries(example_multithread PRIVATE pthread)
 target_compile_options(example_multithread PRIVATE
   -Wall -Wextra -Wpedantic -Werror -Wshadow -Wconversion -Wsign-conversion
   -Wdouble-promotion -Wformat=2 -Wformat-security -fstack-protector-strong
+  -O3 -g
   # Intentional null deref in thread — this IS the crash we want to test.
   -Wno-null-dereference
   # usleep is a BSD/misc extension; _DEFAULT_SOURCE enables __USE_MISC which exposes it.
