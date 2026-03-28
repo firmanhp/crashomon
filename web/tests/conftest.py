@@ -1,27 +1,30 @@
-"""Pytest fixtures for crashomon-web tests."""
+"""Shared pytest fixtures for crashomon-web tests."""
+
+from __future__ import annotations
 
 import pytest
 
+from web.app import create_app
+from web import models
+
 
 @pytest.fixture
-def app():
-    """Create a Flask test application."""
-    # Import deferred until app.py is implemented (Phase 4).
-    # from web.app import create_app
-    # app = create_app(testing=True)
-    # yield app
-    pytest.skip("app.py not yet implemented (Phase 4)")
+def app(tmp_path):
+    a = create_app(
+        symbol_store_path=str(tmp_path / "symbols"),
+        db_path=str(tmp_path / "crashes.db"),
+        testing=True,
+    )
+    return a
 
 
 @pytest.fixture
 def client(app):
-    """Flask test client."""
     return app.test_client()
 
 
 @pytest.fixture
 def tmp_symbol_store(tmp_path):
-    """Empty symbol store in a temp directory."""
     store = tmp_path / "symbols"
     store.mkdir()
     return store
@@ -29,5 +32,6 @@ def tmp_symbol_store(tmp_path):
 
 @pytest.fixture
 def tmp_db(tmp_path):
-    """Empty SQLite database path in a temp directory."""
-    return tmp_path / "crashes.db"
+    db = tmp_path / "crashes.db"
+    models.init_db(db)
+    return db

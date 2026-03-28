@@ -1,0 +1,251 @@
+"""crashomon-web — Flask application factory."""
+
+from __future__ import annotations
+
+import datetime
+import os
+import re
+import shutil
+from pathlib import Path
+
+from flask import Flask, abort, redirect, render_template, request, url_for
+
+from web import analyzer, models, symbol_store
+
+
+def create_app(
+    *,
+    symbol_store_path: str | None = None,
+    db_path: str | None = None,
+    dump_syms: str = "dump_syms",
+    stackwalk: str = "minidump_stackwalk",
+    addr2line: str = "eu-addr2line",
+    analyze_binary: str = "crashomon-analyze",
+    testing: bool = False,
+) -> Flask:
+    """Create and configure the Flask application."""
+    app = Flask(__name__, template_folder="templates")
+    app.config["TESTING"] = testing
+    app.config["SECRET_KEY"] = os.environ.get("SECRET_KEY", "dev-only-key")
+    app.config["SYMBOL_STORE"] = Path(
+        symbol_store_path
+        or os.environ.get("CRASHOMON_SYMBOL_STORE", "/var/crashomon/symbols")
+    )
+    app.config["DB_PATH"] = Path(
+        db_path or os.environ.get("CRASHOMON_DB", "/var/crashomon/crashes.db")
+    )
+    app.config["DUMP_SYMS"] = dump_syms
+    app.config["STACKWALK"] = stackwalk
+    app.config["ADDR2LINE"] = addr2line
+    app.config["ANALYZE_BINARY"] = analyze_binary
+
+    if not testing:
+        app.config["SYMBOL_STORE"].mkdir(parents=True, exist_ok=True)
+        app.config["DB_PATH"].parent.mkdir(parents=True, exist_ok=True)
+    models.init_db(app.config["DB_PATH"])
+
+    # ── Routes ────────────────────────────────────────────────────────────────
+
+    @app.get("/")
+    def dashboard():
+        frequency = models.get_frequency(app.config["DB_PATH"])
+        recent = models.get_crashes(app.config["DB_PATH"], limit=10)
+        return render_template("dashboard.html", frequency=frequency, recent=recent)
+
+    @app.get("/crashes")
+    def crashes():
+        process = request.args.get("process", "")
+        signal = request.args.get("signal", "")
+        page = max(1, int(request.args.get("page", 1)))
+        per_page = 25
+        offset = (page - 1) * per_page
+        rows = models.get_crashes(
+            app.config["DB_PATH"],
+            process=process,
+            signal=signal,
+            limit=per_page + 1,
+            offset=offset,
+        )
+        has_next = len(rows) > per_page
+        return render_template(
+            "crashes.html",
+            crashes=rows[:per_page],
+            page=page,
+            has_next=has_next,
+            process=process,
+            signal=signal,
+        )
+
+    @app.get("/crashes/<int:crash_id>")
+    def crash_detail(crash_id: int):
+        crash = models.get_crash(app.config["DB_PATH"], crash_id)
+        if crash is None:
+            abort(404)
+        return render_template("crash_detail.html", crash=crash)
+
+    @app.post("/crashes/<int:crash_id>/delete")
+    def delete_crash(crash_id: int):
+        models.delete_crash(app.config["DB_PATH"], crash_id)
+        return redirect(url_for("crashes"))
+
+    @app.get("/upload")
+    def upload_form():
+        return render_template("upload.html")
+
+    @app.post("/crashes/upload")
+    def upload_crash():
+        """Handle minidump file upload or tombstone text paste."""
+        store = app.config["SYMBOL_STORE"]
+        ts = datetime.datetime.now(datetime.UTC).strftime("%Y-%m-%dT%H:%M:%SZ")
+
+        dmp_file = request.files.get("minidump")
+        if dmp_file and dmp_file.filename:
+            tmp_dir = app.config["DB_PATH"].parent / "tmp"
+            tmp_dir.mkdir(parents=True, exist_ok=True)
+            dmp_path = tmp_dir / dmp_file.filename
+            dmp_file.save(str(dmp_path))
+            try:
+                report = analyzer.analyze_minidump(
+                    store, dmp_path, stackwalk=app.config["STACKWALK"]
+                )
+            except RuntimeError as exc:
+                report = f"(symbolication failed: {exc})\n"
+            process, sig = _extract_meta(report)
+            crash_id = models.insert_crash(
+                app.config["DB_PATH"],
+                ts=ts,
+                process=process,
+                signal=sig,
+                report=report,
+                dmp_path=str(dmp_path),
+            )
+            return redirect(url_for("crash_detail", crash_id=crash_id))
+
+        text = request.form.get("tombstone", "").strip()
+        if text:
+            report = analyzer.analyze_tombstone_text(
+                text,
+                store_path=store,
+                addr2line=app.config["ADDR2LINE"],
+                analyze_binary=app.config["ANALYZE_BINARY"],
+            )
+            process, sig = _extract_meta(report or text)
+            crash_id = models.insert_crash(
+                app.config["DB_PATH"],
+                ts=ts,
+                process=process,
+                signal=sig,
+                report=report or text,
+            )
+            return redirect(url_for("crash_detail", crash_id=crash_id))
+
+        return redirect(url_for("upload_form"))
+
+    @app.get("/symbols")
+    def symbols():
+        entries = symbol_store.list_symbols(app.config["SYMBOL_STORE"])
+        return render_template("symbols.html", entries=entries)
+
+    @app.post("/symbols/upload")
+    def upload_symbols():
+        """Accept a debug binary, extract symbols, store in symbol store."""
+        f = request.files.get("binary")
+        if f and f.filename:
+            tmp_dir = app.config["DB_PATH"].parent / "tmp"
+            tmp_dir.mkdir(parents=True, exist_ok=True)
+            bin_path = tmp_dir / f.filename
+            f.save(str(bin_path))
+            try:
+                symbol_store.add_binary(
+                    app.config["SYMBOL_STORE"],
+                    bin_path,
+                    dump_syms=app.config["DUMP_SYMS"],
+                )
+            except (RuntimeError, FileNotFoundError):
+                pass
+        return redirect(url_for("symbols"))
+
+    @app.delete("/symbols/<module>/<build_id>")
+    def delete_symbol(module: str, build_id: str):
+        """Remove a specific symbol version."""
+        sym_dir = app.config["SYMBOL_STORE"] / module / build_id
+        if sym_dir.is_dir():
+            shutil.rmtree(sym_dir)
+        return "", 204
+
+    @app.post("/api/symbols/upload")
+    def api_upload_symbols():
+        """CI/CD REST endpoint: POST multipart with 'sym' or 'binary' field."""
+        sym_file = request.files.get("sym")
+        if sym_file:
+            text = sym_file.read().decode("utf-8", errors="replace")
+            try:
+                dest = symbol_store.add_sym_text(app.config["SYMBOL_STORE"], text)
+                rel = str(dest.relative_to(app.config["SYMBOL_STORE"]))
+                return {"status": "ok", "stored": rel}, 201
+            except ValueError as exc:
+                return {"status": "error", "message": str(exc)}, 400
+
+        binary = request.files.get("binary")
+        if binary and binary.filename:
+            tmp_dir = app.config["DB_PATH"].parent / "tmp"
+            tmp_dir.mkdir(parents=True, exist_ok=True)
+            bin_path = tmp_dir / binary.filename
+            binary.save(str(bin_path))
+            try:
+                dest = symbol_store.add_binary(
+                    app.config["SYMBOL_STORE"], bin_path, dump_syms=app.config["DUMP_SYMS"]
+                )
+                rel = str(dest.relative_to(app.config["SYMBOL_STORE"]))
+                return {"status": "ok", "stored": rel}, 201
+            except (RuntimeError, FileNotFoundError) as exc:
+                return {"status": "error", "message": str(exc)}, 500
+
+        return {"status": "error", "message": "no file provided"}, 400
+
+    @app.post("/api/crashes/upload")
+    def api_upload_crash():
+        """REST endpoint: POST with 'minidump' file, returns crash id."""
+        dmp_file = request.files.get("minidump")
+        if not dmp_file or not dmp_file.filename:
+            return {"status": "error", "message": "no minidump provided"}, 400
+
+        tmp_dir = app.config["DB_PATH"].parent / "tmp"
+        tmp_dir.mkdir(parents=True, exist_ok=True)
+        dmp_path = tmp_dir / dmp_file.filename
+        dmp_file.save(str(dmp_path))
+
+        ts = datetime.datetime.now(datetime.UTC).strftime("%Y-%m-%dT%H:%M:%SZ")
+        try:
+            report = analyzer.analyze_minidump(
+                app.config["SYMBOL_STORE"], dmp_path, stackwalk=app.config["STACKWALK"]
+            )
+        except RuntimeError as exc:
+            report = f"(symbolication failed: {exc})\n"
+
+        process, sig = _extract_meta(report)
+        crash_id = models.insert_crash(
+            app.config["DB_PATH"],
+            ts=ts,
+            process=process,
+            signal=sig,
+            report=report,
+            dmp_path=str(dmp_path),
+        )
+        return {"status": "ok", "crash_id": crash_id}, 201
+
+    return app
+
+
+def _extract_meta(report: str) -> tuple[str, str]:
+    """Extract (process_name, signal_name) from a symbolicated report."""
+    process = "unknown"
+    signal = "unknown"
+    for line in report.splitlines():
+        m = re.search(r">>>\s*(\S+)\s*<<<", line)
+        if m:
+            process = m.group(1)
+        m = re.search(r"signal\s+\d+\s+\(([^)]+)\)", line)
+        if m:
+            signal = m.group(1)
+    return process, signal

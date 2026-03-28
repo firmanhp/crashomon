@@ -1,0 +1,20 @@
+{% extends "base.html" %}
+{% block title %}Upload — Crashomon{% endblock %}
+{% block content %}
+<h1>Upload Crash</h1>
+
+<h2>Upload minidump (.dmp)</h2>
+<form method="post" action="{{ url_for('upload_crash') }}" enctype="multipart/form-data"
+      style="display:flex; gap:0.5rem; align-items:center; margin-bottom:2rem;">
+  <input type="file" name="minidump" accept=".dmp">
+  <button class="btn" type="submit">Analyze</button>
+</form>
+
+<h2>Paste tombstone text</h2>
+<form method="post" action="{{ url_for('upload_crash') }}">
+  <textarea name="tombstone" rows="22" style="width:100%; min-width:60ch;"
+            placeholder="Paste crashomon tombstone text here..."></textarea>
+  <br>
+  <button class="btn" type="submit" style="margin-top:0.5rem;">Analyze</button>
+</form>
+{% endblock %}

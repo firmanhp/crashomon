@@ -1,0 +1,23 @@
+{% extends "base.html" %}
+{% block title %}Crash #{{ crash.id }} — Crashomon{% endblock %}
+{% block content %}
+<h1>Crash #{{ crash.id }}</h1>
+
+<table style="width:auto; margin-bottom:1rem;">
+  <tr><th>Time</th><td>{{ crash.ts }}</td></tr>
+  <tr><th>Process</th><td>{{ crash.process }}</td></tr>
+  <tr><th>Signal</th><td>{{ crash.signal }}</td></tr>
+  <tr><th>PID</th><td>{{ crash.pid }}</td></tr>
+  {% if crash.dmp_path %}<tr><th>Minidump</th><td class="muted">{{ crash.dmp_path }}</td></tr>{% endif %}
+</table>
+
+<h2>Report</h2>
+<pre>{{ crash.report }}</pre>
+
+<div style="display:flex; gap:0.5rem;">
+  <form class="inline" method="post" action="{{ url_for('delete_crash', crash_id=crash.id) }}">
+    <button class="btn btn-danger" type="submit">Delete</button>
+  </form>
+  <a class="btn" href="{{ url_for('crashes') }}">Back to list</a>
+</div>
+{% endblock %}

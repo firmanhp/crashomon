@@ -129,11 +129,11 @@ cd web && ruff check . && ruff format --check . && pytest tests/
 - [x] `tools/syms/crashomon-syms` script
 
 ### Phase 4 — Web UI
-- [ ] `web/symbol_store.py` + pytest tests
-- [ ] `web/models.py` + pytest tests
-- [ ] `web/analyzer.py`
-- [ ] `web/app.py` Flask routes + pytest tests
-- [ ] Templates
+- [x] `web/symbol_store.py` + pytest tests (22 tests)
+- [x] `web/models.py` + pytest tests (20 tests)
+- [x] `web/analyzer.py`
+- [x] `web/app.py` Flask routes + pytest tests (27 tests)
+- [x] Templates (base, dashboard, crashes, crash_detail, symbols, upload)
 
 ### Phase 5 — Examples & integration tests
 - [ ] `examples/segfault.c`, `abort.c`, `multithread_crash.c`

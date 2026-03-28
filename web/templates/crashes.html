@@ -1,0 +1,42 @@
+{% extends "base.html" %}
+{% block title %}Crashes — Crashomon{% endblock %}
+{% block content %}
+<h1>Crashes</h1>
+
+<form method="get" action="{{ url_for('crashes') }}" style="margin-bottom:1rem; display:flex; gap:0.5rem; align-items:center;">
+  <input name="process" value="{{ process }}" placeholder="process" style="width:14rem;">
+  <input name="signal"  value="{{ signal  }}" placeholder="signal" style="width:10rem;">
+  <button class="btn" type="submit">Filter</button>
+  {% if process or signal %}<a class="btn" href="{{ url_for('crashes') }}">Clear</a>{% endif %}
+</form>
+
+{% if crashes %}
+<table>
+  <tr><th>ID</th><th>Time</th><th>Process</th><th>Signal</th><th></th></tr>
+  {% for c in crashes %}
+  <tr>
+    <td><a href="{{ url_for('crash_detail', crash_id=c.id) }}">#{{ c.id }}</a></td>
+    <td>{{ c.ts }}</td>
+    <td>{{ c.process }}</td>
+    <td>{{ c.signal }}</td>
+    <td>
+      <form class="inline" method="post" action="{{ url_for('delete_crash', crash_id=c.id) }}">
+        <button class="btn btn-danger" type="submit">delete</button>
+      </form>
+    </td>
+  </tr>
+  {% endfor %}
+</table>
+<div style="display:flex; gap:0.5rem; align-items:center;">
+  {% if page > 1 %}
+    <a class="btn" href="{{ url_for('crashes', page=page-1, process=process, signal=signal) }}">&laquo; prev</a>
+  {% endif %}
+  <span class="muted">page {{ page }}</span>
+  {% if has_next %}
+    <a class="btn" href="{{ url_for('crashes', page=page+1, process=process, signal=signal) }}">next &raquo;</a>
+  {% endif %}
+</div>
+{% else %}
+<p class="muted">No crashes found.</p>
+{% endif %}
+{% endblock %}

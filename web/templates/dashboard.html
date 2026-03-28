@@ -1,0 +1,35 @@
+{% extends "base.html" %}
+{% block title %}Dashboard — Crashomon{% endblock %}
+{% block content %}
+<h1>Dashboard</h1>
+
+{% if frequency %}
+<h2>Crash frequency</h2>
+<table>
+  <tr><th>Process</th><th>Crashes</th></tr>
+  {% for f in frequency %}
+  <tr>
+    <td><a href="{{ url_for('crashes', process=f.process) }}">{{ f.process }}</a></td>
+    <td>{{ f.count }}</td>
+  </tr>
+  {% endfor %}
+</table>
+{% else %}
+<p class="muted">No crashes recorded yet. <a href="{{ url_for('upload_form') }}">Upload a crash</a> to get started.</p>
+{% endif %}
+
+{% if recent %}
+<h2>Recent crashes</h2>
+<table>
+  <tr><th>ID</th><th>Time</th><th>Process</th><th>Signal</th></tr>
+  {% for c in recent %}
+  <tr>
+    <td><a href="{{ url_for('crash_detail', crash_id=c.id) }}">#{{ c.id }}</a></td>
+    <td>{{ c.ts }}</td>
+    <td><a href="{{ url_for('crashes', process=c.process) }}">{{ c.process }}</a></td>
+    <td>{{ c.signal }}</td>
+  </tr>
+  {% endfor %}
+</table>
+{% endif %}
+{% endblock %}

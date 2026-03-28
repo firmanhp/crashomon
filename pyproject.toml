@@ -1,3 +1,17 @@
+[project]
+name = "crashomon-web"
+version = "0.1.0"
+requires-python = ">=3.11"
+dependencies = [
+    "flask>=3.0",
+]
+
+[project.optional-dependencies]
+dev = [
+    "pytest>=8.0",
+    "ruff>=0.4",
+]
+
 [tool.ruff]
 line-length = 100
 target-version = "py311"
@@ -14,3 +28,4 @@ ignore = [
 
 [tool.pytest.ini_options]
 testpaths = ["web/tests"]
+pythonpath = ["."]

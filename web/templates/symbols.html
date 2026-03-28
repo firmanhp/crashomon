@@ -1,0 +1,34 @@
+{% extends "base.html" %}
+{% block title %}Symbols — Crashomon{% endblock %}
+{% block content %}
+<h1>Symbol Store</h1>
+
+<h2>Upload debug binary</h2>
+<form method="post" action="{{ url_for('upload_symbols') }}" enctype="multipart/form-data" style="display:flex; gap:0.5rem; align-items:center; margin-bottom:1.5rem;">
+  <input type="file" name="binary" required>
+  <button class="btn" type="submit">Extract &amp; store symbols</button>
+</form>
+
+<h2>Stored symbols</h2>
+{% if entries %}
+<table>
+  <tr><th>Module</th><th>Build ID</th><th>Size</th><th></th></tr>
+  {% for e in entries %}
+  <tr>
+    <td>{{ e.module }}</td>
+    <td><code>{{ e.build_id }}</code></td>
+    <td class="muted">{{ (e.size_bytes // 1024) }} KB</td>
+    <td>
+      <form class="inline" method="post"
+            action="{{ url_for('delete_symbol', module=e.module, build_id=e.build_id) }}"
+            onsubmit="this.method='delete'">
+        <button class="btn btn-danger" type="submit">remove</button>
+      </form>
+    </td>
+  </tr>
+  {% endfor %}
+</table>
+{% else %}
+<p class="muted">No symbols stored yet.</p>
+{% endif %}
+{% endblock %}
