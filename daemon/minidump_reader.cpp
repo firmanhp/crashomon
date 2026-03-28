@@ -20,6 +20,7 @@
 #include "google_breakpad/processor/stack_frame.h"
 // CPU-specific context structs — must come after breakpad_types.h (above).
 #include "google_breakpad/common/minidump_cpu_amd64.h"
+#include "google_breakpad/common/minidump_cpu_arm64.h"
 #include "google_breakpad/common/minidump_format.h"
 
 namespace crashomon {
@@ -50,6 +51,22 @@ std::vector<std::pair<std::string, uint64_t>> ExtractAMD64Regs(
     {"r12", c.r12}, {"r13", c.r13}, {"r14", c.r14},
     {"r15", c.r15}, {"rip", c.rip},
   };
+}
+
+// Collect ARM64 GPRs in tombstone display order.
+// iregs layout: x0-x28 (indices 0-28), fp/x29 (29), lr/x30 (30), sp (31), pc (32).
+std::vector<std::pair<std::string, uint64_t>> ExtractARM64Regs(
+    const MDRawContextARM64& c) {
+  std::vector<std::pair<std::string, uint64_t>> regs;
+  regs.reserve(33);
+  for (int i = 0; i <= 28; ++i) {
+    regs.push_back({"x" + std::to_string(i), c.iregs[i]});
+  }
+  regs.push_back({"fp", c.iregs[MD_CONTEXT_ARM64_REG_FP]});
+  regs.push_back({"lr", c.iregs[MD_CONTEXT_ARM64_REG_LR]});
+  regs.push_back({"sp", c.iregs[MD_CONTEXT_ARM64_REG_SP]});
+  regs.push_back({"pc", c.iregs[MD_CONTEXT_ARM64_REG_PC]});
+  return regs;
 }
 
 }  // namespace
@@ -173,9 +190,10 @@ absl::StatusOr<MinidumpInfo> ReadMinidump(const std::string& path) {
       if (raw_thread) {
         auto* ctx = raw_thread->GetContext();
         if (ctx) {
-          const auto* amd64 = ctx->GetContextAMD64();
-          if (amd64) {
+          if (const auto* amd64 = ctx->GetContextAMD64()) {
             info.threads[0].registers = ExtractAMD64Regs(*amd64);
+          } else if (const auto* arm64 = ctx->GetContextARM64()) {
+            info.threads[0].registers = ExtractARM64Regs(*arm64);
           }
         }
       }

@@ -59,7 +59,7 @@ absl::StatusOr<std::pair<std::string, std::string>> ParseSymModuleLine(
     return absl::InvalidArgumentError(
         std::string("Empty sym file: ") + sym_path);
   }
-  // Expected: "MODULE Linux x86_64 <build_id> <module_name>"
+  // Expected: "MODULE <os> <arch> <build_id> <module_name>" — arch is parsed but ignored.
   std::istringstream ss(first_line);
   std::string token, os, arch, build_id, module_name;
   if (!(ss >> token >> os >> arch >> build_id >> module_name) ||
