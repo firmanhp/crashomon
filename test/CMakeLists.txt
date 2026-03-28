@@ -4,6 +4,7 @@ include(GoogleTest)
 # Each test file tests a single module.
 
 set(TEST_SOURCES
+  test_crashomon.cpp
   test_tombstone_formatter.cpp
   test_disk_manager.cpp
   test_log_parser.cpp

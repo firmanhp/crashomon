@@ -1,0 +1,96 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 1000 545"
+     font-family="system-ui, -apple-system, Segoe UI, sans-serif" font-size="11.5">
+  <defs>
+    <marker id="arr" markerWidth="8" markerHeight="8" refX="6" refY="3" orient="auto">
+      <path d="M0,0 L0,6 L8,3 z" fill="#555"/>
+    </marker>
+    <marker id="arrd" markerWidth="8" markerHeight="8" refX="6" refY="3" orient="auto">
+      <path d="M0,0 L0,6 L8,3 z" fill="#c92a2a"/>
+    </marker>
+  </defs>
+
+  <!-- ══ LEFT PANEL — Target device ══ -->
+  <rect x="10" y="10" width="475" height="442" rx="8" fill="#f0f4ff" stroke="#4263eb" stroke-width="1.5"/>
+  <text x="247" y="32" text-anchor="middle" font-size="12" font-weight="bold" fill="#4263eb">TARGET DEVICE</text>
+
+  <!-- Process box -->
+  <rect x="28" y="43" width="439" height="113" rx="5" fill="#fff" stroke="#4263eb" stroke-width="1"/>
+  <text x="247" y="62" text-anchor="middle" font-size="12" font-weight="bold" fill="#222">Process (any ELF binary)</text>
+  <text x="247" y="79" text-anchor="middle" fill="#555">via LD_PRELOAD or explicit link</text>
+  <!-- libcrashomon inner box -->
+  <rect x="46" y="87" width="403" height="61" rx="4" fill="#e8eeff" stroke="#4263eb" stroke-width="0.8"/>
+  <text x="247" y="105" text-anchor="middle" font-weight="bold" fill="#4263eb">libcrashomon.so</text>
+  <text x="247" y="122" text-anchor="middle" fill="#333">init: sentry_init(crashpad)  ·  shutdown: sentry_close()</text>
+  <text x="247" y="139" text-anchor="middle" fill="#333">API: set_tag()  add_breadcrumb()  set_abort_message()</text>
+
+  <!-- Arrow → crashpad_handler -->
+  <line x1="247" y1="156" x2="247" y2="186" stroke="#555" stroke-width="1.5" marker-end="url(#arr)"/>
+  <text x="258" y="175" fill="#777" font-size="10">Unix socket (on crash)</text>
+
+  <!-- crashpad_handler box -->
+  <rect x="28" y="186" width="439" height="86" rx="5" fill="#fff" stroke="#e67700" stroke-width="1"/>
+  <text x="247" y="206" text-anchor="middle" font-size="12" font-weight="bold" fill="#e67700">crashpad_handler</text>
+  <text x="247" y="224" text-anchor="middle" fill="#333">ptrace → reads registers, stacks, /proc/pid/maps</text>
+  <text x="247" y="241" text-anchor="middle" fill="#333">writes .dmp to /var/crashomon/</text>
+  <text x="247" y="258" text-anchor="middle" fill="#888" font-size="10">out-of-process · never copies heap · 128 KB stack/thread</text>
+
+  <!-- Arrow → watcherd -->
+  <line x1="247" y1="272" x2="247" y2="302" stroke="#555" stroke-width="1.5" marker-end="url(#arr)"/>
+  <text x="258" y="291" fill="#777" font-size="10">inotify (new .dmp event)</text>
+
+  <!-- watcherd box -->
+  <rect x="28" y="302" width="439" height="138" rx="5" fill="#fff" stroke="#2f9e44" stroke-width="1"/>
+  <text x="247" y="322" text-anchor="middle" font-size="12" font-weight="bold" fill="#2f9e44">crashomon-watcherd  (systemd)</text>
+  <text x="247" y="340" text-anchor="middle" fill="#333">inotify watches /var/crashomon/</text>
+  <text x="247" y="357" text-anchor="middle" fill="#333">Breakpad processor → extracts crash info</text>
+  <text x="247" y="374" text-anchor="middle" fill="#333">prints Android-style tombstone → journald</text>
+  <text x="247" y="391" text-anchor="middle" fill="#333">prunes old minidumps (size + age limits)</text>
+  <text x="247" y="412" text-anchor="middle" fill="#888" font-size="10">--db-path=/var/crashomon  --max-size=100M  --max-age=7d</text>
+  <text x="247" y="428" text-anchor="middle" fill="#888" font-size="10">MemoryMax=20M  ·  Restart=always</text>
+
+  <!-- ══ RIGHT PANEL — Developer machine ══ -->
+  <rect x="515" y="10" width="475" height="442" rx="8" fill="#f0fff4" stroke="#2f9e44" stroke-width="1.5"/>
+  <text x="752" y="32" text-anchor="middle" font-size="12" font-weight="bold" fill="#2f9e44">DEVELOPER MACHINE</text>
+
+  <!-- crashomon-web box -->
+  <rect x="533" y="43" width="439" height="138" rx="5" fill="#fff" stroke="#2f9e44" stroke-width="1"/>
+  <text x="752" y="64" text-anchor="middle" font-size="12" font-weight="bold" fill="#2f9e44">crashomon-web  (Flask)</text>
+  <text x="752" y="82" text-anchor="middle" fill="#333">upload .dmp files or paste tombstone text</text>
+  <text x="752" y="99" text-anchor="middle" fill="#333">crash history database (SQLite)</text>
+  <text x="752" y="116" text-anchor="middle" fill="#333">symbol store manager (Breakpad layout)</text>
+  <text x="752" y="133" text-anchor="middle" fill="#333">REST API for CI/CD</text>
+  <text x="752" y="151" text-anchor="middle" fill="#888" font-size="10">POST /api/crashes/upload  ·  POST /api/symbols/upload</text>
+  <text x="752" y="168" text-anchor="middle" fill="#888" font-size="10">runs on port 5000</text>
+
+  <!-- Arrow → analyze -->
+  <line x1="752" y1="181" x2="752" y2="206" stroke="#555" stroke-width="1.5" marker-end="url(#arr)"/>
+
+  <!-- crashomon-analyze box -->
+  <rect x="533" y="206" width="439" height="90" rx="5" fill="#fff" stroke="#4263eb" stroke-width="1"/>
+  <text x="752" y="226" text-anchor="middle" font-size="12" font-weight="bold" fill="#4263eb">crashomon-analyze  (CLI)</text>
+  <text x="752" y="244" text-anchor="middle" fill="#333">minidump_stackwalk → symbolicated report</text>
+  <text x="752" y="261" text-anchor="middle" fill="#333">eu-addr2line → annotates tombstone text</text>
+  <text x="752" y="278" text-anchor="middle" fill="#888" font-size="10">stateless · scriptable · no daemon needed</text>
+
+  <!-- Arrow → symbol store -->
+  <line x1="752" y1="296" x2="752" y2="321" stroke="#555" stroke-width="1.5" marker-end="url(#arr)"/>
+
+  <!-- Symbol store box -->
+  <rect x="533" y="321" width="439" height="101" rx="5" fill="#fff" stroke="#868600" stroke-width="1"/>
+  <text x="752" y="343" text-anchor="middle" font-size="12" font-weight="bold" fill="#868600">Symbol Store  (Breakpad layout)</text>
+  <text x="752" y="361" text-anchor="middle" fill="#333">&lt;store&gt;/&lt;module&gt;/&lt;build_id&gt;/&lt;module&gt;.sym</text>
+  <text x="752" y="378" text-anchor="middle" fill="#333">crashomon-syms  add · list · prune</text>
+  <text x="752" y="395" text-anchor="middle" fill="#888" font-size="10">auto-resolved by build ID embedded in minidump</text>
+  <text x="752" y="412" text-anchor="middle" fill="#888" font-size="10">populated by CI/CD after each build</text>
+
+  <!-- ══ Cross-machine dashed arrow (.dmp copy) ══ -->
+  <line x1="492" y1="234" x2="513" y2="234" stroke="#c92a2a" stroke-width="1.5" stroke-dasharray="4,3" marker-end="url(#arrd)"/>
+  <text x="502" y="226" text-anchor="middle" fill="#c92a2a" font-size="9.5">copy</text>
+  <text x="502" y="246" text-anchor="middle" fill="#c92a2a" font-size="9.5">.dmp</text>
+
+  <!-- ══ CI/CD band ══ -->
+  <rect x="10" y="460" width="980" height="72" rx="6" fill="#fff8e0" stroke="#e67700" stroke-width="1"/>
+  <text x="500" y="480" text-anchor="middle" font-size="12" font-weight="bold" fill="#e67700">CI/CD Integration</text>
+  <text x="500" y="498" text-anchor="middle" fill="#333">After each build:   crashomon-syms add --store /symbols ./my_binary</text>
+  <text x="500" y="516" text-anchor="middle" fill="#333">Or via REST:   curl -F binary=@./my_binary  http://crashomon-web:5000/api/symbols/upload</text>
+</svg>
