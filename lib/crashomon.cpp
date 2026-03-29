@@ -12,34 +12,37 @@
 
 #include "client/crashpad_client.h"
 
-#include <map>
+#include <cstring>
 #include <string>
-#include <vector>
+#include <sys/socket.h>
+#include <sys/un.h>
+#include <unistd.h>
 
 namespace crashomon {
 namespace {
 
 int DoInit(const ResolvedConfig& cfg) {
-  base::FilePath handler(cfg.handler_path);
-  base::FilePath database(cfg.db_path);
+  int sock = socket(AF_UNIX, SOCK_SEQPACKET | SOCK_CLOEXEC, 0);
+  if (sock < 0) return -1;
 
-  std::map<std::string, std::string> annotations;
-  std::vector<std::string> arguments;
+  struct sockaddr_un addr{};
+  addr.sun_family = AF_UNIX;
+  // NOLINTNEXTLINE(cppcoreguidelines-pro-bounds-array-to-pointer-decay)
+  strncpy(addr.sun_path, cfg.socket_path.c_str(), sizeof(addr.sun_path) - 1);
 
-  // url="" disables all uploads — crash data never leaves the device.
+  // NOLINTNEXTLINE(cppcoreguidelines-pro-type-reinterpret-cast)
+  if (connect(sock, reinterpret_cast<struct sockaddr*>(&addr), sizeof(addr)) != 0) {
+    close(sock);
+    return -1;  // watcherd not running — crash monitoring silently disabled
+  }
+
+  int one = 1;
+  setsockopt(sock, SOL_SOCKET, SO_PASSCRED, &one, sizeof(one));
+
+  // pid=-1: SetHandlerSocket discovers watcherd PID via SCM_CREDENTIALS,
+  // calls prctl(PR_SET_PTRACER, watcherd_pid), and installs crash signal handlers.
   static crashpad::CrashpadClient client;
-  bool started = client.StartHandler(
-      handler,
-      database,
-      /*metrics_dir=*/database,
-      /*url=*/"",
-      /*http_proxy=*/"",
-      annotations,
-      arguments,
-      /*restartable=*/true,
-      /*asynchronous_start=*/false);
-
-  return started ? 0 : -1;
+  return client.SetHandlerSocket(base::ScopedFD(sock), /*pid=*/-1) ? 0 : -1;
 }
 
 }  // namespace

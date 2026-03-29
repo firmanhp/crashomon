@@ -46,7 +46,7 @@ struct ScopedEnv {
 struct ClearCrashomonEnv {
   ClearCrashomonEnv() {
     ::unsetenv("CRASHOMON_DB_PATH");
-    ::unsetenv("CRASHOMON_HANDLER_PATH");
+    ::unsetenv("CRASHOMON_SOCKET_PATH");
   }
 };
 
@@ -56,8 +56,8 @@ TEST(DefaultsTest, DbPathDefault) {
   EXPECT_EQ(kDefaultDbPath, "/var/crashomon");
 }
 
-TEST(DefaultsTest, HandlerPathDefault) {
-  EXPECT_EQ(kDefaultHandlerPath, "/usr/libexec/crashomon/crashpad_handler");
+TEST(DefaultsTest, SocketPathDefault) {
+  EXPECT_EQ(kDefaultSocketPath, "/run/crashomon/handler.sock");
 }
 
 // ── GetEnv ───────────────────────────────────────────────────────────────────
@@ -95,7 +95,7 @@ TEST(ResolveTest, NullConfigNoEnvYieldsDefaults) {
   ClearCrashomonEnv clear;
   auto cfg = Resolve(nullptr);
   EXPECT_EQ(cfg.db_path, kDefaultDbPath);
-  EXPECT_EQ(cfg.handler_path, kDefaultHandlerPath);
+  EXPECT_EQ(cfg.socket_path, kDefaultSocketPath);
 }
 
 TEST(ResolveTest, EmptyConfigNoEnvYieldsDefaults) {
@@ -103,7 +103,7 @@ TEST(ResolveTest, EmptyConfigNoEnvYieldsDefaults) {
   CrashomonConfig config{nullptr, nullptr};
   auto cfg = Resolve(&config);
   EXPECT_EQ(cfg.db_path, kDefaultDbPath);
-  EXPECT_EQ(cfg.handler_path, kDefaultHandlerPath);
+  EXPECT_EQ(cfg.socket_path, kDefaultSocketPath);
 }
 
 // ── Resolve: environment variable override ───────────────────────────────────
@@ -113,44 +113,44 @@ TEST(ResolveTest, EnvDbPathOverridesDefault) {
   ScopedEnv e{"CRASHOMON_DB_PATH", "/tmp/crashes"};
   auto cfg = Resolve(nullptr);
   EXPECT_EQ(cfg.db_path, "/tmp/crashes");
-  EXPECT_EQ(cfg.handler_path, kDefaultHandlerPath);
+  EXPECT_EQ(cfg.socket_path, kDefaultSocketPath);
 }
 
 TEST(ResolveTest, EnvHandlerPathOverridesDefault) {
   ClearCrashomonEnv clear;
-  ScopedEnv e{"CRASHOMON_HANDLER_PATH", "/opt/myhandler"};
+  ScopedEnv e{"CRASHOMON_SOCKET_PATH", "/opt/myhandler"};
   auto cfg = Resolve(nullptr);
   EXPECT_EQ(cfg.db_path, kDefaultDbPath);
-  EXPECT_EQ(cfg.handler_path, "/opt/myhandler");
+  EXPECT_EQ(cfg.socket_path, "/opt/myhandler");
 }
 
 TEST(ResolveTest, BothEnvVarsApplied) {
   ClearCrashomonEnv clear;
   ScopedEnv db{"CRASHOMON_DB_PATH", "/data/crashes"};
-  ScopedEnv handler{"CRASHOMON_HANDLER_PATH", "/bin/handler"};
+  ScopedEnv handler{"CRASHOMON_SOCKET_PATH", "/bin/handler"};
   auto cfg = Resolve(nullptr);
   EXPECT_EQ(cfg.db_path, "/data/crashes");
-  EXPECT_EQ(cfg.handler_path, "/bin/handler");
+  EXPECT_EQ(cfg.socket_path, "/bin/handler");
 }
 
 // ── Resolve: explicit config takes highest precedence ────────────────────────
 
 TEST(ResolveTest, ExplicitConfigOverridesEnvAndDefault) {
   ScopedEnv db{"CRASHOMON_DB_PATH", "/env/crashes"};
-  ScopedEnv handler{"CRASHOMON_HANDLER_PATH", "/env/handler"};
+  ScopedEnv handler{"CRASHOMON_SOCKET_PATH", "/env/handler"};
   CrashomonConfig config{"/explicit/db", "/explicit/handler"};
   auto cfg = Resolve(&config);
   EXPECT_EQ(cfg.db_path, "/explicit/db");
-  EXPECT_EQ(cfg.handler_path, "/explicit/handler");
+  EXPECT_EQ(cfg.socket_path, "/explicit/handler");
 }
 
 TEST(ResolveTest, ExplicitDbPathOnlyLeavesHandlerToEnv) {
   ClearCrashomonEnv clear;
-  ScopedEnv e{"CRASHOMON_HANDLER_PATH", "/env/handler"};
+  ScopedEnv e{"CRASHOMON_SOCKET_PATH", "/env/handler"};
   CrashomonConfig config{"/explicit/db", nullptr};
   auto cfg = Resolve(&config);
   EXPECT_EQ(cfg.db_path, "/explicit/db");
-  EXPECT_EQ(cfg.handler_path, "/env/handler");
+  EXPECT_EQ(cfg.socket_path, "/env/handler");
 }
 
 TEST(ResolveTest, ExplicitHandlerPathOnlyLeavesDbToEnv) {
@@ -159,7 +159,7 @@ TEST(ResolveTest, ExplicitHandlerPathOnlyLeavesDbToEnv) {
   CrashomonConfig config{nullptr, "/explicit/handler"};
   auto cfg = Resolve(&config);
   EXPECT_EQ(cfg.db_path, "/env/db");
-  EXPECT_EQ(cfg.handler_path, "/explicit/handler");
+  EXPECT_EQ(cfg.socket_path, "/explicit/handler");
 }
 
 TEST(ResolveTest, ExplicitDbPathOnlyLeavesHandlerToDefault) {
@@ -167,7 +167,7 @@ TEST(ResolveTest, ExplicitDbPathOnlyLeavesHandlerToDefault) {
   CrashomonConfig config{"/explicit/db", nullptr};
   auto cfg = Resolve(&config);
   EXPECT_EQ(cfg.db_path, "/explicit/db");
-  EXPECT_EQ(cfg.handler_path, kDefaultHandlerPath);
+  EXPECT_EQ(cfg.socket_path, kDefaultSocketPath);
 }
 
 TEST(ResolveTest, ExplicitHandlerPathOnlyLeavesDbToDefault) {
@@ -175,7 +175,7 @@ TEST(ResolveTest, ExplicitHandlerPathOnlyLeavesDbToDefault) {
   CrashomonConfig config{nullptr, "/explicit/handler"};
   auto cfg = Resolve(&config);
   EXPECT_EQ(cfg.db_path, kDefaultDbPath);
-  EXPECT_EQ(cfg.handler_path, "/explicit/handler");
+  EXPECT_EQ(cfg.socket_path, "/explicit/handler");
 }
 
 // ── Resolve: result is an owned copy ─────────────────────────────────────────
@@ -199,7 +199,7 @@ TEST(ResolveTest, ResultIsIndependentOfConfigPointerAfterResolve) {
   db   = "/mutated";
   hdlr = "/mutated";
   EXPECT_EQ(cfg.db_path, "/owned/db");
-  EXPECT_EQ(cfg.handler_path, "/owned/handler");
+  EXPECT_EQ(cfg.socket_path, "/owned/handler");
 }
 
 }  // namespace

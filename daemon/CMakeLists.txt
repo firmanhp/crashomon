@@ -12,6 +12,9 @@ target_link_libraries(crashomon_watcherd
   PRIVATE
     crashomon_warnings
     breakpad_processor
+    crashpad_handler_lib
+    crashpad_tools
+    crashpad_client
     absl::status
     absl::statusor
     Threads::Threads
@@ -36,6 +39,14 @@ endif()
 if(breakpad_SOURCE_DIR)
   target_include_directories(crashomon_watcherd SYSTEM PRIVATE
     "${breakpad_SOURCE_DIR}/src")
+endif()
+# Crashpad headers: mark as SYSTEM to suppress warnings from third-party code.
+if(TARGET crashpad_interface)
+  get_target_property(_cp_inc crashpad_interface INTERFACE_INCLUDE_DIRECTORIES)
+  if(_cp_inc)
+    target_include_directories(crashomon_watcherd SYSTEM PRIVATE ${_cp_inc})
+  endif()
+  unset(_cp_inc)
 endif()
 
 set_target_properties(crashomon_watcherd PROPERTIES OUTPUT_NAME crashomon-watcherd)

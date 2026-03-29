@@ -2,10 +2,11 @@
 # test/integration_test.sh — end-to-end integration test for the crashomon pipeline.
 #
 # Exercises the full on-device + developer-side pipeline:
-#   1. Run each example crasher → Crashpad captures a .dmp file
-#   2. Verify the .dmp is a valid minidump (non-empty, readable by file(1))
-#   3. Run crashomon-analyze on each .dmp → verify it exits 0 and produces output
-#   4. Run crashomon-syms list → verify the script is callable
+#   1. Start crashomon-watcherd in the background
+#   2. Run each example crasher → Crashpad captures a .dmp file via watcherd
+#   3. Verify the .dmp is a valid minidump (non-empty, readable by file(1))
+#   4. Run crashomon-analyze on each .dmp → verify it exits 0 and produces output
+#   5. Run crashomon-syms list → verify the script is callable
 #
 # Prerequisites:
 #   cmake -B build && cmake --build build
@@ -43,7 +44,7 @@ check() {
 # ── Locate built artifacts ───────────────────────────────────────────────────
 
 LIBCRASHOMON="${BUILD_DIR}/lib/libcrashomon.so"
-CRASHPAD_HANDLER="$(find "${BUILD_DIR}" -name 'crashpad_handler' -type f | head -1 || true)"
+WATCHERD="${BUILD_DIR}/daemon/crashomon-watcherd"
 CRASHOMON_ANALYZE="${BUILD_DIR}/tools/analyze/crashomon-analyze"
 CRASHOMON_SYMS="${PROJECT_ROOT}/tools/syms/crashomon-syms"
 EXAMPLES_BIN="${BUILD_DIR}/examples"
@@ -56,14 +57,14 @@ echo ""
 
 echo "-- Artifact checks --"
 check "libcrashomon.so exists"          test -f "${LIBCRASHOMON}"
-check "crashpad_handler exists"         test -n "${CRASHPAD_HANDLER}" -a -f "${CRASHPAD_HANDLER}"
+check "crashomon-watcherd exists"       test -f "${WATCHERD}"
 check "crashomon-analyze exists"        test -f "${CRASHOMON_ANALYZE}"
 check "crashomon-syms exists"           test -f "${CRASHOMON_SYMS}"
 check "example-segfault exists"         test -f "${EXAMPLES_BIN}/crashomon-example-segfault"
 check "example-abort exists"            test -f "${EXAMPLES_BIN}/crashomon-example-abort"
 check "example-multithread exists"      test -f "${EXAMPLES_BIN}/crashomon-example-multithread"
 
-# ── Section 2: Generate minidumps ───────────────────────────────────────────
+# ── Section 2: Start watcherd + generate minidumps ───────────────────────────
 
 echo ""
 echo "-- Minidump capture --"
@@ -71,39 +72,67 @@ echo "-- Minidump capture --"
 WORK_DIR="$(mktemp -d)"
 trap 'rm -rf "${WORK_DIR}"' EXIT
 
+DB_DIR="${WORK_DIR}/crashdb"
+SOCKET_PATH="${WORK_DIR}/handler.sock"
+mkdir -p "${DB_DIR}"
+
+WATCHERD_STARTED=false
+if [[ -f "${LIBCRASHOMON}" && -f "${WATCHERD}" ]]; then
+  "${WATCHERD}" \
+    --db-path="${DB_DIR}" \
+    --socket-path="${SOCKET_PATH}" \
+    >"${WORK_DIR}/watcherd.log" 2>&1 &
+  WATCHERD_PID=$!
+
+  # Wait for the socket to appear.
+  for _ in 1 2 3 4 5; do
+    [[ -S "${SOCKET_PATH}" ]] && break
+    sleep 0.5
+  done
+
+  if [[ -S "${SOCKET_PATH}" ]]; then
+    WATCHERD_STARTED=true
+    echo "  watcherd started (pid ${WATCHERD_PID})"
+  else
+    echo "  SKIP: watcherd did not start — skipping capture"
+    kill "${WATCHERD_PID}" 2>/dev/null || true
+  fi
+fi
+
 capture_crash() {
   local name="$1"
   local binary="$2"
-  local db_dir="${WORK_DIR}/db_${name}"
-  mkdir -p "${db_dir}"
 
   LD_PRELOAD="${LIBCRASHOMON}" \
-    CRASHOMON_DB_PATH="${db_dir}" \
-    CRASHOMON_HANDLER_PATH="${CRASHPAD_HANDLER}" \
+    CRASHOMON_SOCKET_PATH="${SOCKET_PATH}" \
     "${binary}" 2>/dev/null || true
 
-  # Wait up to 5 s for crashpad_handler to write the .dmp.
+  # Wait up to 5 s for watcherd to write the .dmp.
   local dmp=""
   for _ in 1 2 3 4 5; do
-    dmp="$(find "${db_dir}" -name '*.dmp' -type f | head -1)"
+    dmp="$(find "${DB_DIR}/new" -name '*.dmp' -type f | head -1 2>/dev/null || true)"
     [[ -n "${dmp}" ]] && break
     sleep 1
   done
 
   if [[ -n "${dmp}" ]]; then
     cp "${dmp}" "${WORK_DIR}/${name}.dmp"
+    rm -f "${dmp}"
     log_pass "${name}: minidump captured ($(wc -c < "${WORK_DIR}/${name}.dmp") bytes)"
   else
     log_fail "${name}: no .dmp found after crash"
   fi
 }
 
-if [[ -f "${LIBCRASHOMON}" && -n "${CRASHPAD_HANDLER}" ]]; then
+if [[ "${WATCHERD_STARTED}" == "true" ]]; then
   capture_crash "segfault"    "${EXAMPLES_BIN}/crashomon-example-segfault"
   capture_crash "abort"       "${EXAMPLES_BIN}/crashomon-example-abort"
   capture_crash "multithread" "${EXAMPLES_BIN}/crashomon-example-multithread"
+
+  kill "${WATCHERD_PID}" 2>/dev/null || true
+  wait "${WATCHERD_PID}" 2>/dev/null || true
 else
-  echo "  SKIP: libcrashomon or crashpad_handler not found — skipping capture"
+  echo "  SKIP: libcrashomon or watcherd not found — skipping capture"
 fi
 
 # ── Section 3: crashomon-analyze on each captured .dmp ──────────────────────

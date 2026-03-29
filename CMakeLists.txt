@@ -64,6 +64,11 @@ target_compile_options(crashomon_warnings INTERFACE
   -Wnull-dereference -Wdouble-promotion
   -Wformat=2 -Wformat-security
   -fstack-protector-strong
+  # Crashpad's compat/linux/ shims use #include_next (a GCC extension).
+  # -Wpedantic enables -Wgnu-include-next; suppress it so Crashpad compat
+  # headers do not fire -Werror in our translation units.  Our own code
+  # never uses #include_next, so this suppression is safe.
+  -Wno-gnu-include-next
 )
 
 # ── Dependencies ───────────────────────────────────────────────────────────────

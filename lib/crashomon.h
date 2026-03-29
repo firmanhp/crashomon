@@ -9,16 +9,16 @@ extern "C" {
  * crashomon — crash monitoring client library (Crashpad backend)
  *
  * Usage (LD_PRELOAD):
- *   LD_PRELOAD=/usr/lib/libcrashomon.so CRASHOMON_DB_PATH=/var/crashomon ./my_program
+ *   LD_PRELOAD=/usr/lib/libcrashomon.so CRASHOMON_SOCKET_PATH=/run/crashomon/handler.sock ./my_program
  *
  * Usage (explicit linking):
  *   Link with -lcrashomon and call crashomon_init() at startup.
  *
  * Environment variables:
- *   CRASHOMON_DB_PATH      Directory where minidumps are written.
- *                          Default: /var/crashomon
- *   CRASHOMON_HANDLER_PATH Path to the crashpad_handler binary.
- *                          Default: /usr/libexec/crashomon/crashpad_handler
+ *   CRASHOMON_DB_PATH     Directory where minidumps are written (watcherd side).
+ *                         Default: /var/crashomon
+ *   CRASHOMON_SOCKET_PATH Path to the crashomon-watcherd Unix domain socket.
+ *                         Default: /run/crashomon/handler.sock
  */
 
 /**
@@ -26,8 +26,8 @@ extern "C" {
  * Zero-initialize to use defaults.
  */
 typedef struct CrashomonConfig {
-  const char *db_path;       /* Minidump database path (NULL = use env/default) */
-  const char *handler_path;  /* crashpad_handler path  (NULL = use env/default) */
+  const char *db_path;      /* Minidump database path  (NULL = use env/default) */
+  const char *socket_path;  /* crashomon-watcherd socket path (NULL = use env/default) */
 } CrashomonConfig;
 
 /**

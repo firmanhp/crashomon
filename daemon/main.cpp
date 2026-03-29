@@ -4,19 +4,29 @@
 // parses them with the Breakpad processor, and prints an Android-style tombstone
 // to stderr (captured by journald when running as a systemd service).
 //
-// Usage:
-//   crashomon-watcherd [--db-path=PATH] [--max-size=SIZE] [--max-age=AGE]
+// Also hosts the Crashpad ExceptionHandlerServer directly, replacing the need for
+// a separate crashpad_handler process.  Client processes connect via a Unix domain
+// socket; watcherd ptrace-attaches to capture the minidump in-process.
 //
-//   --db-path   Directory to watch. Default: $CRASHOMON_DB_PATH or /var/crashomon.
-//   --max-size  Maximum total size of .dmp files (e.g. 100M, 500K, 1G).
-//               0 or omitted = unlimited.
-//   --max-age   Maximum age per file (e.g. 7d, 24h, 3600s).
-//               0 or omitted = unlimited.
+// Usage:
+//   crashomon-watcherd [--db-path=PATH] [--socket-path=PATH]
+//                      [--max-size=SIZE] [--max-age=AGE]
+//
+//   --db-path      Directory to watch / write minidumps to.
+//                  Default: $CRASHOMON_DB_PATH or /var/crashomon.
+//   --socket-path  Unix domain socket for crash handler connections.
+//                  Default: $CRASHOMON_SOCKET_PATH or /run/crashomon/handler.sock.
+//   --max-size     Maximum total size of .dmp files (e.g. 100M, 500K, 1G).
+//                  0 or omitted = unlimited.
+//   --max-age      Maximum age per file (e.g. 7d, 24h, 3600s).
+//                  0 or omitted = unlimited.
 
 #include <poll.h>
 #include <signal.h>
 #include <sys/inotify.h>
+#include <sys/socket.h>
 #include <sys/stat.h>
+#include <sys/un.h>
 #include <unistd.h>
 
 #include <cerrno>
@@ -25,6 +35,11 @@
 #include <cstdlib>
 #include <cstring>
 #include <string>
+#include <thread>
+
+#include "handler/linux/exception_handler_server.h"
+#include "handler/linux/crash_report_exception_handler.h"
+#include "client/crash_report_database.h"
 
 #include "daemon/disk_manager.h"
 #include "daemon/minidump_reader.h"
@@ -99,52 +114,167 @@ void ProcessNewMinidump(const std::string& path,
   }
 }
 
-// ── inotify loop ─────────────────────────────────────────────────────────────
+// ── Crash handler hosting ─────────────────────────────────────────────────────
+
+// Create, bind, and listen on a SOCK_SEQPACKET Unix domain socket.
+// Returns the listening fd on success, or -1 on failure.
+int CreateListenSocket(const std::string& socket_path) {
+  int fd = socket(AF_UNIX, SOCK_SEQPACKET | SOCK_CLOEXEC, 0);
+  if (fd < 0) {
+    perror("socket");
+    return -1;
+  }
+
+  struct sockaddr_un addr{};
+  addr.sun_family = AF_UNIX;
+  // NOLINTNEXTLINE(cppcoreguidelines-pro-bounds-array-to-pointer-decay)
+  strncpy(addr.sun_path, socket_path.c_str(), sizeof(addr.sun_path) - 1);
+
+  // Remove stale socket from a previous run.
+  unlink(socket_path.c_str());
+
+  // NOLINTNEXTLINE(cppcoreguidelines-pro-type-reinterpret-cast)
+  if (bind(fd, reinterpret_cast<struct sockaddr*>(&addr), sizeof(addr)) != 0) {
+    perror("bind");
+    close(fd);
+    return -1;
+  }
+
+  // Allow all users to connect (monitored processes may run as different users).
+  chmod(socket_path.c_str(), 0666);
+
+  if (listen(fd, /*backlog=*/128) != 0) {
+    perror("listen");
+    close(fd);
+    return -1;
+  }
+
+  return fd;
+}
+
+// Accept one client fd and run ExceptionHandlerServer on a detached thread.
+// Thread exits when the client disconnects.
+void AcceptAndHandleClient(
+    int listen_fd,
+    crashpad::CrashReportExceptionHandler* crash_handler) {
+  int client_fd = accept4(listen_fd, nullptr, nullptr, SOCK_CLOEXEC);
+  if (client_fd < 0) {
+    if (errno != EINTR && errno != EAGAIN) {
+      perror("accept4");
+    }
+    return;
+  }
+
+  // Enable credential passing so ExceptionHandlerServer can read the client PID
+  // and call prctl(PR_SET_PTRACER) / ptrace-attach correctly.
+  int one = 1;
+  setsockopt(client_fd, SOL_SOCKET, SO_PASSCRED, &one, sizeof(one));
+
+  std::thread([client_fd, crash_handler]() {
+    crashpad::ExceptionHandlerServer server;
+    if (server.InitializeWithClient(base::ScopedFD(client_fd),
+                                    /*multiple_clients=*/true)) {
+      server.Run(crash_handler);
+    }
+  }).detach();
+}
+
+// ── inotify + accept loop ─────────────────────────────────────────────────────
 
 int RunWatcher(const std::string& db_path,
+               const std::string& socket_path,
                const crashomon::DiskManagerConfig& prune_cfg) {
-  struct stat st;
-  if (::stat(db_path.c_str(), &st) != 0 || !S_ISDIR(st.st_mode)) {
+  // ── Crashpad handler setup ────────────────────────────────────────────────
+
+  // Ensure db_path/new/ exists — Crashpad database writes minidumps there.
+  std::string new_dir = db_path + "/new";
+  {
+    struct stat st;
+    if (::stat(db_path.c_str(), &st) != 0 || !S_ISDIR(st.st_mode)) {
+      fprintf(stderr,
+              "crashomon-watcherd: db-path is not a directory: %s\n",
+              db_path.c_str());
+      return 1;
+    }
+    // mkdir is best-effort; it may already exist.
+    mkdir(new_dir.c_str(), 0755);
+  }
+
+  auto database = crashpad::CrashReportDatabase::Initialize(
+      base::FilePath(db_path));
+  if (!database) {
     fprintf(stderr,
-            "crashomon-watcherd: db-path is not a directory: %s\n",
+            "crashomon-watcherd: failed to initialize crash database at %s\n",
             db_path.c_str());
     return 1;
   }
 
+  // crash data never leaves the device — no upload thread, no process annotations.
+  crashpad::CrashReportExceptionHandler crash_handler(
+      database.get(),
+      /*upload_thread=*/nullptr,
+      /*process_annotations=*/nullptr,
+      /*attachments=*/nullptr,
+      /*write_minidump_to_database=*/true,
+      /*write_minidump_to_log=*/false,
+      /*user_stream_data_sources=*/nullptr);
+
+  int listen_fd = CreateListenSocket(socket_path);
+  if (listen_fd < 0) {
+    return 1;
+  }
+  fprintf(stderr, "crashomon-watcherd: listening on %s\n", socket_path.c_str());
+
+  // ── inotify setup ─────────────────────────────────────────────────────────
+
   int ifd = inotify_init1(IN_CLOEXEC | IN_NONBLOCK);
   if (ifd < 0) {
     perror("inotify_init1");
+    close(listen_fd);
     return 1;
   }
 
-  // IN_CLOSE_WRITE: file closed after writing (Crashpad write-then-close).
+  // Watch db_path/new/ — Crashpad writes minidumps to <db>/new/<uuid>.dmp.
+  // IN_CLOSE_WRITE: file closed after writing.
   // IN_MOVED_TO:    atomic rename-into-dir pattern.
-  int wd = inotify_add_watch(ifd, db_path.c_str(),
+  int wd = inotify_add_watch(ifd, new_dir.c_str(),
                               IN_CLOSE_WRITE | IN_MOVED_TO);
   if (wd < 0) {
     perror("inotify_add_watch");
     close(ifd);
+    close(listen_fd);
     return 1;
   }
 
-  fprintf(stderr, "crashomon-watcherd: watching %s\n", db_path.c_str());
+  fprintf(stderr, "crashomon-watcherd: watching %s\n", new_dir.c_str());
 
   // Buffer sized for 16 events with maximum-length names.
   constexpr size_t kBufSize = sizeof(struct inotify_event) + NAME_MAX + 1;
   char buf[kBufSize * 16];
 
-  struct pollfd pfd;
-  pfd.fd = ifd;
-  pfd.events = POLLIN;
+  // Poll on both inotify fd and the listen socket.
+  struct pollfd pfds[2];
+  pfds[0].fd = ifd;
+  pfds[0].events = POLLIN;
+  pfds[1].fd = listen_fd;
+  pfds[1].events = POLLIN;
 
   while (!g_stop) {
-    int ready = poll(&pfd, 1, /*timeout_ms=*/500);
+    int ready = poll(pfds, 2, /*timeout_ms=*/500);
     if (ready < 0) {
       if (errno == EINTR) continue;
       perror("poll");
       break;
     }
     if (ready == 0) continue;
+
+    // ── New client connection ─────────────────────────────────────────────
+    if (pfds[1].revents & POLLIN) {
+      AcceptAndHandleClient(listen_fd, &crash_handler);
+    }
+
+    // ── New minidump written ──────────────────────────────────────────────
+    if (!(pfds[0].revents & POLLIN)) continue;
 
     ssize_t n = read(ifd, buf, sizeof(buf));
     if (n < 0) {
@@ -166,12 +296,14 @@ int RunWatcher(const std::string& db_path,
       size_t namelen = strnlen(name, ev->len);
       if (namelen < 4 || strcmp(name + namelen - 4, ".dmp") != 0) continue;
 
-      ProcessNewMinidump(db_path + "/" + name, prune_cfg);
+      ProcessNewMinidump(new_dir + "/" + name, prune_cfg);
     }
   }
 
   inotify_rm_watch(ifd, wd);
   close(ifd);
+  close(listen_fd);
+  unlink(socket_path.c_str());
   return 0;
 }
 
@@ -180,6 +312,11 @@ int RunWatcher(const std::string& db_path,
 int main(int argc, char* argv[]) {
   const char* db_path_env = getenv("CRASHOMON_DB_PATH");
   std::string db_path = db_path_env ? db_path_env : "/var/crashomon";
+
+  const char* socket_path_env = getenv("CRASHOMON_SOCKET_PATH");
+  std::string socket_path =
+      socket_path_env ? socket_path_env : "/run/crashomon/handler.sock";
+
   uint64_t max_bytes = 0;
   uint32_t max_age_sec = 0;
 
@@ -187,6 +324,8 @@ int main(int argc, char* argv[]) {
     const char* v = nullptr;
     if ((v = GetArgValue(argv[i], "--db-path"))) {
       db_path = v;
+    } else if ((v = GetArgValue(argv[i], "--socket-path"))) {
+      socket_path = v;
     } else if ((v = GetArgValue(argv[i], "--max-size"))) {
       max_bytes = ParseSize(v);
     } else if ((v = GetArgValue(argv[i], "--max-age"))) {
@@ -209,5 +348,5 @@ int main(int argc, char* argv[]) {
   prune_cfg.max_bytes = max_bytes;
   prune_cfg.max_age_seconds = max_age_sec;
 
-  return RunWatcher(db_path, prune_cfg);
+  return RunWatcher(db_path, socket_path, prune_cfg);
 }

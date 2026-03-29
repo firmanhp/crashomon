@@ -18,8 +18,8 @@ namespace crashomon {
 
 constexpr std::string_view kDefaultDbPath =
     "/var/crashomon";
-constexpr std::string_view kDefaultHandlerPath =
-    "/usr/libexec/crashomon/crashpad_handler";
+constexpr std::string_view kDefaultSocketPath =
+    "/run/crashomon/handler.sock";
 
 // Returns the value of environment variable `name`, or std::nullopt if unset.
 // The returned string_view is valid only as long as the environment is not
@@ -34,13 +34,13 @@ constexpr std::string_view kDefaultHandlerPath =
 // Resolved configuration: paths chosen after applying precedence rules.
 struct ResolvedConfig {
   std::string db_path;
-  std::string handler_path;
+  std::string socket_path;
 };
 
-// Resolve db_path and handler_path by applying, in order:
+// Resolve db_path and socket_path by applying, in order:
 //   1. Explicit CrashomonConfig field (if config != nullptr and field != nullptr)
-//   2. Environment variable (CRASHOMON_DB_PATH / CRASHOMON_HANDLER_PATH)
-//   3. Compiled-in default (kDefaultDbPath / kDefaultHandlerPath)
+//   2. Environment variable (CRASHOMON_DB_PATH / CRASHOMON_SOCKET_PATH)
+//   3. Compiled-in default (kDefaultDbPath / kDefaultSocketPath)
 [[nodiscard]] inline ResolvedConfig Resolve(const CrashomonConfig* config) {
   ResolvedConfig resolved;
 
@@ -52,12 +52,12 @@ struct ResolvedConfig {
     resolved.db_path = std::string{kDefaultDbPath};
   }
 
-  if (config && config->handler_path) {
-    resolved.handler_path = config->handler_path;
-  } else if (auto env = GetEnv("CRASHOMON_HANDLER_PATH")) {
-    resolved.handler_path = std::string{*env};
+  if (config && config->socket_path) {
+    resolved.socket_path = config->socket_path;
+  } else if (auto env = GetEnv("CRASHOMON_SOCKET_PATH")) {
+    resolved.socket_path = std::string{*env};
   } else {
-    resolved.handler_path = std::string{kDefaultHandlerPath};
+    resolved.socket_path = std::string{kDefaultSocketPath};
   }
 
   return resolved;
