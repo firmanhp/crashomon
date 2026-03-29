@@ -186,8 +186,11 @@ int RunWatcher(const std::string& db_path,
                const crashomon::DiskManagerConfig& prune_cfg) {
   // ── Crashpad handler setup ────────────────────────────────────────────────
 
-  // Ensure db_path/new/ exists — Crashpad database writes minidumps there.
+  // Crashpad database lifecycle: writes to new/, then renames to pending/.
+  // We watch pending/ for IN_MOVED_TO — the file is fully written and renamed
+  // at that point. new/ is created by CrashReportDatabase::Initialize().
   std::string new_dir = db_path + "/new";
+  std::string pending_dir = db_path + "/pending";
   {
     struct stat st;
     if (::stat(db_path.c_str(), &st) != 0 || !S_ISDIR(st.st_mode)) {
@@ -196,8 +199,9 @@ int RunWatcher(const std::string& db_path,
               db_path.c_str());
       return 1;
     }
-    // mkdir is best-effort; it may already exist.
+    // mkdir is best-effort; dirs may already exist after CrashReportDatabase::Initialize().
     mkdir(new_dir.c_str(), 0755);
+    mkdir(pending_dir.c_str(), 0755);
   }
 
   auto database = crashpad::CrashReportDatabase::Initialize(
@@ -209,12 +213,15 @@ int RunWatcher(const std::string& db_path,
     return 1;
   }
 
-  // crash data never leaves the device — no upload thread, no process annotations.
+  // crash data never leaves the device — no upload thread, no user stream sources.
+  // process_annotations and attachments must be non-null (Crashpad dereferences them).
+  static const std::map<std::string, std::string> kNoAnnotations;
+  static const std::vector<base::FilePath> kNoAttachments;
   crashpad::CrashReportExceptionHandler crash_handler(
       database.get(),
       /*upload_thread=*/nullptr,
-      /*process_annotations=*/nullptr,
-      /*attachments=*/nullptr,
+      &kNoAnnotations,
+      &kNoAttachments,
       /*write_minidump_to_database=*/true,
       /*write_minidump_to_log=*/false,
       /*user_stream_data_sources=*/nullptr);
@@ -234,11 +241,10 @@ int RunWatcher(const std::string& db_path,
     return 1;
   }
 
-  // Watch db_path/new/ — Crashpad writes minidumps to <db>/new/<uuid>.dmp.
-  // IN_CLOSE_WRITE: file closed after writing.
-  // IN_MOVED_TO:    atomic rename-into-dir pattern.
-  int wd = inotify_add_watch(ifd, new_dir.c_str(),
-                              IN_CLOSE_WRITE | IN_MOVED_TO);
+  // Watch db_path/pending/ for IN_MOVED_TO — Crashpad writes minidumps to
+  // new/<uuid>.dmp then atomically renames to pending/<uuid>.dmp.  The file is
+  // fully written and ready to read only after the rename completes.
+  int wd = inotify_add_watch(ifd, pending_dir.c_str(), IN_MOVED_TO);
   if (wd < 0) {
     perror("inotify_add_watch");
     close(ifd);
@@ -246,7 +252,7 @@ int RunWatcher(const std::string& db_path,
     return 1;
   }
 
-  fprintf(stderr, "crashomon-watcherd: watching %s\n", new_dir.c_str());
+  fprintf(stderr, "crashomon-watcherd: watching %s\n", pending_dir.c_str());
 
   // Buffer sized for 16 events with maximum-length names.
   constexpr size_t kBufSize = sizeof(struct inotify_event) + NAME_MAX + 1;
@@ -289,14 +295,14 @@ int RunWatcher(const std::string& db_path,
       offset += static_cast<ssize_t>(sizeof(struct inotify_event) +
                                      ev->len);
 
-      if (!(ev->mask & (IN_CLOSE_WRITE | IN_MOVED_TO))) continue;
+      if (!(ev->mask & IN_MOVED_TO)) continue;
       if (ev->len == 0) continue;
 
       const char* name = ev->name;
       size_t namelen = strnlen(name, ev->len);
       if (namelen < 4 || strcmp(name + namelen - 4, ".dmp") != 0) continue;
 
-      ProcessNewMinidump(new_dir + "/" + name, prune_cfg);
+      ProcessNewMinidump(pending_dir + "/" + name, prune_cfg);
     }
   }
 
