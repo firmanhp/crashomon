@@ -10,30 +10,36 @@
 #include "crashomon.h"
 #include "crashomon_internal.h"
 
-#include <sentry.h>
+#include "client/crashpad_client.h"
 
-#include <string_view>
+#include <map>
+#include <string>
+#include <vector>
 
 namespace crashomon {
 namespace {
 
-// Dummy DSN: sentry-native requires a non-empty DSN but we disable all uploads.
-constexpr std::string_view kDummyDsn =
-    "https://00000000000000000000000000000000@localhost/0";
-
 int DoInit(const ResolvedConfig& cfg) {
-  sentry_options_t* options = sentry_options_new();
-  if (!options) return -1;
+  base::FilePath handler(cfg.handler_path);
+  base::FilePath database(cfg.db_path);
 
-  sentry_options_set_dsn(options, kDummyDsn.data());
-  sentry_options_set_database_path(options, cfg.db_path.c_str());
-  sentry_options_set_handler_path(options, cfg.handler_path.c_str());
+  std::map<std::string, std::string> annotations;
+  std::vector<std::string> arguments;
 
-  // Disable all telemetry uploads — crash data never leaves the device.
-  sentry_options_set_auto_session_tracking(options, 0);
-  sentry_options_set_traces_sample_rate(options, 0.0);
+  // url="" disables all uploads — crash data never leaves the device.
+  static crashpad::CrashpadClient client;
+  bool started = client.StartHandler(
+      handler,
+      database,
+      /*metrics_dir=*/database,
+      /*url=*/"",
+      /*http_proxy=*/"",
+      annotations,
+      arguments,
+      /*restartable=*/true,
+      /*asynchronous_start=*/false);
 
-  return sentry_init(options);
+  return started ? 0 : -1;
 }
 
 }  // namespace
@@ -49,7 +55,7 @@ __attribute__((constructor)) static void crashomon_auto_init() {
 }
 
 __attribute__((destructor)) static void crashomon_auto_shutdown() {
-  sentry_close();
+  // Crashpad handler runs as an independent process; no shutdown needed.
 }
 
 // ── Public C API ─────────────────────────────────────────────────────────────
@@ -58,18 +64,22 @@ int crashomon_init(const CrashomonConfig* config) {
   return crashomon::DoInit(crashomon::Resolve(config));
 }
 
-void crashomon_shutdown() { sentry_close(); }
+void crashomon_shutdown() {
+  // Crashpad handler runs as an independent process; no shutdown needed.
+}
 
 void crashomon_set_tag(const char* key, const char* value) {
-  if (key && value) sentry_set_tag(key, value);
+  // TODO: Implement with crashpad::Annotation in a follow-up.
+  (void)key;
+  (void)value;
 }
 
 void crashomon_add_breadcrumb(const char* message) {
-  if (!message) return;
-  sentry_value_t crumb = sentry_value_new_breadcrumb("default", message);
-  sentry_add_breadcrumb(crumb);
+  // Crashpad has no breadcrumb concept. No-op.
+  (void)message;
 }
 
 void crashomon_set_abort_message(const char* message) {
-  if (message) sentry_set_tag("abort_message", message);
+  // TODO: Implement with crashpad::Annotation in a follow-up.
+  (void)message;
 }

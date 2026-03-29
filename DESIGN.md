@@ -4,7 +4,7 @@
 
 We're building a crash monitoring ecosystem for ELF binaries on an embedded Linux system (4GB RAM, 2GB disk, 4 cores, systemd). The system runs multiple independent processes and needs seamless crash reporting — similar to Android's tombstone/debuggerd output.
 
-After evaluating multiple approaches, we chose **sentry-native with Crashpad backend** for crash capture + an **inotify-based watcher service** for post-crash tombstone formatting.
+After evaluating multiple approaches, we chose **Crashpad** for crash capture + an **inotify-based watcher service** for post-crash tombstone formatting.
 
 ---
 
@@ -12,7 +12,7 @@ After evaluating multiple approaches, we chose **sentry-native with Crashpad bac
 
 ### Why Crashpad + inotify watcher over inproc
 
-| Aspect | sentry-native inproc | sentry-native Crashpad + inotify watcher |
+| Aspect | In-process handler | Crashpad + inotify watcher |
 |---|---|---|
 | **Crash capture** | In-process signal handler | Out-of-process `crashpad_handler` via ptrace |
 | **Crash data quality** | JSON envelope; uncertain multi-thread support | Real Breakpad minidump; all threads, all registers, 128KB stack per thread |
@@ -20,32 +20,21 @@ After evaluating multiple approaches, we chose **sentry-native with Crashpad bac
 | **Tombstone timing** | Immediate (at crash time) | Near-realtime (inotify fires within ms of minidump write) |
 | **Offline analysis format** | JSON envelope + `eu-addr2line` (custom pipeline) | Minidump + `minidump_stackwalk` (standard, battle-tested) |
 | **Multi-thread stacks** | Unclear — inproc may only capture crashing thread | Yes — Crashpad captures all threads via ptrace |
-| **Abort message capture** | Via `on_crash` callback (but event is sparse) | Via Crashpad annotations (set in client, embedded in minidump) |
+| **Abort message capture** | Via callback (but event is sparse) | Via Crashpad annotations (set in client, embedded in minidump) |
 | **Process overhead** | None | `crashpad_handler` (~2-5MB idle) + watcher service (~2-5MB idle). Total ~4-10MB, well under 20MB budget. |
 | **Language** | Pure C | C++ (Crashpad) + C (client shim) + C++ (watcher) |
-| **LD_PRELOAD** | Works natively via `sentry_init()` in constructor | Works — constructor calls `sentry_init()` which spawns/connects to `crashpad_handler` |
-| **Build complexity** | Simple (inproc is pure C, no extra deps) | Medium (Crashpad needs C++17, zlib; but sentry-native's CMake handles it) |
+| **LD_PRELOAD** | Works natively via constructor | Works — constructor calls `CrashpadClient::StartHandler()` which spawns `crashpad_handler` |
+| **Build complexity** | Simple (inproc is pure C, no extra deps) | Medium (Crashpad needs C++17, zlib; CMake handles it via FetchContent) |
 | **Reliability** | In-process — if process memory is corrupted, handler may fail | Out-of-process — handler runs in healthy process, more reliable |
-| **CLI/Web UI** | Must parse custom JSON envelope format | Uses `minidump_stackwalk` — standard tool, well-documented format |
+| **CLI/Web UI** | Must parse custom format | Uses `minidump_stackwalk` — standard tool, well-documented format |
 
-### Why sentry-native over raw Crashpad
+### Why Crashpad over fully custom
 
-| Aspect | Raw Crashpad | sentry-native (Crashpad backend) |
-|---|---|---|
-| **Build system** | GN (Chromium) or backtrace-labs CMake fork | CMake via sentry-native (vendors Crashpad as submodule) |
-| **Init API** | `CrashpadClient::StartHandler()` with many params | `sentry_init(options)` — simpler C API |
-| **Annotations** | `SimpleStringDictionary`, 256B per key/value, 64 entries max | `sentry_set_tag()`, `sentry_add_breadcrumb()` — richer API, auto-serialized |
-| **Database management** | Manual via `CrashReportDatabase` API | Handled automatically; envelopes stored in database path |
-| **Maintenance** | Must track Crashpad upstream or backtrace-labs fork | sentry-native team maintains Crashpad integration |
-| **Upload (if ever needed)** | Must implement HTTP transport | Built-in (just set a DSN later) |
-
-### Why not fully custom (build everything ourselves)
-
-| Aspect | Fully custom | sentry-native + watcher |
+| Aspect | Fully custom | Crashpad + watcher |
 |---|---|---|
 | **Crash capture code** | ~1500 LOC C++, must handle ptrace edge cases, architecture-specific registers, corrupted process state | Battle-tested (Crashpad, used by Chrome/Electron) |
 | **Minidump writer** | ~1000 LOC C++, fiddly format with many structures | Crashpad's writer, correct and complete |
-| **Signal handler** | Must implement async-signal-safe IPC | sentry-native handles it |
+| **Signal handler** | Must implement async-signal-safe IPC | Crashpad handles it |
 | **Time to working prototype** | Weeks | Days |
 | **Bug surface area** | Large — ptrace, signals, minidump format all error-prone | Small — we only write the watcher + formatting |
 | **Maintenance burden** | Must track kernel/ABI changes, new architectures | Community-maintained |
@@ -62,14 +51,14 @@ After evaluating multiple approaches, we chose **sentry-native with Crashpad bac
 │  │  Process (loaded via LD_PRELOAD or explicit link)     │  │
 │  │                                                       │  │
 │  │  libcrashomon.so                                      │  │
-│  │  ├─ constructor: sentry_init(crashpad backend)        │  │
-│  │  ├─ optional: sentry_set_tag(), add_breadcrumb()      │  │
-│  │  └─ destructor: sentry_close()                        │  │
+│  │  ├─ constructor: CrashpadClient::StartHandler()       │  │
+│  │  ├─ optional: crashomon_set_tag(), add_breadcrumb()   │  │
+│  │  └─ destructor: no-op (handler is independent)        │  │
 │  └──────────────┬────────────────────────────────────────┘  │
 │                 │ Unix socket (on crash)                     │
 │                 ▼                                            │
 │  ┌───────────────────────────────────────────────────────┐  │
-│  │  crashpad_handler (spawned by sentry_init)            │  │
+│  │  crashpad_handler (spawned by StartHandler())         │  │
 │  │  ├─ ptrace: reads registers, stacks, /proc/pid/maps  │  │
 │  │  └─ writes minidump to /var/crashomon/                │  │
 │  └──────────────┬────────────────────────────────────────┘  │
@@ -111,19 +100,17 @@ After evaluating multiple approaches, we chose **sentry-native with Crashpad bac
 **Purpose**: Automatically instruments any dynamically-linked process for crash reporting.
 
 **Implementation**:
-- Thin C shared library wrapping sentry-native (statically linked in, Crashpad backend)
-- `__attribute__((constructor))` calls `sentry_init()` with:
-  - `SENTRY_BACKEND=crashpad`
-  - `SENTRY_TRANSPORT=none` (no uploads)
+- Thin C shared library using Crashpad directly (statically linked)
+- `__attribute__((constructor))` calls `CrashpadClient::StartHandler()` with:
   - Handler path: `/usr/libexec/crashomon/crashpad_handler` (configurable via `CRASHOMON_HANDLER_PATH` env var)
   - Database path: `/var/crashomon/` (configurable via `CRASHOMON_DB_PATH` env var)
-  - DSN: dummy value (no server)
-- `__attribute__((destructor))` calls `sentry_close()`
+  - URL: `""` (no uploads — crash data never leaves the device)
+- `__attribute__((destructor))` is a no-op (crashpad_handler runs as an independent process)
 - Optional public API for explicit users (not LD_PRELOAD):
   - `crashomon_init(config)` — manual init with custom config
-  - `crashomon_set_tag(key, value)` — wraps `sentry_set_tag()`
-  - `crashomon_add_breadcrumb(message)` — wraps `sentry_add_breadcrumb()`
-  - `crashomon_set_abort_message(msg)` — sets annotation for abort message capture
+  - `crashomon_set_tag(key, value)` — currently a no-op; follow-up will use Crashpad annotations
+  - `crashomon_add_breadcrumb(message)` — no-op (Crashpad has no breadcrumb concept)
+  - `crashomon_set_abort_message(msg)` — currently a no-op; follow-up will use Crashpad annotations
 
 **Files**:
 - `lib/crashomon.h` — public API header (pure C, C-compatible, freestanding — no project deps required to consume)
@@ -424,17 +411,22 @@ crashomon/
         └── crashomon.conf      # Drop-in showing LD_PRELOAD usage
 ```
 
-**sentry-native integration** (CMake FetchContent):
+**Crashpad integration** (CMake FetchContent):
+
+sentry-native's repo vendors a complete CMake build of Crashpad at `external/crashpad/`. We fetch the
+sentry-native source but `add_subdirectory` only the Crashpad subtree — bypassing the sentry wrapper.
+This gives us Crashpad's battle-tested CMake build without the sentry ecosystem dependency.
+
 ```cmake
-FetchContent_Declare(sentry
+FetchContent_Declare(crashpad_src
   GIT_REPOSITORY https://github.com/getsentry/sentry-native.git
-  GIT_TAG <pinned-release-tag>
+  GIT_TAG 0.7.17
 )
-set(SENTRY_BACKEND "crashpad" CACHE STRING "" FORCE)
-set(SENTRY_TRANSPORT "none" CACHE STRING "" FORCE)
-set(SENTRY_BUILD_SHARED_LIBS OFF CACHE BOOL "" FORCE)
-set(SENTRY_PIC ON CACHE BOOL "" FORCE)
-FetchContent_MakeAvailable(sentry)
+FetchContent_GetProperties(crashpad_src)
+if(NOT crashpad_src_POPULATED)
+  FetchContent_Populate(crashpad_src)
+endif()
+add_subdirectory("${crashpad_src_SOURCE_DIR}/external/crashpad" ...)
 ```
 
 **Breakpad** (for minidump-processor library, `minidump_stackwalk`, and `dump_syms`):
@@ -456,9 +448,9 @@ FetchContent, gated behind `-DENABLE_BENCHMARKS=ON`.
 
 | Component | Source | Effort |
 |---|---|---|
-| Crash capture + signal handling | **Reuse**: sentry-native (Crashpad backend) | 0 |
-| Out-of-process minidump writing | **Reuse**: crashpad_handler (via sentry-native) | 0 |
-| LD_PRELOAD shim + sentry init | **Build**: ~150-250 LOC C++17 (C API) | Low |
+| Crash capture + signal handling | **Reuse**: Crashpad | 0 |
+| Out-of-process minidump writing | **Reuse**: crashpad_handler | 0 |
+| LD_PRELOAD shim + Crashpad init | **Build**: ~150-250 LOC C++17 (C API) | Low |
 | Watcher daemon (inotify + formatting) | **Build**: ~800-1200 LOC C++ | Medium |
 | Minidump parsing (in watcher) | **Reuse**: Breakpad minidump processor | 0 |
 | Symbol ingestion tool | **Build**: ~100-200 LOC script (wraps dump_syms) | Low |

@@ -6,7 +6,7 @@ extern "C" {
 #endif
 
 /**
- * crashomon — crash monitoring client library
+ * crashomon — crash monitoring client library (Crashpad backend)
  *
  * Usage (LD_PRELOAD):
  *   LD_PRELOAD=/usr/lib/libcrashomon.so CRASHOMON_DB_PATH=/var/crashomon ./my_program

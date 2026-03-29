@@ -15,7 +15,7 @@ Crash monitoring ecosystem for ELF binaries on embedded Linux. Provides Android 
 | Component | Language | Role |
 |---|---|---|
 | `libcrashomon.so` / `.a` | C++17 (C public API) | LD_PRELOAD crash capture client |
-| `crashpad_handler` | C++ (via sentry-native) | Out-of-process minidump writer |
+| `crashpad_handler` | C++ (Crashpad) | Out-of-process minidump writer |
 | `crashomon-watcherd` | C++17 | inotify watcher, tombstone formatter, disk manager |
 | `crashomon-analyze` | C++17 | CLI symbolication tool |
 | `crashomon-syms` | Python 3.11 | Symbol store management |
@@ -36,7 +36,7 @@ Crash monitoring ecosystem for ELF binaries on embedded Linux. Provides Android 
 | `git` | any | FetchContent clones dependencies |
 | `ninja` or `make` | any | CMake build backend |
 
-All C/C++ dependencies (sentry-native, Breakpad, Abseil, GoogleTest, Google Benchmark, zlib) are fetched automatically by CMake — **no system-level installs required** for those.
+All C/C++ dependencies (Crashpad, Breakpad, Abseil, GoogleTest, Google Benchmark, zlib) are fetched automatically by CMake — **no system-level installs required** for those.
 
 ### Target device (runtime)
 
@@ -72,7 +72,7 @@ This produces:
 ```
 build/lib/libcrashomon.so          # LD_PRELOAD library
 build/lib/libcrashomon.a           # static library
-build/<sentry>/crashpad_handler    # out-of-process crash handler
+build/crashpad_build/handler/crashpad_handler  # out-of-process crash handler
 build/daemon/crashomon-watcherd    # watcher daemon
 build/tools/analyze/crashomon-analyze  # CLI symbolication
 ```
@@ -469,7 +469,7 @@ Copy the `.dmp` path to your developer machine and run `crashomon-analyze` (or u
 | Out-of-process crash capture (Crashpad) | Handler runs in a healthy process; in-process handlers fail when heap is corrupt |
 | No heap allocation in signal path | Async-signal-safe constraint — `libcrashomon.so` itself has no signal handler |
 | `LD_PRELOAD` via constructor | Zero code changes in monitored programs; child processes inherit the env var |
-| `SENTRY_TRANSPORT=none` always | Crash data never leaves the device; analysis is always offline |
+| No upload URL in Crashpad | Crash data never leaves the device; analysis is always offline |
 | Breakpad symbol store layout | `minidump_stackwalk` auto-resolves the right symbol file by build ID |
 | Abseil types internal-only | Public API uses only C types — consumers add no dependencies |
 | All deps via CMake FetchContent | Reproducible builds; no system-package version conflicts |

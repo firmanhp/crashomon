@@ -6,8 +6,8 @@ Crashomon is a crash monitoring ecosystem for ELF binaries on embedded Linux. It
 
 ## Architecture summary
 
-- **libcrashomon.so**: C++17 implementation with C-compatible public header (`extern "C"` linkage). Works via LD_PRELOAD (zero-code integration) or explicit linking. Uses sentry-native (Crashpad backend) for out-of-process crash capture. Constructor calls `sentry_init()`, destructor calls `sentry_close()`.
-- **crashpad_handler**: Spawned by sentry-native. Uses ptrace to capture minidumps without copying full process memory. Writes to `/var/crashomon/` (configurable via `CRASHOMON_DB_PATH`).
+- **libcrashomon.so**: C++17 implementation with C-compatible public header (`extern "C"` linkage). Works via LD_PRELOAD (zero-code integration) or explicit linking. Uses Crashpad directly for out-of-process crash capture. Constructor calls `CrashpadClient::StartHandler()`.
+- **crashpad_handler**: Spawned by libcrashomon.so. Uses ptrace to capture minidumps without copying full process memory. Writes to `/var/crashomon/` (configurable via `CRASHOMON_DB_PATH`).
 - **crashomon-watcherd**: systemd service. Uses inotify to watch for new minidumps, parses them via Breakpad's minidump-processor, prints Android-style tombstone to journald. Also prunes old minidumps.
 - **crashomon-analyze**: CLI tool. Symbolicates a minidump or pasted tombstone text using `minidump_stackwalk` + a symbol store. Stateless.
 - **crashomon-syms**: Script. Ingests debug binaries into the Breakpad symbol store (`dump_syms` wrapper).
@@ -70,9 +70,9 @@ systemd/      systemd unit files
 
 - Do not copy full process memory. Crashpad reads selectively via ptrace.
 - Do not mix ASan and TSan (they conflict).
-- Do not apply `-Werror` to third-party dependencies (sentry-native, GoogleTest, Breakpad, Abseil). Use `target_compile_options()` on our own targets only.
+- Do not apply `-Werror` to third-party dependencies (Crashpad, GoogleTest, Breakpad, Abseil). Use `target_compile_options()` on our own targets only.
 - Do not do any heap allocation or non-async-signal-safe operations in the client library's signal handler path.
-- Do not add upload/network support — `SENTRY_TRANSPORT=none` always.
+- Do not add upload/network support — pass `url=""` to `StartHandler()` always.
 - Do not use `try`/`catch`/`throw`. All C++ is compiled with `-fno-exceptions`. Use `absl::Status`/`absl::StatusOr` for internal error handling.
 - Do not expose Abseil types in public or cross-library interfaces. Public APIs must be freestanding — consumers must not need to add Abseil as a dependency. `absl::Status`/`absl::StatusOr` are used only in `.cpp` files and internal (non-public) headers.
-- Do not rely on system-installed versions of project dependencies. All C/C++ deps (sentry-native, GoogleTest, Abseil, Breakpad, Google Benchmark) are fetched via CMake FetchContent.
+- Do not rely on system-installed versions of project dependencies. All C/C++ deps (Crashpad, GoogleTest, Abseil, Breakpad, Google Benchmark) are fetched via CMake FetchContent.
