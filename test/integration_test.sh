@@ -48,6 +48,8 @@ WATCHERD="${BUILD_DIR}/daemon/crashomon-watcherd"
 CRASHOMON_ANALYZE="${BUILD_DIR}/tools/analyze/crashomon-analyze"
 CRASHOMON_SYMS="${PROJECT_ROOT}/tools/syms/crashomon-syms"
 EXAMPLES_BIN="${BUILD_DIR}/examples"
+DUMP_SYMS="$(find "${BUILD_DIR}" -maxdepth 2 -name 'breakpad_dump_syms' -type f | head -1 || true)"
+STACKWALK="$(find "${BUILD_DIR}" -maxdepth 2 -name 'minidump_stackwalk' -type f | head -1 || true)"
 
 echo "=== Crashomon Integration Test ==="
 echo "Build dir: ${BUILD_DIR}"
@@ -70,11 +72,12 @@ echo ""
 echo "-- Minidump capture --"
 
 WORK_DIR="$(mktemp -d)"
-trap 'rm -rf "${WORK_DIR}"' EXIT
+trap 'kill "${WATCHERD_PID:-}" 2>/dev/null || true; wait "${WATCHERD_PID:-}" 2>/dev/null || true; rm -rf "${WORK_DIR}"' EXIT
 
 DB_DIR="${WORK_DIR}/crashdb"
 SOCKET_PATH="${WORK_DIR}/handler.sock"
-mkdir -p "${DB_DIR}"
+SYM_STORE="${WORK_DIR}/symbols"
+mkdir -p "${DB_DIR}" "${SYM_STORE}"
 
 WATCHERD_STARTED=false
 if [[ -f "${LIBCRASHOMON}" && -f "${WATCHERD}" ]]; then
@@ -107,10 +110,10 @@ capture_crash() {
     CRASHOMON_SOCKET_PATH="${SOCKET_PATH}" \
     "${binary}" 2>/dev/null || true
 
-  # Wait up to 5 s for watcherd to write the .dmp.
+  # Crashpad writes to pending/ after an atomic rename from new/.
   local dmp=""
   for _ in 1 2 3 4 5; do
-    dmp="$(find "${DB_DIR}/new" -name '*.dmp' -type f | head -1 2>/dev/null || true)"
+    dmp="$(find "${DB_DIR}/pending" -name '*.dmp' -type f | head -1 2>/dev/null || true)"
     [[ -n "${dmp}" ]] && break
     sleep 1
   done
@@ -131,6 +134,7 @@ if [[ "${WATCHERD_STARTED}" == "true" ]]; then
 
   kill "${WATCHERD_PID}" 2>/dev/null || true
   wait "${WATCHERD_PID}" 2>/dev/null || true
+  WATCHERD_PID=""
 else
   echo "  SKIP: libcrashomon or watcherd not found — skipping capture"
 fi
@@ -141,14 +145,29 @@ echo ""
 echo "-- crashomon-analyze --"
 
 if [[ -f "${CRASHOMON_ANALYZE}" ]]; then
+  # Build a symbol store from the segfault binary so analyze has something to work with.
+  if [[ -n "${DUMP_SYMS}" && -f "${EXAMPLES_BIN}/crashomon-example-segfault" ]]; then
+    "${CRASHOMON_SYMS}" add \
+      --store "${SYM_STORE}" \
+      --dump-syms "${DUMP_SYMS}" \
+      "${EXAMPLES_BIN}/crashomon-example-segfault" &>/dev/null || true
+  fi
+
+  STACKWALK_ARG=""
+  if [[ -n "${STACKWALK}" ]]; then
+    STACKWALK_ARG="--stackwalk-binary=${STACKWALK}"
+  fi
+
   for name in segfault abort multithread; do
     dmp="${WORK_DIR}/${name}.dmp"
     if [[ ! -f "${dmp}" ]]; then
       echo "  SKIP: ${name}.dmp not available"
       continue
     fi
-    # analyze must exit 0 and print non-empty output.
-    output="$("${CRASHOMON_ANALYZE}" "${dmp}" 2>&1)"
+    output="$("${CRASHOMON_ANALYZE}" \
+      "--store=${SYM_STORE}" \
+      "--minidump=${dmp}" \
+      ${STACKWALK_ARG:+"${STACKWALK_ARG}"} 2>&1)"
     analyze_exit=$?
     if [[ "${analyze_exit}" -eq 0 && -n "${output}" ]]; then
       log_pass "analyze ${name}: exited 0 and produced output"
@@ -166,11 +185,11 @@ echo ""
 echo "-- crashomon-syms --"
 
 if [[ -f "${CRASHOMON_SYMS}" ]]; then
-  SYMS_DIR="${WORK_DIR}/symbols"
+  SYMS_DIR="${WORK_DIR}/syms_test"
   mkdir -p "${SYMS_DIR}"
 
   # 'list' with an empty store should succeed and produce no output.
-  if "${CRASHOMON_SYMS}" list --symbol-dir "${SYMS_DIR}" &>/dev/null; then
+  if "${CRASHOMON_SYMS}" list --store "${SYMS_DIR}" &>/dev/null; then
     log_pass "crashomon-syms list (empty store)"
   else
     log_fail "crashomon-syms list returned non-zero"
@@ -178,25 +197,24 @@ if [[ -f "${CRASHOMON_SYMS}" ]]; then
 
   # 'add' with the example binary (which has DWARF info) should succeed.
   segfault_bin="${EXAMPLES_BIN}/crashomon-example-segfault"
-  DUMP_SYMS_BIN="$(find "${BUILD_DIR}" -name 'dump_syms' -type f | head -1 || true)"
-  if [[ -f "${segfault_bin}" && -n "${DUMP_SYMS_BIN}" ]]; then
-    if CRASHOMON_DUMP_SYMS="${DUMP_SYMS_BIN}" \
-         "${CRASHOMON_SYMS}" add \
-           --symbol-dir "${SYMS_DIR}" \
-           "${segfault_bin}" &>/dev/null; then
+  if [[ -f "${segfault_bin}" && -n "${DUMP_SYMS}" ]]; then
+    if "${CRASHOMON_SYMS}" add \
+         --store "${SYMS_DIR}" \
+         --dump-syms "${DUMP_SYMS}" \
+         "${segfault_bin}" &>/dev/null; then
       log_pass "crashomon-syms add (segfault binary)"
     else
       log_fail "crashomon-syms add returned non-zero"
     fi
     # After add, list should show at least one entry.
-    entry_count="$("${CRASHOMON_SYMS}" list --symbol-dir "${SYMS_DIR}" 2>/dev/null | wc -l)"
+    entry_count="$("${CRASHOMON_SYMS}" list --store "${SYMS_DIR}" 2>/dev/null | wc -l)"
     if [[ "${entry_count}" -ge 1 ]]; then
       log_pass "crashomon-syms list shows ${entry_count} symbol(s) after add"
     else
       log_fail "crashomon-syms list shows no symbols after add"
     fi
   else
-    echo "  SKIP: dump_syms or segfault binary not found"
+    echo "  SKIP: breakpad_dump_syms or segfault binary not found"
   fi
 else
   echo "  SKIP: crashomon-syms not found"

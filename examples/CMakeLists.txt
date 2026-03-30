@@ -2,13 +2,18 @@
 # These programs intentionally crash, so we suppress null-dereference warnings
 # that would otherwise be errors under our -Werror policy.
 
-add_executable(example_segfault segfault.c)
+add_executable(example_segfault segfault.cpp)
 # Do not link crashomon_warnings: its -Wnull-dereference would override our -Wno suppression
 # (INTERFACE flags are appended after PRIVATE, so last flag wins).
 target_compile_options(example_segfault PRIVATE
+  -std=c++17 -fno-exceptions
   -Wall -Wextra -Wpedantic -Werror -Wshadow -Wconversion -Wsign-conversion
   -Wdouble-promotion -Wformat=2 -Wformat-security -fstack-protector-strong
+  -Wno-gnu-include-next
   -O3 -g
+  # Disable tail-call optimization so every call frame stays on the stack and
+  # shows up in the symbolicated crash report.
+  -fno-optimize-sibling-calls
   # Intentional null deref — this IS the crash we want to test.
   -Wno-null-dereference
 )
