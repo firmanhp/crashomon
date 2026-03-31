@@ -7,11 +7,10 @@
 // No crashpad linkage is required here — crashomon_internal.h is all
 // inline and has no dependency on crashpad headers.
 
-#include "lib/crashomon_internal.h"
-
 #include <cstdlib>
 
 #include "gtest/gtest.h"
+#include "lib/crashomon_internal.h"
 
 namespace crashomon {
 namespace {
@@ -20,6 +19,8 @@ namespace {
 // previous state (set or unset) on destruction.
 class ScopedEnv {
  public:
+  // env_name and value are semantically
+  // orthogonal (variable name vs its value); the class name makes the distinction clear.
   // NOLINTNEXTLINE(bugprone-easily-swappable-parameters)
   ScopedEnv(const char* env_name, const char* value) : name_(env_name) {
     if (const char* prev = std::getenv(env_name)) {
@@ -28,20 +29,31 @@ class ScopedEnv {
     } else {
       was_set_ = false;
     }
+    // setenv is in <cstdlib> which is included; include-cleaner FP.
+    // NOLINTNEXTLINE(misc-include-cleaner)
     ::setenv(name_, value, /*overwrite=*/1);
   }
 
   ~ScopedEnv() {
     if (was_set_) {
-      ::setenv(name_, old_value_.c_str(), /*overwrite=*/1);
+      ::setenv(name_, old_value_.c_str(),
+               /*overwrite=*/1);  // NOLINT(misc-include-cleaner) — setenv is in <cstdlib> which is
+                                  // included; false positive from include-cleaner.
     } else {
-      ::unsetenv(name_);
+      ::unsetenv(name_);  // NOLINT(misc-include-cleaner) — unsetenv is in <cstdlib> which is
+                          // included; false positive from include-cleaner.
     }
   }
 
   ScopedEnv(const ScopedEnv&) = delete;
+  // Google C++ Style Guide recommends trailing
+  // return types only when required; conventional notation is clearer here.
+  // NOLINTNEXTLINE(modernize-use-trailing-return-type)
   ScopedEnv& operator=(const ScopedEnv&) = delete;
   ScopedEnv(ScopedEnv&&) = delete;
+  // Google C++ Style Guide recommends trailing
+  // return types only when required; conventional notation is clearer here.
+  // NOLINTNEXTLINE(modernize-use-trailing-return-type)
   ScopedEnv& operator=(ScopedEnv&&) = delete;
 
  private:
@@ -60,16 +72,20 @@ class ClearCrashomonEnv {
 
   ~ClearCrashomonEnv() = default;
   ClearCrashomonEnv(const ClearCrashomonEnv&) = delete;
+  // Google C++ Style Guide recommends trailing
+  // return types only when required; conventional notation is clearer here.
+  // NOLINTNEXTLINE(modernize-use-trailing-return-type)
   ClearCrashomonEnv& operator=(const ClearCrashomonEnv&) = delete;
   ClearCrashomonEnv(ClearCrashomonEnv&&) = delete;
+  // Google C++ Style Guide recommends trailing
+  // return types only when required; conventional notation is clearer here.
+  // NOLINTNEXTLINE(modernize-use-trailing-return-type)
   ClearCrashomonEnv& operator=(ClearCrashomonEnv&&) = delete;
 };
 
 // ── Compiled-in defaults ─────────────────────────────────────────────────────
 
-TEST(DefaultsTest, DbPathDefault) {
-  EXPECT_EQ(kDefaultDbPath, "/var/crashomon");
-}
+TEST(DefaultsTest, DbPathDefault) { EXPECT_EQ(kDefaultDbPath, "/var/crashomon"); }
 
 TEST(DefaultsTest, SocketPathDefault) {
   EXPECT_EQ(kDefaultSocketPath, "/run/crashomon/handler.sock");
@@ -86,14 +102,16 @@ TEST(GetEnvTest, ReturnsValueWhenPresent) {
   const ScopedEnv env{"CRASHOMON_TEST_GETENV", "hello"};
   const auto val = GetEnv("CRASHOMON_TEST_GETENV");
   ASSERT_TRUE(val.has_value());
-  EXPECT_EQ(val.value(), "hello");  // NOLINT(bugprone-unchecked-optional-access)
+  EXPECT_EQ(*val, "hello");  // NOLINT(bugprone-unchecked-optional-access) — checked by preceding
+                             // ASSERT_TRUE; analyzer cannot see through GoogleTest macros.
 }
 
 TEST(GetEnvTest, ReturnsEmptyStringViewForEmptyVar) {
   const ScopedEnv env{"CRASHOMON_TEST_GETENV", ""};
   const auto val = GetEnv("CRASHOMON_TEST_GETENV");
   ASSERT_TRUE(val.has_value());
-  EXPECT_TRUE(val.value().empty());  // NOLINT(bugprone-unchecked-optional-access)
+  EXPECT_TRUE(val->empty());  // NOLINT(bugprone-unchecked-optional-access) — checked by preceding
+                              // ASSERT_TRUE; analyzer cannot see through GoogleTest macros.
 }
 
 TEST(GetEnvTest, ReturnsStringViewNotOwningCopy) {
@@ -101,7 +119,9 @@ TEST(GetEnvTest, ReturnsStringViewNotOwningCopy) {
   const auto val = GetEnv("CRASHOMON_TEST_GETENV");
   ASSERT_TRUE(val.has_value());
   // The returned string_view should compare equal to the set value.
-  EXPECT_EQ(std::string{val.value()}, "test_value");  // NOLINT(bugprone-unchecked-optional-access)
+  // Checked by preceding ASSERT_TRUE; analyzer cannot see through GoogleTest macros.
+  // NOLINTNEXTLINE(bugprone-unchecked-optional-access)
+  EXPECT_EQ(std::string{*val}, "test_value");
 }
 
 // ── Resolve: defaults (no config, no env vars) ───────────────────────────────
@@ -115,6 +135,8 @@ TEST(ResolveTest, NullConfigNoEnvYieldsDefaults) {
 
 TEST(ResolveTest, EmptyConfigNoEnvYieldsDefaults) {
   const ClearCrashomonEnv clear;
+  // CrashomonConfig comes via crashomon_internal.h which is included; include-cleaner FP.
+  // NOLINTNEXTLINE(misc-include-cleaner)
   const CrashomonConfig config{nullptr, nullptr};
   const auto cfg = Resolve(&config);
   EXPECT_EQ(cfg.db_path, kDefaultDbPath);
@@ -206,12 +228,12 @@ TEST(ResolveTest, ResultIsIndependentOfEnvAfterResolve) {
 
 TEST(ResolveTest, ResultIsIndependentOfConfigPointerAfterResolve) {
   const ClearCrashomonEnv clear;
-  std::string db_path   = "/owned/db";
+  std::string db_path = "/owned/db";
   std::string hdlr_path = "/owned/handler";
   const CrashomonConfig config{db_path.c_str(), hdlr_path.c_str()};
   const auto cfg = Resolve(&config);
   // Mutate original strings — result must not change.
-  db_path   = "/mutated";
+  db_path = "/mutated";
   hdlr_path = "/mutated";
   EXPECT_EQ(cfg.db_path, "/owned/db");
   EXPECT_EQ(cfg.socket_path, "/owned/handler");

@@ -21,36 +21,50 @@
 //   --max-age      Maximum age per file (e.g. 7d, 24h, 3600s).
 //                  0 or omitted = unlimited.
 
+#include <linux/limits.h>
 #include <poll.h>
-#include <csignal>
 #include <sys/inotify.h>
 #include <sys/socket.h>
 #include <sys/stat.h>
+#include <sys/types.h>
 #include <sys/un.h>
 #include <unistd.h>
 
 #include <array>
 #include <cerrno>
-#include <cinttypes>
+#include <csignal>
+#include <cstdint>
 #include <cstdio>
 #include <cstdlib>
 #include <cstring>
+#include <map>
 #include <span>
 #include <string>
 #include <string_view>
 #include <thread>
 #include <vector>
 
-#include "handler/linux/exception_handler_server.h"
-#include "handler/linux/crash_report_exception_handler.h"
 #include "client/crash_report_database.h"
-
 #include "daemon/disk_manager.h"
 #include "daemon/minidump_reader.h"
 #include "daemon/tombstone_formatter.h"
+#include "handler/linux/crash_report_exception_handler.h"
+#include "handler/linux/exception_handler_server.h"
 
 namespace {
 
+// ── Named constants ───────────────────────────────────────────────────────────
+
+constexpr uint64_t kBytesPerKilobyte = 1024ULL;
+constexpr uint32_t kSecondsPerHour = 3600U;
+constexpr uint32_t kSecondsPerDay = 86400U;
+constexpr mode_t kSocketPermissions = 0666;
+constexpr int kListenBacklog = 128;
+constexpr mode_t kDirPermissions = 0755;
+constexpr size_t kInotifyEventBufferCount = 16;
+
+// POSIX signal handlers can
+// only communicate via volatile sig_atomic_t globals; no async-signal-safe alternative.
 // NOLINTNEXTLINE(cppcoreguidelines-avoid-non-const-global-variables)
 volatile sig_atomic_t g_stop = 0;
 
@@ -68,57 +82,84 @@ void Log(std::string_view msg) {
 
 // Parse a size string with optional suffix (K/M/G) and return bytes.
 // Returns 0 on error.
+// Google C++ Style Guide recommends trailing
+// return types only when required; conventional notation is clearer here.
+// NOLINTNEXTLINE(modernize-use-trailing-return-type)
 uint64_t ParseSize(const char* str) {
-  if (str == nullptr || *str == '\0') { return 0; }
+  if (str == nullptr || *str == '\0') {
+    return 0;
+  }
   char* end = nullptr;
   const unsigned long long val = strtoull(str, &end, 10);
-  if (end == str) { return 0; }
-  if (*end == '\0' || strcmp(end, "B") == 0) { return static_cast<uint64_t>(val); }
+  if (end == str) {
+    return 0;
+  }
+  if (*end == '\0' || strcmp(end, "B") == 0) {
+    return static_cast<uint64_t>(val);
+  }
   if (strcmp(end, "K") == 0 || strcmp(end, "KB") == 0) {
-    return static_cast<uint64_t>(val) * 1024ULL;
+    return static_cast<uint64_t>(val) * kBytesPerKilobyte;
   }
   if (strcmp(end, "M") == 0 || strcmp(end, "MB") == 0) {
-    return static_cast<uint64_t>(val) * 1024ULL * 1024ULL;
+    return static_cast<uint64_t>(val) * kBytesPerKilobyte * kBytesPerKilobyte;
   }
   if (strcmp(end, "G") == 0 || strcmp(end, "GB") == 0) {
-    return static_cast<uint64_t>(val) * 1024ULL * 1024ULL * 1024ULL;
+    return static_cast<uint64_t>(val) * kBytesPerKilobyte * kBytesPerKilobyte * kBytesPerKilobyte;
   }
   return 0;
 }
 
 // Parse a duration string with optional suffix (s/h/d) and return seconds.
 // Returns 0 on error.
+// Google C++ Style Guide recommends trailing
+// return types only when required; conventional notation is clearer here.
+// NOLINTNEXTLINE(modernize-use-trailing-return-type)
 uint32_t ParseAge(const char* str) {
-  if (str == nullptr || *str == '\0') { return 0; }
+  if (str == nullptr || *str == '\0') {
+    return 0;
+  }
   char* end = nullptr;
   const unsigned long val = strtoul(str, &end, 10);
-  if (end == str) { return 0; }
-  if (*end == '\0' || strcmp(end, "s") == 0) { return static_cast<uint32_t>(val); }
-  if (strcmp(end, "h") == 0) { return static_cast<uint32_t>(val) * 3600U; }
-  if (strcmp(end, "d") == 0) { return static_cast<uint32_t>(val) * 86400U; }
+  if (end == str) {
+    return 0;
+  }
+  if (*end == '\0' || strcmp(end, "s") == 0) {
+    return static_cast<uint32_t>(val);
+  }
+  if (strcmp(end, "h") == 0) {
+    return static_cast<uint32_t>(val) * kSecondsPerHour;
+  }
+  if (strcmp(end, "d") == 0) {
+    return static_cast<uint32_t>(val) * kSecondsPerDay;
+  }
   return 0;
 }
 
 // Match "--key=value" and return pointer to value, or nullptr if no match.
+// Google C++ Style Guide recommends trailing
+// return types only when required; conventional notation is clearer here.
+// NOLINTNEXTLINE(modernize-use-trailing-return-type)
 const char* GetArgValue(const char* arg, const char* key) {
   const size_t key_len = strlen(key);
-  if (strncmp(arg, key, key_len) != 0) { return nullptr; }
-  // NOLINTBEGIN(cppcoreguidelines-pro-bounds-pointer-arithmetic)
-  if (arg[key_len] == '=') {
-    return arg + key_len + 1;
+  if (strncmp(arg, key, key_len) != 0) {
+    return nullptr;
   }
-  // NOLINTEND(cppcoreguidelines-pro-bounds-pointer-arithmetic)
+  // argv/C-string pointer
+  // arithmetic; no safe alternative without a third-party span library.
+  // NOLINTNEXTLINE(cppcoreguidelines-pro-bounds-pointer-arithmetic)
+  if (arg[key_len] == '=') {
+    return arg + key_len + 1;  // NOLINT(cppcoreguidelines-pro-bounds-pointer-arithmetic)
+  }
   return nullptr;
 }
 
 // ── Minidump processing ───────────────────────────────────────────────────────
 
-void ProcessNewMinidump(const std::string& path,
-                        const crashomon::DiskManagerConfig& prune_cfg) {
+void ProcessNewMinidump(const std::string& path, const crashomon::DiskManagerConfig& prune_cfg) {
   auto info_or = crashomon::ReadMinidump(path);
   if (!info_or.ok()) {
-    Log(std::string{"crashomon-watcherd: failed to read '"} + path + "': " +
-        info_or.status().message().data());
+    Log(std::string{"crashomon-watcherd: failed to read '"} + path +
+        "': " + info_or.status().message().data());
     return;
   }
 
@@ -129,8 +170,7 @@ void ProcessNewMinidump(const std::string& path,
 
   auto prune_status = crashomon::PruneMinidumps(prune_cfg);
   if (!prune_status.ok()) {
-    Log(std::string{"crashomon-watcherd: pruning error: "} +
-        prune_status.message().data());
+    Log(std::string{"crashomon-watcherd: pruning error: "} + prune_status.message().data());
   }
 }
 
@@ -138,6 +178,9 @@ void ProcessNewMinidump(const std::string& path,
 
 // Create, bind, and listen on a SOCK_SEQPACKET Unix domain socket.
 // Returns the listening fd on success, or -1 on failure.
+// Google C++ Style Guide recommends trailing
+// return types only when required; conventional notation is clearer here.
+// NOLINTNEXTLINE(modernize-use-trailing-return-type)
 int CreateListenSocket(const std::string& socket_path) {
   const int sock_fd = socket(AF_UNIX, SOCK_SEQPACKET | SOCK_CLOEXEC, 0);
   if (sock_fd < 0) {
@@ -145,14 +188,18 @@ int CreateListenSocket(const std::string& socket_path) {
     return -1;
   }
 
-  struct sockaddr_un addr{};
+  struct sockaddr_un addr {};
   addr.sun_family = AF_UNIX;
+  // sun_path is a POSIX
+  // fixed-size C array; strncpy is the prescribed way to fill it.
   // NOLINTNEXTLINE(cppcoreguidelines-pro-bounds-array-to-pointer-decay)
   strncpy(addr.sun_path, socket_path.c_str(), sizeof(addr.sun_path) - 1);
 
   // Remove stale socket from a previous run.
   (void)unlink(socket_path.c_str());
 
+  // POSIX bind/connect require
+  // casting sockaddr_un* to sockaddr*; no standard-compliant alternative.
   // NOLINTNEXTLINE(cppcoreguidelines-pro-type-reinterpret-cast)
   if (bind(sock_fd, reinterpret_cast<struct sockaddr*>(&addr), sizeof(addr)) != 0) {
     perror("bind");
@@ -161,9 +208,9 @@ int CreateListenSocket(const std::string& socket_path) {
   }
 
   // Allow all users to connect (monitored processes may run as different users).
-  (void)chmod(socket_path.c_str(), 0666);
+  (void)chmod(socket_path.c_str(), kSocketPermissions);
 
-  if (listen(sock_fd, /*backlog=*/128) != 0) {
+  if (listen(sock_fd, /*backlog=*/kListenBacklog) != 0) {
     perror("listen");
     (void)close(sock_fd);
     return -1;
@@ -174,9 +221,7 @@ int CreateListenSocket(const std::string& socket_path) {
 
 // Accept one client fd and run ExceptionHandlerServer on a detached thread.
 // Thread exits when the client disconnects.
-void AcceptAndHandleClient(
-    int listen_fd,
-    crashpad::CrashReportExceptionHandler* crash_handler) {
+void AcceptAndHandleClient(int listen_fd, crashpad::CrashReportExceptionHandler* crash_handler) {
   const int client_fd = accept4(listen_fd, nullptr, nullptr, SOCK_CLOEXEC);
   if (client_fd < 0) {
     if (errno != EINTR && errno != EAGAIN) {
@@ -188,12 +233,17 @@ void AcceptAndHandleClient(
   // Enable credential passing so ExceptionHandlerServer can read the client PID
   // and call prctl(PR_SET_PTRACER) / ptrace-attach correctly.
   int one = 1;
+  // SOL_SOCKET/SO_PASSCRED come from <sys/socket.h> which is included; include-cleaner FP.
+  // NOLINTNEXTLINE(misc-include-cleaner)
   (void)setsockopt(client_fd, SOL_SOCKET, SO_PASSCRED, &one, sizeof(one));
 
   std::thread([client_fd, crash_handler]() {
     crashpad::ExceptionHandlerServer server;
-    if (server.InitializeWithClient(base::ScopedFD(client_fd),
-                                    /*multiple_clients=*/true)) {
+    if (server.InitializeWithClient(
+            base::ScopedFD(client_fd),  // NOLINT(misc-include-cleaner) — base::ScopedFD comes from
+                                        // Crashpad's client/crashpad_client.h transitively; cannot
+                                        // control third-party include paths.
+            /*multiple_clients=*/true)) {
       server.Run(crash_handler);
     }
   }).detach();
@@ -206,19 +256,34 @@ void AcceptAndHandleClient(
 void ProcessInotifyEvents(std::string_view pending_dir,
                           const crashomon::DiskManagerConfig& prune_cfg,
                           std::span<const char> buf) {
-  for (size_t offset = 0; offset < buf.size(); ) {
-    // NOLINTNEXTLINE(cppcoreguidelines-pro-bounds-pointer-arithmetic, cppcoreguidelines-pro-type-reinterpret-cast)
+  for (size_t offset = 0; offset < buf.size();) {
+    // inotify_event is a
+    // variable-length C kernel struct; reinterpret_cast of a byte buffer is the only way to access
+    // it.
+    // NOLINTNEXTLINE(cppcoreguidelines-pro-type-reinterpret-cast)
     const auto* event = reinterpret_cast<const struct inotify_event*>(buf.data() + offset);
     offset += sizeof(struct inotify_event) + event->len;
 
-    if ((event->mask & IN_MOVED_TO) == 0) { continue; }
-    if (event->len == 0) { continue; }
+    if ((event->mask & IN_MOVED_TO) == 0) {
+      continue;
+    }
+    if (event->len == 0) {
+      continue;
+    }
 
+    // event->name is a C
+    // flexible array member; decaying to pointer is the only access method.
     // NOLINTNEXTLINE(cppcoreguidelines-pro-bounds-array-to-pointer-decay)
     const char* name = event->name;
-    const size_t name_len = strnlen(name, event->len);
+    const size_t name_len =
+        strnlen(name, event->len);  // NOLINT(misc-include-cleaner) — strnlen is in <cstring> which
+                                    // is included; false positive from include-cleaner.
+    // suffix check on C string;
+    // string_view::ends_with would require copying name into string first.
     // NOLINTNEXTLINE(cppcoreguidelines-pro-bounds-pointer-arithmetic)
-    if (name_len < 4 || strcmp(name + name_len - 4, ".dmp") != 0) { continue; }
+    if (name_len < 4 || strcmp(name + name_len - 4, ".dmp") != 0) {
+      continue;
+    }
 
     ProcessNewMinidump(std::string{pending_dir} + "/" + name, prune_cfg);
   }
@@ -226,8 +291,10 @@ void ProcessInotifyEvents(std::string_view pending_dir,
 
 // ── inotify + accept loop ─────────────────────────────────────────────────────
 
-int RunWatcher(const std::string& db_path,
-               const std::string& socket_path,
+// Google C++ Style Guide recommends trailing
+// return types only when required; conventional notation is clearer here.
+// NOLINTNEXTLINE(modernize-use-trailing-return-type)
+int RunWatcher(const std::string& db_path, const std::string& socket_path,
                const crashomon::DiskManagerConfig& prune_cfg) {
   // ── Crashpad handler setup ────────────────────────────────────────────────
 
@@ -237,21 +304,21 @@ int RunWatcher(const std::string& db_path,
   const std::string new_dir = db_path + "/new";
   const std::string pending_dir = db_path + "/pending";
   {
-    struct stat stat_buf{};
+    struct stat stat_buf {};
     if (::stat(db_path.c_str(), &stat_buf) != 0 || !S_ISDIR(stat_buf.st_mode)) {
       Log(std::string{"crashomon-watcherd: db-path is not a directory: "} + db_path);
       return 1;
     }
     // mkdir is best-effort; dirs may already exist after CrashReportDatabase::Initialize().
-    (void)mkdir(new_dir.c_str(), 0755);
-    (void)mkdir(pending_dir.c_str(), 0755);
+    (void)mkdir(new_dir.c_str(), kDirPermissions);
+    (void)mkdir(pending_dir.c_str(), kDirPermissions);
   }
 
   auto database = crashpad::CrashReportDatabase::Initialize(
-      base::FilePath(db_path));
+      base::FilePath(db_path));  // NOLINT(misc-include-cleaner) — base::FilePath comes from
+                                 // Crashpad transitively; cannot control third-party include paths.
   if (database == nullptr) {
-    Log(std::string{"crashomon-watcherd: failed to initialize crash database at "} +
-        db_path);
+    Log(std::string{"crashomon-watcherd: failed to initialize crash database at "} + db_path);
     return 1;
   }
 
@@ -259,14 +326,12 @@ int RunWatcher(const std::string& db_path,
   // process_annotations and attachments must be non-null (Crashpad dereferences them).
   static const std::map<std::string, std::string> kNoAnnotations;
   static const std::vector<base::FilePath> kNoAttachments;
-  crashpad::CrashReportExceptionHandler crash_handler(
-      database.get(),
-      /*upload_thread=*/nullptr,
-      &kNoAnnotations,
-      &kNoAttachments,
-      /*write_minidump_to_database=*/true,
-      /*write_minidump_to_log=*/false,
-      /*user_stream_data_sources=*/nullptr);
+  crashpad::CrashReportExceptionHandler crash_handler(database.get(),
+                                                      /*upload_thread=*/nullptr, &kNoAnnotations,
+                                                      &kNoAttachments,
+                                                      /*write_minidump_to_database=*/true,
+                                                      /*write_minidump_to_log=*/false,
+                                                      /*user_stream_data_sources=*/nullptr);
 
   const int listen_fd = CreateListenSocket(socket_path);
   if (listen_fd < 0) {
@@ -296,25 +361,33 @@ int RunWatcher(const std::string& db_path,
 
   Log(std::string{"crashomon-watcherd: watching "} + pending_dir);
 
-  // Buffer sized for 16 events with maximum-length names.
+  // Buffer sized for kInotifyEventBufferCount events with maximum-length names.
   constexpr size_t buf_size = sizeof(struct inotify_event) + NAME_MAX + 1;
-  std::array<char, buf_size * 16> buf{};
+  std::array<char, buf_size * kInotifyEventBufferCount> buf{};
 
   // Poll on both inotify fd and the listen socket.
+  // pollfd/POLLIN/poll/nfds_t all come from <poll.h> which is included; include-cleaner FPs.
+  // NOLINTNEXTLINE(misc-include-cleaner)
   std::array<struct pollfd, 2> pfds{};
   pfds[0].fd = ifd;
-  pfds[0].events = POLLIN;
+  pfds[0].events = POLLIN;  // NOLINT(misc-include-cleaner)
   pfds[1].fd = listen_fd;
-  pfds[1].events = POLLIN;
+  pfds[1].events = POLLIN;  // NOLINT(misc-include-cleaner)
 
   while (g_stop == 0) {
+    // poll/nfds_t come from <poll.h> which is included; include-cleaner FPs.
+    // NOLINTNEXTLINE(misc-include-cleaner)
     const int ready = poll(pfds.data(), static_cast<nfds_t>(pfds.size()), /*timeout_ms=*/500);
     if (ready < 0) {
-      if (errno == EINTR) { continue; }
+      if (errno == EINTR) {
+        continue;
+      }
       perror("poll");
       break;
     }
-    if (ready == 0) { continue; }
+    if (ready == 0) {
+      continue;
+    }
 
     // ── New client connection ─────────────────────────────────────────────
     if ((pfds[1].revents & POLLIN) != 0) {
@@ -322,11 +395,15 @@ int RunWatcher(const std::string& db_path,
     }
 
     // ── New minidump written ──────────────────────────────────────────────
-    if ((pfds[0].revents & POLLIN) == 0) { continue; }
+    if ((pfds[0].revents & POLLIN) == 0) {
+      continue;
+    }
 
     const ssize_t num_read = read(ifd, buf.data(), buf.size());
     if (num_read < 0) {
-      if (errno == EINTR || errno == EAGAIN) { continue; }
+      if (errno == EINTR || errno == EAGAIN) {
+        continue;
+      }
       perror("read(inotify)");
       break;
     }
@@ -344,6 +421,9 @@ int RunWatcher(const std::string& db_path,
 
 }  // namespace
 
+// Google C++ Style Guide recommends trailing
+// return types only when required; conventional notation is clearer here.
+// NOLINTNEXTLINE(modernize-use-trailing-return-type)
 int main(int argc, char* argv[]) {
   const char* db_path_env = getenv("CRASHOMON_DB_PATH");
   std::string db_path = (db_path_env != nullptr) ? db_path_env : "/var/crashomon";
@@ -355,6 +435,8 @@ int main(int argc, char* argv[]) {
   uint64_t max_bytes = 0;
   uint32_t max_age_sec = 0;
 
+  // argv is a C array; pointer
+  // arithmetic is the only way to construct a range from it.
   // NOLINTNEXTLINE(cppcoreguidelines-pro-bounds-pointer-arithmetic)
   const std::vector<std::string_view> args{argv + 1, argv + argc};
   for (const auto& arg_sv : args) {
@@ -374,11 +456,13 @@ int main(int argc, char* argv[]) {
     }
   }
 
-  struct sigaction sig_action{};
-  sig_action.sa_handler = HandleSignal;
-  (void)sigemptyset(&sig_action.sa_mask);
-  (void)sigaction(SIGTERM, &sig_action, nullptr);
-  (void)sigaction(SIGINT, &sig_action, nullptr);
+  // sigaction/sa_handler/sigemptyset from <csignal>; include-cleaner FPs.
+  // NOLINTNEXTLINE(misc-include-cleaner)
+  struct sigaction sig_action {};
+  sig_action.sa_handler = HandleSignal;            // NOLINT(misc-include-cleaner)
+  (void)sigemptyset(&sig_action.sa_mask);          // NOLINT(misc-include-cleaner)
+  (void)sigaction(SIGTERM, &sig_action, nullptr);  // NOLINT(misc-include-cleaner)
+  (void)sigaction(SIGINT, &sig_action, nullptr);   // NOLINT(misc-include-cleaner)
 
   crashomon::DiskManagerConfig prune_cfg;
   prune_cfg.db_path = db_path;

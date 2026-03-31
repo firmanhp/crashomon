@@ -19,14 +19,12 @@ target_compile_options(example_segfault PRIVATE
 )
 set_target_properties(example_segfault PROPERTIES
   OUTPUT_NAME crashomon-example-segfault
-  CXX_CLANG_TIDY "${CRASHOMON_CLANG_TIDY}"
 )
 
 add_executable(example_abort abort.c)
 target_link_libraries(example_abort PRIVATE crashomon_warnings)
 set_target_properties(example_abort PROPERTIES
   OUTPUT_NAME crashomon-example-abort
-  C_CLANG_TIDY "${CRASHOMON_CLANG_TIDY}"
 )
 
 add_executable(example_multithread multithread_crash.c)
@@ -44,5 +42,4 @@ target_compile_options(example_multithread PRIVATE
 )
 set_target_properties(example_multithread PROPERTIES
   OUTPUT_NAME crashomon-example-multithread
-  C_CLANG_TIDY "${CRASHOMON_CLANG_TIDY}"
 )

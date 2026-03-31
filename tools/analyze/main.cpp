@@ -32,38 +32,55 @@
 namespace {
 
 // Match "--key=value" and return pointer to value, or nullptr if no match.
+// Google C++ Style Guide recommends trailing
+// return types only when required; conventional notation is clearer here.
+// NOLINTNEXTLINE(modernize-use-trailing-return-type)
 const char* GetArgValue(const char* arg, const char* key) {
   const size_t klen = strlen(key);
-  if (strncmp(arg, key, klen) != 0) { return nullptr; }
+  if (strncmp(arg, key, klen) != 0) {
+    return nullptr;
+  }
+  // C-string subscript and arithmetic on argv tokens; no cleaner alternative on raw char*.
   // NOLINTNEXTLINE(cppcoreguidelines-pro-bounds-pointer-arithmetic)
-  if (arg[klen] == '=') { return arg + klen + 1; }
+  if (arg[klen] == '=') {
+    // NOLINTNEXTLINE(cppcoreguidelines-pro-bounds-pointer-arithmetic)
+    return arg + klen + 1;
+  }
   return nullptr;
 }
 
 void Usage(const char* prog) {
   (void)std::fputs("Usage:\n", stderr);
-  (void)std::fputs(("  " + std::string(prog) + " --store <dir> --minidump <file.dmp>\n").c_str(), stderr);
+  (void)std::fputs(("  " + std::string(prog) + " --store <dir> --minidump <file.dmp>\n").c_str(),
+                   stderr);
   (void)std::fputs(("  " + std::string(prog) + " --store <dir> --stdin\n").c_str(), stderr);
-  (void)std::fputs(("  " + std::string(prog) + " --symbols <file.sym> --minidump <file.dmp>\n").c_str(), stderr);
-  (void)std::fputs("\nOptions:\n"
-             "  --stackwalk-binary <path>  (default: minidump_stackwalk)\n"
-             "  --addr2line-binary <path>  (default: eu-addr2line)\n",
-             stderr);
+  (void)std::fputs(
+      ("  " + std::string(prog) + " --symbols <file.sym> --minidump <file.dmp>\n").c_str(), stderr);
+  (void)std::fputs(
+      "\nOptions:\n"
+      "  --stackwalk-binary <path>  (default: minidump_stackwalk)\n"
+      "  --addr2line-binary <path>  (default: eu-addr2line)\n",
+      stderr);
 }
 
+// Google C++ Style Guide recommends trailing
+// return types only when required; conventional notation is clearer here.
+// NOLINTNEXTLINE(modernize-use-trailing-return-type)
 int ModeMinidumpStore(const std::string& store, const std::string& dump,
                       const std::string& stackwalk) {
   auto out_or = crashomon::RunMinidumpStackwalk(stackwalk, dump, {store});
   if (!out_or.ok()) {
-    (void)std::fputs(("crashomon-analyze: " +
-                std::string(out_or.status().message()) + "\n").c_str(), stderr);
+    (void)std::fputs(
+        ("crashomon-analyze: " + std::string(out_or.status().message()) + "\n").c_str(), stderr);
     return 1;
   }
   (void)std::fputs(out_or->c_str(), stdout);
   return 0;
 }
 
-// NOLINTNEXTLINE(bugprone-easily-swappable-parameters)
+// store/addr2line have semantically distinct roles; conventional return type notation is clearer
+// per Google Style Guide.
+// NOLINTNEXTLINE(bugprone-easily-swappable-parameters,modernize-use-trailing-return-type)
 int ModeStdinStore(const std::string& store, const std::string& addr2line) {
   // Read all of stdin.
   std::ostringstream buf;
@@ -72,33 +89,40 @@ int ModeStdinStore(const std::string& store, const std::string& addr2line) {
 
   auto tombstone_or = crashomon::ParseTombstone(text);
   if (!tombstone_or.ok()) {
-    (void)std::fputs(("crashomon-analyze: parse error: " +
-                std::string(tombstone_or.status().message()) + "\n").c_str(), stderr);
+    (void)std::fputs(
+        ("crashomon-analyze: parse error: " + std::string(tombstone_or.status().message()) + "\n")
+            .c_str(),
+        stderr);
     return 1;
   }
 
   // Try eu-addr2line symbolication.
   auto syms_or = crashomon::SymbolizeWithAddrLine(*tombstone_or, addr2line);
   if (!syms_or.ok()) {
-    (void)std::fputs(("crashomon-analyze: symbolizer warning: " +
-                std::string(syms_or.status().message()) +
-                "\n  (continuing with unsymbolicated output)\n").c_str(), stderr);
+    (void)std::fputs(
+        ("crashomon-analyze: symbolizer warning: " + std::string(syms_or.status().message()) +
+         "\n  (continuing with unsymbolicated output)\n")
+            .c_str(),
+        stderr);
     const crashomon::SymbolTable empty;
     (void)std::fputs(crashomon::FormatSymbolicated(*tombstone_or, empty).c_str(), stdout);
     return 0;
   }
 
-  (void)store; // sym store not used in stdin+addr2line mode
+  (void)store;  // sym store not used in stdin+addr2line mode
   (void)std::fputs(crashomon::FormatSymbolicated(*tombstone_or, *syms_or).c_str(), stdout);
   return 0;
 }
 
+// Google C++ Style Guide recommends trailing
+// return types only when required; conventional notation is clearer here.
+// NOLINTNEXTLINE(modernize-use-trailing-return-type)
 int ModeSymFileMinidump(const std::string& sym_file, const std::string& dump,
                         const std::string& stackwalk) {
   auto out_or = crashomon::RunWithSingleSymFile(stackwalk, sym_file, dump);
   if (!out_or.ok()) {
-    (void)std::fputs(("crashomon-analyze: " +
-                std::string(out_or.status().message()) + "\n").c_str(), stderr);
+    (void)std::fputs(
+        ("crashomon-analyze: " + std::string(out_or.status().message()) + "\n").c_str(), stderr);
     return 1;
   }
   (void)std::fputs(out_or->c_str(), stdout);
@@ -107,6 +131,9 @@ int ModeSymFileMinidump(const std::string& sym_file, const std::string& dump,
 
 }  // namespace
 
+// Google C++ Style Guide recommends trailing
+// return types only when required; conventional notation is clearer here.
+// NOLINTNEXTLINE(modernize-use-trailing-return-type)
 int main(int argc, char* argv[]) {
   std::string store;
   std::string minidump;
@@ -116,8 +143,8 @@ int main(int argc, char* argv[]) {
   bool read_stdin = false;
 
   for (int idx = 1; idx < argc; ++idx) {
-    // NOLINTNEXTLINE(cppcoreguidelines-pro-bounds-pointer-arithmetic)
-    const char* arg = argv[idx];
+    const char* arg = argv[idx];  // NOLINT(cppcoreguidelines-pro-bounds-pointer-arithmetic) — argv
+                                  // subscript; standard C main() access pattern.
     const char* arg_val = GetArgValue(arg, "--store");
     if (arg_val != nullptr) {
       store = arg_val;
@@ -147,8 +174,10 @@ int main(int argc, char* argv[]) {
       read_stdin = true;
       continue;
     }
-    (void)std::fputs(("crashomon-analyze: unknown argument: " + std::string(arg) + "\n").c_str(), stderr);
-    Usage(argv[0]);  // NOLINT(cppcoreguidelines-pro-bounds-pointer-arithmetic)
+    (void)std::fputs(("crashomon-analyze: unknown argument: " + std::string(arg) + "\n").c_str(),
+                     stderr);
+    Usage(argv[0]);  // NOLINT(cppcoreguidelines-pro-bounds-pointer-arithmetic) — argv[0] is the
+                     // program name; standard C main() pattern.
     return 1;
   }
 
@@ -164,6 +193,7 @@ int main(int argc, char* argv[]) {
   }
 
   (void)std::fputs("crashomon-analyze: no valid mode specified.\n", stderr);
-  Usage(argv[0]);  // NOLINT(cppcoreguidelines-pro-bounds-pointer-arithmetic)
+  Usage(argv[0]);  // NOLINT(cppcoreguidelines-pro-bounds-pointer-arithmetic) — argv[0] is the
+                   // program name; standard C main() pattern.
   return 1;
 }

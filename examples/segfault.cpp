@@ -14,8 +14,7 @@ struct Record {
 };
 
 // Leaf: writes to a field. Crashes when ptr is null.
-[[gnu::noinline]] void WriteField(volatile std::uint32_t* ptr,
-                                  std::uint32_t value) {
+[[gnu::noinline]] void WriteField(volatile std::uint32_t* ptr, std::uint32_t value) {
   *ptr = value;  // SIGSEGV when ptr is null
 }
 
@@ -26,19 +25,15 @@ struct Record {
 }
 
 // Processes one entry from a record buffer.
-[[gnu::noinline]] void ProcessEntry(Record* rec) {
-  UpdateRecord(rec, 0xdeadbeefU);
-}
+[[gnu::noinline]] void ProcessEntry(Record* rec) { UpdateRecord(rec, 0xdeadbeefU); }
 
 // Validates and dispatches records from a named buffer.
-[[gnu::noinline]] void DispatchRecords(std::string_view name,
-                                       Record* records,
-                                       std::size_t count) {
+[[gnu::noinline]] void DispatchRecords(std::string_view name, Record* records, std::size_t count) {
   std::fputs("  dispatching record(s) from '", stdout);
   std::fwrite(name.data(), 1, name.size(), stdout);
   std::fputs("'\n", stdout);
   for (std::size_t i = 0; i < count; ++i) {
-    ProcessEntry(&records[i]);  // NOLINT(cppcoreguidelines-pro-bounds-pointer-arithmetic)
+    ProcessEntry(&records[i]);
   }
 }
 

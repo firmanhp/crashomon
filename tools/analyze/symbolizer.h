@@ -19,9 +19,9 @@
 namespace crashomon {
 
 struct SymbolInfo {
-  std::string function;    // function name; "??" if unknown
-  std::string source_file; // source filename (no directory); empty if unknown
-  int source_line = 0;     // source line; 0 if unknown
+  std::string function;     // function name; "??" if unknown
+  std::string source_file;  // source filename (no directory); empty if unknown
+  int source_line = 0;      // source line; 0 if unknown
 };
 
 // Key: {tid, frame_index}
@@ -32,13 +32,18 @@ using SymbolTable = std::map<std::pair<uint32_t, int>, SymbolInfo>;
 // Frames with no module path (unmapped) are silently skipped.
 // Frames whose module binary cannot be found on disk are skipped with a
 // warning in the returned table (SymbolInfo with function="??").
-absl::StatusOr<SymbolTable> SymbolizeWithAddrLine(
-    const ParsedTombstone& tombstone, std::string_view addr2line_binary);
+// Google C++ Style Guide recommends trailing
+// return types only when required; conventional notation is clearer here.
+// NOLINTNEXTLINE(modernize-use-trailing-return-type)
+absl::StatusOr<SymbolTable> SymbolizeWithAddrLine(const ParsedTombstone& tombstone,
+                                                  std::string_view addr2line_binary);
 
 // Format a tombstone with inline symbol information.
 // Replaces unsymbolicated frame lines with lines that include the function
 // name and source location where available.
-std::string FormatSymbolicated(const ParsedTombstone& tombstone,
-                                const SymbolTable& symbols);
+// Google C++ Style Guide recommends trailing
+// return types only when required; conventional notation is clearer here.
+// NOLINTNEXTLINE(modernize-use-trailing-return-type)
+std::string FormatSymbolicated(const ParsedTombstone& tombstone, const SymbolTable& symbols);
 
 }  // namespace crashomon

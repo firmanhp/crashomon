@@ -26,7 +26,7 @@ struct FrameInfo {
 
 struct ThreadInfo {
   uint32_t tid = 0;
-  std::string name;        // thread name, may be empty
+  std::string name;  // thread name, may be empty
   bool is_crashing = false;
 
   // AMD64 general-purpose registers, in display order.
@@ -37,25 +37,25 @@ struct ThreadInfo {
 };
 
 struct ModuleInfo {
-  std::string path;         // full path to the ELF binary
+  std::string path;  // full path to the ELF binary
   uint64_t base_address = 0;
   uint64_t size = 0;
-  std::string build_id;     // Breakpad debug identifier (for symbol lookup)
+  std::string build_id;  // Breakpad debug identifier (for symbol lookup)
 };
 
 struct MinidumpInfo {
   uint32_t pid = 0;
-  std::string process_name; // basename of the main executable
+  std::string process_name;  // basename of the main executable
 
   // Full crash reason from Breakpad processor, e.g. "SIGSEGV / SEGV_MAPERR".
   // For tombstone formatting, split on " / " to get signal and code names.
   std::string signal_info;
 
-  uint32_t signal_number = 0; // si_signo (from exception_code)
-  uint32_t signal_code = 0;   // si_code  (from exception_flags)
+  uint32_t signal_number = 0;  // si_signo (from exception_code)
+  uint32_t signal_code = 0;    // si_code  (from exception_flags)
   uint64_t fault_addr = 0;
   uint32_t crashing_tid = 0;
-  std::string timestamp;      // ISO 8601 UTC (from minidump time_date_stamp)
+  std::string timestamp;  // ISO 8601 UTC (from minidump time_date_stamp)
 
   // Crashing thread is always first in the list (if present).
   std::vector<ThreadInfo> threads;
@@ -67,6 +67,9 @@ struct MinidumpInfo {
 // Parse a Breakpad minidump file and populate MinidumpInfo.
 // Uses Breakpad's MinidumpProcessor with no symbol supplier (raw addresses).
 // Returns an error status if the file cannot be read or processed.
+// Google C++ Style Guide recommends trailing
+// return types only when required; conventional notation is clearer here.
+// NOLINTNEXTLINE(modernize-use-trailing-return-type)
 absl::StatusOr<MinidumpInfo> ReadMinidump(const std::string& path);
 
 }  // namespace crashomon

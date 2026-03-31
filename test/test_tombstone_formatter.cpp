@@ -1,42 +1,71 @@
 // test/test_tombstone_formatter.cpp — unit tests for FormatTombstone
 
-#include "daemon/tombstone_formatter.h"
-
+#include <cstddef>
+#include <cstdint>
 #include <string>
 
+#include "daemon/minidump_reader.h"
+#include "daemon/tombstone_formatter.h"
 #include "gtest/gtest.h"
 
 namespace crashomon {
 namespace {
 
+// ── Test constants ────────────────────────────────────────────────────────────
+constexpr uint32_t kTestPid = 1234;
+constexpr uint32_t kTestTid = 1234;
+constexpr uint32_t kTestSigSegv = 11;
+constexpr uint32_t kTestSigAbrt = 6;
+constexpr uint32_t kTestSigCode1 = 1;
+constexpr uint64_t kTestFaultAddr = 0xdeadbeef00000000ULL;
+constexpr uint32_t kTestTid2 = 1235;
+constexpr uint32_t kTestTid3 = 9999;
+constexpr uint64_t kTestUnmappedPc = 0xbadf00d0ULL;
+// Frame PCs and offsets.
+constexpr uint64_t kFrame0Pc = 0x5555000011a0ULL;
+constexpr uint64_t kFrame0Offset = 0x11a0ULL;
+constexpr uint64_t kFrame1Pc = 0x5555000010f0ULL;
+constexpr uint64_t kFrame1Offset = 0x10f0ULL;
+constexpr uint64_t kFrame2Pc = 0x7f0000023b09ULL;
+constexpr uint64_t kFrame2Offset = 0x23b09ULL;
+constexpr uint64_t kThread2Frame0Pc = 0x7f0000010000ULL;
+constexpr uint64_t kThread2Frame0Offset = 0x10000ULL;
+
 // Build a minimal MinidumpInfo for testing.
+// Google C++ Style Guide recommends trailing
+// return types only when required; conventional notation is clearer here.
+// NOLINTNEXTLINE(modernize-use-trailing-return-type)
 MinidumpInfo MakeInfo() {
-  MinidumpInfo info;
-  info.pid = 1234;
-  info.crashing_tid = 1234;
+  MinidumpInfo
+      info;  // NOLINT(misc-include-cleaner) — MinidumpInfo comes via daemon/minidump_reader.h which
+             // is included; false positive from include-cleaner.
+  info.pid = kTestPid;
+  info.crashing_tid = kTestTid;
   info.process_name = "my_service";
   info.signal_info = "SIGSEGV / SEGV_MAPERR";
-  info.signal_number = 11;
-  info.signal_code = 1;
-  info.fault_addr = 0xdeadbeef00000000ULL;
+  info.signal_number = kTestSigSegv;
+  info.signal_code = kTestSigCode1;
+  info.fault_addr = kTestFaultAddr;
   info.timestamp = "2026-03-27T10:15:30Z";
   info.minidump_path = "/var/crashomon/test.dmp";
 
-  ThreadInfo crashing;
-  crashing.tid = 1234;
+  ThreadInfo
+      crashing;  // NOLINT(misc-include-cleaner) — ThreadInfo comes via daemon/minidump_reader.h
+                 // which is included; false positive from include-cleaner.
+  crashing.tid = kTestTid;
   crashing.is_crashing = true;
+  // NOLINTBEGIN(cppcoreguidelines-avoid-magic-numbers,readability-magic-numbers) — register values
+  // are sequential test data; naming each 0x0-0x10 would be less readable.
   crashing.registers = {
-    {"rax", 0x0}, {"rbx", 0x1}, {"rcx", 0x2},
-    {"rdx", 0x3}, {"rsi", 0x4}, {"rdi", 0x5},
-    {"rbp", 0x6}, {"rsp", 0x7}, {"r8",  0x8},
-    {"r9",  0x9}, {"r10", 0xa}, {"r11", 0xb},
-    {"r12", 0xc}, {"r13", 0xd}, {"r14", 0xe},
-    {"r15", 0xf}, {"rip", 0x10},
+      {"rax", 0x0}, {"rbx", 0x1}, {"rcx", 0x2}, {"rdx", 0x3}, {"rsi", 0x4},  {"rdi", 0x5},
+      {"rbp", 0x6}, {"rsp", 0x7}, {"r8", 0x8},  {"r9", 0x9},  {"r10", 0xa},  {"r11", 0xb},
+      {"r12", 0xc}, {"r13", 0xd}, {"r14", 0xe}, {"r15", 0xf}, {"rip", 0x10},
   };
+  // NOLINTEND(cppcoreguidelines-avoid-magic-numbers,readability-magic-numbers)
   crashing.frames = {
-    {0x5555000011a0ULL, 0x11a0ULL, "/usr/bin/my_service"},
-    {0x5555000010f0ULL, 0x10f0ULL, "/usr/bin/my_service"},
-    {0x7f0000023b09ULL, 0x23b09ULL, "/usr/lib/libc.so.6"},
+      {kFrame0Pc, kFrame0Offset, "/usr/bin/my_service"},
+      {kFrame1Pc, kFrame1Offset, "/usr/bin/my_service"},
+      {kFrame2Pc, kFrame2Offset, "/usr/lib/libc.so.6"},
   };
   info.threads.push_back(crashing);
 
@@ -47,8 +76,8 @@ TEST(TombstoneFormatterTest, ContainsSeparators) {
   auto tomb = FormatTombstone(MakeInfo());
   EXPECT_NE(tomb.find("*** *** ***"), std::string::npos);
   // Should appear twice: at start and end.
-  size_t first = tomb.find("*** *** ***");
-  size_t last = tomb.rfind("*** *** ***");
+  const size_t first = tomb.find("*** *** ***");
+  const size_t last = tomb.rfind("*** *** ***");
   EXPECT_NE(first, last);
 }
 
@@ -102,7 +131,7 @@ TEST(TombstoneFormatterTest, ContainsMinidumpPath) {
 TEST(TombstoneFormatterTest, NoCodeNameWhenSignalInfoHasNoSlash) {
   MinidumpInfo info = MakeInfo();
   info.signal_info = "SIGABRT";
-  info.signal_number = 6;
+  info.signal_number = kTestSigAbrt;
   info.signal_code = 0;
   auto tomb = FormatTombstone(info);
   EXPECT_NE(tomb.find("signal 6"), std::string::npos);
@@ -115,9 +144,9 @@ TEST(TombstoneFormatterTest, MultipleThreads) {
   MinidumpInfo info = MakeInfo();
 
   ThreadInfo idle;
-  idle.tid = 1235;
+  idle.tid = kTestTid2;
   idle.is_crashing = false;
-  idle.frames = {{0x7f0000010000ULL, 0x10000ULL, "/usr/lib/libc.so.6"}};
+  idle.frames = {{kThread2Frame0Pc, kThread2Frame0Offset, "/usr/lib/libc.so.6"}};
   info.threads.push_back(idle);
 
   auto tomb = FormatTombstone(info);
@@ -128,7 +157,7 @@ TEST(TombstoneFormatterTest, ThreadWithName) {
   MinidumpInfo info = MakeInfo();
 
   ThreadInfo named;
-  named.tid = 9999;
+  named.tid = kTestTid3;
   named.name = "worker";
   named.is_crashing = false;
   info.threads.push_back(named);
@@ -139,7 +168,7 @@ TEST(TombstoneFormatterTest, ThreadWithName) {
 
 TEST(TombstoneFormatterTest, UnmappedFrame) {
   MinidumpInfo info = MakeInfo();
-  info.threads[0].frames = {{0xbadf00d0ULL, 0, ""}};
+  info.threads[0].frames = {{kTestUnmappedPc, 0, ""}};
   auto tomb = FormatTombstone(info);
   EXPECT_NE(tomb.find("???"), std::string::npos);
 }

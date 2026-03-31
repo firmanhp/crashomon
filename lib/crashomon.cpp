@@ -8,7 +8,6 @@
 //   Explicit     — call crashomon_init() / crashomon_shutdown() at program start/end.
 
 #include "crashomon.h"
-#include "crashomon_internal.h"
 
 #include <sys/socket.h>
 #include <sys/un.h>
@@ -17,23 +16,31 @@
 #include <cstring>
 #include <string>
 
-#include "client/crashpad_client.h"
 #include "base/files/scoped_file.h"
+#include "client/crashpad_client.h"
+#include "crashomon_internal.h"
 
 namespace crashomon {
 namespace {
 
+// Google C++ Style Guide recommends trailing
+// return types only when required; conventional notation is clearer here.
+// NOLINTNEXTLINE(modernize-use-trailing-return-type)
 int DoInit(const ResolvedConfig& cfg) {
   const int sock = socket(AF_UNIX, SOCK_SEQPACKET | SOCK_CLOEXEC, 0);
   if (sock < 0) {
     return -1;
   }
 
-  struct sockaddr_un addr{};
+  struct sockaddr_un addr {};
   addr.sun_family = AF_UNIX;
+  // sun_path is a POSIX
+  // fixed-size C array; strncpy is the prescribed way to fill it.
   // NOLINTNEXTLINE(cppcoreguidelines-pro-bounds-array-to-pointer-decay)
   strncpy(addr.sun_path, cfg.socket_path.c_str(), sizeof(addr.sun_path) - 1);
 
+  // POSIX bind/connect require
+  // casting sockaddr_un* to sockaddr*; no standard-compliant alternative.
   // NOLINTNEXTLINE(cppcoreguidelines-pro-type-reinterpret-cast)
   if (connect(sock, reinterpret_cast<struct sockaddr*>(&addr), sizeof(addr)) != 0) {
     close(sock);
@@ -41,7 +48,9 @@ int DoInit(const ResolvedConfig& cfg) {
   }
 
   const int one = 1;
-  setsockopt(sock, SOL_SOCKET, SO_PASSCRED, &one, sizeof(one));
+  // SOL_SOCKET/SO_PASSCRED come from <sys/socket.h> which is included; false positive.
+  // NOLINTNEXTLINE(misc-include-cleaner)
+  (void)setsockopt(sock, SOL_SOCKET, SO_PASSCRED, &one, sizeof(one));
 
   // pid=-1: SetHandlerSocket discovers watcherd PID via SCM_CREDENTIALS,
   // calls prctl(PR_SET_PTRACER, watcherd_pid), and installs crash signal handlers.
@@ -54,9 +63,7 @@ int DoInit(const ResolvedConfig& cfg) {
 // These fire automatically when the library is loaded/unloaded — no code
 // changes are required in the monitored process.
 
-__attribute__((constructor)) void AutoInit() {
-  DoInit(Resolve(nullptr));
-}
+__attribute__((constructor)) void AutoInit() { DoInit(Resolve(nullptr)); }
 
 __attribute__((destructor)) void AutoShutdown() {
   // Crashpad handler runs as an independent process; no shutdown needed.
@@ -66,9 +73,10 @@ __attribute__((destructor)) void AutoShutdown() {
 }  // namespace crashomon
 
 // ── Public C API ─────────────────────────────────────────────────────────────
-// C-compatible names are intentional; NOLINT suppresses the CamelCase check.
-
-// NOLINTBEGIN(readability-identifier-naming)
+// C-compatible names — GlobalFunctionCase: lower_case in .clang-tidy covers these.
+// Google C++ Style Guide recommends trailing
+// return types only when required; conventional notation is clearer here.
+// NOLINTNEXTLINE(modernize-use-trailing-return-type)
 int crashomon_init(const CrashomonConfig* config) {
   return crashomon::DoInit(crashomon::Resolve(config));
 }
@@ -77,6 +85,8 @@ void crashomon_shutdown() {
   // Crashpad handler runs as an independent process; no shutdown needed.
 }
 
+// key/value is the standard C tag API
+// pattern; parameter names make intent unambiguous.
 // NOLINTNEXTLINE(bugprone-easily-swappable-parameters)
 void crashomon_set_tag(const char* key, const char* value) {
   // TODO: Implement with crashpad::Annotation in a follow-up.
@@ -93,4 +103,3 @@ void crashomon_set_abort_message(const char* message) {
   // TODO: Implement with crashpad::Annotation in a follow-up.
   (void)message;
 }
-// NOLINTEND(readability-identifier-naming)

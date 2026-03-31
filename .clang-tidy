@@ -8,10 +8,6 @@ Checks: >
   modernize-*,
   performance-*,
   readability-*,
-  -modernize-use-trailing-return-type,
-  -readability-magic-numbers,
-  -cppcoreguidelines-avoid-magic-numbers,
-  -misc-include-cleaner
 WarningsAsErrors: "*"
 HeaderFilterRegex: "(lib|daemon|tools|test)/.*"
 CheckOptions:
@@ -23,6 +19,8 @@ CheckOptions:
     value: CamelCase
   - key: readability-identifier-naming.FunctionCase
     value: CamelCase
+  - key: readability-identifier-naming.FunctionIgnoredRegexp
+    value: "^crashomon_.*"
   - key: readability-identifier-naming.VariableCase
     value: lower_case
   - key: readability-identifier-naming.ConstantCase

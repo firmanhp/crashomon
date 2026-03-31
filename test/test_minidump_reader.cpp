@@ -8,13 +8,13 @@
 //   1. CRASHOMON_FIXTURES_DIR environment variable
 //   2. A "fixtures" subdirectory next to the test binary
 
-#include "daemon/minidump_reader.h"
+#include <unistd.h>
 
 #include <cstdlib>
 #include <filesystem>
 #include <string>
-#include <unistd.h>
 
+#include "daemon/minidump_reader.h"
 #include "gtest/gtest.h"
 
 namespace crashomon {
@@ -23,15 +23,20 @@ namespace {
 // ── Fixture path helpers ────────────────────────────────────────────────────
 
 // Returns the directory that holds the .dmp fixtures (may not exist).
+// Google C++ Style Guide recommends trailing
+// return types only when required; conventional notation is clearer here.
+// NOLINTNEXTLINE(modernize-use-trailing-return-type)
 std::filesystem::path FixturesDir() {
   const char* env = std::getenv("CRASHOMON_FIXTURES_DIR");
-  if (env && *env != '\0') return env;
+  if (env != nullptr && *env != '\0') {
+    return env;
+  }
 
   // Fall back to a "fixtures" subdir next to the running test binary.
   // argv[0] is not easily portable from a test body, but
   // GTEST_BINARY_DIR is set by CMake via gtest_discover_tests().
   const char* bin_dir = std::getenv("GTEST_BINARY_DIR");
-  if (bin_dir && *bin_dir != '\0') {
+  if (bin_dir != nullptr && *bin_dir != '\0') {
     return std::filesystem::path(bin_dir) / "fixtures";
   }
 
@@ -40,10 +45,15 @@ std::filesystem::path FixturesDir() {
 }
 
 // Returns the path to a fixture file; an empty path signals "skip this test".
+// Google C++ Style Guide recommends trailing
+// return types only when required; conventional notation is clearer here.
+// NOLINTNEXTLINE(modernize-use-trailing-return-type)
 std::filesystem::path FixturePath(const std::string& name) {
-  auto p = FixturesDir() / (name + ".dmp");
-  if (!std::filesystem::exists(p)) return {};
-  return p;
+  auto fixture_path = FixturesDir() / (name + ".dmp");  // non-const to enable move on return
+  if (!std::filesystem::exists(fixture_path)) {
+    return {};
+  }
+  return fixture_path;
 }
 
 // ── Error-path tests (no fixture files required) ────────────────────────────
@@ -55,41 +65,59 @@ TEST(MinidumpReaderTest, NonexistentFile) {
 
 TEST(MinidumpReaderTest, EmptyFile) {
   // Write a zero-byte temp file and confirm the parser rejects it.
-  char tmpl[] = "/tmp/crashomon_empty_XXXXXX";
-  int fd = mkstemp(tmpl);
+  // std::string provides a mutable buffer for mkstemp.
+  std::string tmpl = "/tmp/crashomon_empty_XXXXXX";
+  // fd is the universal POSIX idiom for file
+  // descriptor; renaming would reduce clarity.
+  // NOLINTNEXTLINE(readability-identifier-length)
+  const int fd =
+      mkstemp(tmpl.data());  // NOLINT(misc-include-cleaner) — mkstemp comes via <cstdlib> which is
+                             // included; false positive from include-cleaner.
   ASSERT_GE(fd, 0);
   ::close(fd);
 
   auto result = ReadMinidump(tmpl);
   EXPECT_FALSE(result.ok());
 
-  ::unlink(tmpl);
+  ::unlink(tmpl.c_str());
 }
 
 TEST(MinidumpReaderTest, GarbageFile) {
   // Write random bytes and confirm the parser rejects it.
-  char tmpl[] = "/tmp/crashomon_garbage_XXXXXX";
-  int fd = mkstemp(tmpl);
+  // std::string provides a mutable buffer for mkstemp.
+  std::string tmpl = "/tmp/crashomon_garbage_XXXXXX";
+  // fd is the universal POSIX idiom for file
+  // descriptor; renaming would reduce clarity.
+  // NOLINTNEXTLINE(readability-identifier-length)
+  const int fd =
+      mkstemp(tmpl.data());  // NOLINT(misc-include-cleaner) — mkstemp comes via <cstdlib> which is
+                             // included; false positive from include-cleaner.
   ASSERT_GE(fd, 0);
-  const char junk[] = "not a minidump\x00\x01\x02\x03";
-  ssize_t written = ::write(fd, junk, sizeof(junk) - 1);
+  // std::string with length constructor preserves embedded nulls.
+  constexpr size_t junk_size = 18;
+  const std::string junk{"not a minidump\x00\x01\x02\x03", junk_size};
+  const ssize_t written = ::write(
+      fd, junk.data(), junk.size());  // NOLINT(misc-include-cleaner) — ssize_t comes via <unistd.h>
+                                      // which is included; false positive from include-cleaner.
   (void)written;
   ::close(fd);
 
   auto result = ReadMinidump(tmpl);
   EXPECT_FALSE(result.ok());
 
-  ::unlink(tmpl);
+  ::unlink(tmpl.c_str());
 }
 
 // ── Fixture-based tests ─────────────────────────────────────────────────────
 
 // Helper macro: skip the test if the named fixture is absent.
-#define REQUIRE_FIXTURE(name, path_var)                              \
-  auto path_var = FixturePath(name);                                 \
-  if (path_var.empty()) {                                            \
-    GTEST_SKIP() << "Fixture '" name ".dmp' not found in "          \
-                 << FixturesDir() << " — run test/gen_fixtures.sh";  \
+// Must be a macro so the variable declaration and GTEST_SKIP() appear at call-site scope.
+// NOLINTNEXTLINE(cppcoreguidelines-macro-usage, bugprone-macro-parentheses)
+#define REQUIRE_FIXTURE(name, path_var)                                       \
+  auto path_var = FixturePath(name); /* NOLINT(bugprone-macro-parentheses) */ \
+  if ((path_var).empty()) {                                                   \
+    GTEST_SKIP() << "Fixture '" name ".dmp' not found in " << FixturesDir()   \
+                 << " — run test/gen_fixtures.sh";                            \
   }
 
 // ── segfault.dmp ─────────────────────────────────────────────────────────────
@@ -142,7 +170,10 @@ TEST(MinidumpReaderTest, SegfaultFixture_CrashingThreadHasRegisters) {
   // RIP must be present.
   bool found_rip = false;
   for (const auto& [name, val] : result->threads[0].registers) {
-    if (name == "rip") { found_rip = true; break; }
+    if (name == "rip") {
+      found_rip = true;
+      break;
+    }
   }
   EXPECT_TRUE(found_rip) << "Expected 'rip' in crashing thread registers";
 }
@@ -212,7 +243,7 @@ TEST(MinidumpReaderTest, MultithreadFixture_HasMultipleThreads) {
   auto result = ReadMinidump(path.string());
   ASSERT_TRUE(result.ok()) << result.status();
   // The program spawns at least 2 threads (idle + crash) plus the main thread.
-  EXPECT_GE(result->threads.size(), 2u);
+  EXPECT_GE(result->threads.size(), 2U);
 }
 
 TEST(MinidumpReaderTest, MultithreadFixture_CrashingThreadIsFirst) {
@@ -228,8 +259,10 @@ TEST(MinidumpReaderTest, MultithreadFixture_OnlyOneThreadIsCrashing) {
   auto result = ReadMinidump(path.string());
   ASSERT_TRUE(result.ok()) << result.status();
   int crashing_count = 0;
-  for (const auto& t : result->threads) {
-    if (t.is_crashing) ++crashing_count;
+  for (const auto& thr : result->threads) {
+    if (thr.is_crashing) {
+      ++crashing_count;
+    }
   }
   EXPECT_EQ(crashing_count, 1);
 }

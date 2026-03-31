@@ -18,17 +18,23 @@ namespace crashomon {
 
 struct DiskManagerConfig {
   std::string db_path;
-  uint64_t max_bytes = 0;       // total size limit; 0 = unlimited
-  uint32_t max_age_seconds = 0; // per-file age limit; 0 = unlimited
+  uint64_t max_bytes = 0;        // total size limit; 0 = unlimited
+  uint32_t max_age_seconds = 0;  // per-file age limit; 0 = unlimited
 };
 
 // Delete minidump files in db_path that exceed max_bytes or max_age_seconds.
 // Files are deleted in oldest-first order. Only files with the ".dmp"
 // extension are considered. Returns OK even if no pruning was needed.
+// Google C++ Style Guide recommends trailing
+// return types only when required; conventional notation is clearer here.
+// NOLINTNEXTLINE(modernize-use-trailing-return-type)
 absl::Status PruneMinidumps(const DiskManagerConfig& config);
 
 // Sum the sizes of all ".dmp" files in db_path.
 // Returns an error if the directory cannot be listed.
+// Google C++ Style Guide recommends trailing
+// return types only when required; conventional notation is clearer here.
+// NOLINTNEXTLINE(modernize-use-trailing-return-type)
 absl::StatusOr<uint64_t> GetTotalMinidumpSize(const std::string& db_path);
 
 }  // namespace crashomon
