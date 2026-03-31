@@ -29,4 +29,7 @@ if(breakpad_SOURCE_DIR)
   target_include_directories(crashomon_analyze SYSTEM PRIVATE "${breakpad_SOURCE_DIR}/src")
 endif()
 
-set_target_properties(crashomon_analyze PROPERTIES OUTPUT_NAME crashomon-analyze)
+set_target_properties(crashomon_analyze PROPERTIES
+  OUTPUT_NAME crashomon-analyze
+  CXX_CLANG_TIDY "${CRASHOMON_CLANG_TIDY}"
+)

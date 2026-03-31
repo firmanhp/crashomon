@@ -28,7 +28,10 @@ foreach(target crashomon_client crashomon_client_static)
     $<TARGET_PROPERTY:crashpad_interface,INTERFACE_INCLUDE_DIRECTORIES>
   )
   # Position-independent code required for shared library
-  set_target_properties(${target} PROPERTIES POSITION_INDEPENDENT_CODE ON)
+  set_target_properties(${target} PROPERTIES
+    POSITION_INDEPENDENT_CODE ON
+    CXX_CLANG_TIDY "${CRASHOMON_CLANG_TIDY}"
+  )
 endforeach()
 
 set_target_properties(crashomon_client PROPERTIES OUTPUT_NAME crashomon)

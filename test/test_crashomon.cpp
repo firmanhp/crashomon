@@ -1,11 +1,11 @@
 // test/test_crashomon.cpp — unit tests for crashomon configuration resolution.
 //
 // Covers GetEnv() and Resolve() from crashomon_internal.h.  These functions
-// contain all the non-trivial logic in the client library; the sentry calls
+// contain all the non-trivial logic in the client library; the crashpad calls
 // that follow are a thin pass-through and are exercised by integration tests.
 //
-// No sentry-native linkage is required here — crashomon_internal.h is all
-// inline and has no dependency on <sentry.h>.
+// No crashpad linkage is required here — crashomon_internal.h is all
+// inline and has no dependency on crashpad headers.
 
 #include "lib/crashomon_internal.h"
 
@@ -18,36 +18,51 @@ namespace {
 
 // RAII guard: sets an environment variable on construction, restores the
 // previous state (set or unset) on destruction.
-struct ScopedEnv {
-  const char* name;
-  bool was_set;
-  std::string old_value;
-
-  ScopedEnv(const char* env_name, const char* value) : name(env_name) {
+class ScopedEnv {
+ public:
+  // NOLINTNEXTLINE(bugprone-easily-swappable-parameters)
+  ScopedEnv(const char* env_name, const char* value) : name_(env_name) {
     if (const char* prev = std::getenv(env_name)) {
-      was_set = true;
-      old_value = prev;
+      was_set_ = true;
+      old_value_ = prev;
     } else {
-      was_set = false;
+      was_set_ = false;
     }
-    ::setenv(name, value, /*overwrite=*/1);
+    ::setenv(name_, value, /*overwrite=*/1);
   }
 
   ~ScopedEnv() {
-    if (was_set) {
-      ::setenv(name, old_value.c_str(), /*overwrite=*/1);
+    if (was_set_) {
+      ::setenv(name_, old_value_.c_str(), /*overwrite=*/1);
     } else {
-      ::unsetenv(name);
+      ::unsetenv(name_);
     }
   }
+
+  ScopedEnv(const ScopedEnv&) = delete;
+  ScopedEnv& operator=(const ScopedEnv&) = delete;
+  ScopedEnv(ScopedEnv&&) = delete;
+  ScopedEnv& operator=(ScopedEnv&&) = delete;
+
+ private:
+  const char* name_;
+  bool was_set_{false};
+  std::string old_value_;
 };
 
 // Ensure both crashomon env vars are absent for tests that rely on defaults.
-struct ClearCrashomonEnv {
+class ClearCrashomonEnv {
+ public:
   ClearCrashomonEnv() {
     ::unsetenv("CRASHOMON_DB_PATH");
     ::unsetenv("CRASHOMON_SOCKET_PATH");
   }
+
+  ~ClearCrashomonEnv() = default;
+  ClearCrashomonEnv(const ClearCrashomonEnv&) = delete;
+  ClearCrashomonEnv& operator=(const ClearCrashomonEnv&) = delete;
+  ClearCrashomonEnv(ClearCrashomonEnv&&) = delete;
+  ClearCrashomonEnv& operator=(ClearCrashomonEnv&&) = delete;
 };
 
 // ── Compiled-in defaults ─────────────────────────────────────────────────────
@@ -68,40 +83,40 @@ TEST(GetEnvTest, ReturnsNulloptWhenAbsent) {
 }
 
 TEST(GetEnvTest, ReturnsValueWhenPresent) {
-  ScopedEnv e{"CRASHOMON_TEST_GETENV", "hello"};
-  auto val = GetEnv("CRASHOMON_TEST_GETENV");
+  const ScopedEnv env{"CRASHOMON_TEST_GETENV", "hello"};
+  const auto val = GetEnv("CRASHOMON_TEST_GETENV");
   ASSERT_TRUE(val.has_value());
-  EXPECT_EQ(*val, "hello");
+  EXPECT_EQ(val.value(), "hello");  // NOLINT(bugprone-unchecked-optional-access)
 }
 
 TEST(GetEnvTest, ReturnsEmptyStringViewForEmptyVar) {
-  ScopedEnv e{"CRASHOMON_TEST_GETENV", ""};
-  auto val = GetEnv("CRASHOMON_TEST_GETENV");
+  const ScopedEnv env{"CRASHOMON_TEST_GETENV", ""};
+  const auto val = GetEnv("CRASHOMON_TEST_GETENV");
   ASSERT_TRUE(val.has_value());
-  EXPECT_TRUE(val->empty());
+  EXPECT_TRUE(val.value().empty());  // NOLINT(bugprone-unchecked-optional-access)
 }
 
 TEST(GetEnvTest, ReturnsStringViewNotOwningCopy) {
-  ScopedEnv e{"CRASHOMON_TEST_GETENV", "test_value"};
-  auto val = GetEnv("CRASHOMON_TEST_GETENV");
+  const ScopedEnv env{"CRASHOMON_TEST_GETENV", "test_value"};
+  const auto val = GetEnv("CRASHOMON_TEST_GETENV");
   ASSERT_TRUE(val.has_value());
   // The returned string_view should compare equal to the set value.
-  EXPECT_EQ(std::string{*val}, "test_value");
+  EXPECT_EQ(std::string{val.value()}, "test_value");  // NOLINT(bugprone-unchecked-optional-access)
 }
 
 // ── Resolve: defaults (no config, no env vars) ───────────────────────────────
 
 TEST(ResolveTest, NullConfigNoEnvYieldsDefaults) {
-  ClearCrashomonEnv clear;
-  auto cfg = Resolve(nullptr);
+  const ClearCrashomonEnv clear;
+  const auto cfg = Resolve(nullptr);
   EXPECT_EQ(cfg.db_path, kDefaultDbPath);
   EXPECT_EQ(cfg.socket_path, kDefaultSocketPath);
 }
 
 TEST(ResolveTest, EmptyConfigNoEnvYieldsDefaults) {
-  ClearCrashomonEnv clear;
-  CrashomonConfig config{nullptr, nullptr};
-  auto cfg = Resolve(&config);
+  const ClearCrashomonEnv clear;
+  const CrashomonConfig config{nullptr, nullptr};
+  const auto cfg = Resolve(&config);
   EXPECT_EQ(cfg.db_path, kDefaultDbPath);
   EXPECT_EQ(cfg.socket_path, kDefaultSocketPath);
 }
@@ -109,26 +124,26 @@ TEST(ResolveTest, EmptyConfigNoEnvYieldsDefaults) {
 // ── Resolve: environment variable override ───────────────────────────────────
 
 TEST(ResolveTest, EnvDbPathOverridesDefault) {
-  ClearCrashomonEnv clear;
-  ScopedEnv e{"CRASHOMON_DB_PATH", "/tmp/crashes"};
-  auto cfg = Resolve(nullptr);
+  const ClearCrashomonEnv clear;
+  const ScopedEnv env{"CRASHOMON_DB_PATH", "/tmp/crashes"};
+  const auto cfg = Resolve(nullptr);
   EXPECT_EQ(cfg.db_path, "/tmp/crashes");
   EXPECT_EQ(cfg.socket_path, kDefaultSocketPath);
 }
 
 TEST(ResolveTest, EnvHandlerPathOverridesDefault) {
-  ClearCrashomonEnv clear;
-  ScopedEnv e{"CRASHOMON_SOCKET_PATH", "/opt/myhandler"};
-  auto cfg = Resolve(nullptr);
+  const ClearCrashomonEnv clear;
+  const ScopedEnv env{"CRASHOMON_SOCKET_PATH", "/opt/myhandler"};
+  const auto cfg = Resolve(nullptr);
   EXPECT_EQ(cfg.db_path, kDefaultDbPath);
   EXPECT_EQ(cfg.socket_path, "/opt/myhandler");
 }
 
 TEST(ResolveTest, BothEnvVarsApplied) {
-  ClearCrashomonEnv clear;
-  ScopedEnv db{"CRASHOMON_DB_PATH", "/data/crashes"};
-  ScopedEnv handler{"CRASHOMON_SOCKET_PATH", "/bin/handler"};
-  auto cfg = Resolve(nullptr);
+  const ClearCrashomonEnv clear;
+  const ScopedEnv db_env{"CRASHOMON_DB_PATH", "/data/crashes"};
+  const ScopedEnv handler_env{"CRASHOMON_SOCKET_PATH", "/bin/handler"};
+  const auto cfg = Resolve(nullptr);
   EXPECT_EQ(cfg.db_path, "/data/crashes");
   EXPECT_EQ(cfg.socket_path, "/bin/handler");
 }
@@ -136,44 +151,44 @@ TEST(ResolveTest, BothEnvVarsApplied) {
 // ── Resolve: explicit config takes highest precedence ────────────────────────
 
 TEST(ResolveTest, ExplicitConfigOverridesEnvAndDefault) {
-  ScopedEnv db{"CRASHOMON_DB_PATH", "/env/crashes"};
-  ScopedEnv handler{"CRASHOMON_SOCKET_PATH", "/env/handler"};
-  CrashomonConfig config{"/explicit/db", "/explicit/handler"};
-  auto cfg = Resolve(&config);
+  const ScopedEnv db_env{"CRASHOMON_DB_PATH", "/env/crashes"};
+  const ScopedEnv handler_env{"CRASHOMON_SOCKET_PATH", "/env/handler"};
+  const CrashomonConfig config{"/explicit/db", "/explicit/handler"};
+  const auto cfg = Resolve(&config);
   EXPECT_EQ(cfg.db_path, "/explicit/db");
   EXPECT_EQ(cfg.socket_path, "/explicit/handler");
 }
 
 TEST(ResolveTest, ExplicitDbPathOnlyLeavesHandlerToEnv) {
-  ClearCrashomonEnv clear;
-  ScopedEnv e{"CRASHOMON_SOCKET_PATH", "/env/handler"};
-  CrashomonConfig config{"/explicit/db", nullptr};
-  auto cfg = Resolve(&config);
+  const ClearCrashomonEnv clear;
+  const ScopedEnv env{"CRASHOMON_SOCKET_PATH", "/env/handler"};
+  const CrashomonConfig config{"/explicit/db", nullptr};
+  const auto cfg = Resolve(&config);
   EXPECT_EQ(cfg.db_path, "/explicit/db");
   EXPECT_EQ(cfg.socket_path, "/env/handler");
 }
 
 TEST(ResolveTest, ExplicitHandlerPathOnlyLeavesDbToEnv) {
-  ClearCrashomonEnv clear;
-  ScopedEnv e{"CRASHOMON_DB_PATH", "/env/db"};
-  CrashomonConfig config{nullptr, "/explicit/handler"};
-  auto cfg = Resolve(&config);
+  const ClearCrashomonEnv clear;
+  const ScopedEnv env{"CRASHOMON_DB_PATH", "/env/db"};
+  const CrashomonConfig config{nullptr, "/explicit/handler"};
+  const auto cfg = Resolve(&config);
   EXPECT_EQ(cfg.db_path, "/env/db");
   EXPECT_EQ(cfg.socket_path, "/explicit/handler");
 }
 
 TEST(ResolveTest, ExplicitDbPathOnlyLeavesHandlerToDefault) {
-  ClearCrashomonEnv clear;
-  CrashomonConfig config{"/explicit/db", nullptr};
-  auto cfg = Resolve(&config);
+  const ClearCrashomonEnv clear;
+  const CrashomonConfig config{"/explicit/db", nullptr};
+  const auto cfg = Resolve(&config);
   EXPECT_EQ(cfg.db_path, "/explicit/db");
   EXPECT_EQ(cfg.socket_path, kDefaultSocketPath);
 }
 
 TEST(ResolveTest, ExplicitHandlerPathOnlyLeavesDbToDefault) {
-  ClearCrashomonEnv clear;
-  CrashomonConfig config{nullptr, "/explicit/handler"};
-  auto cfg = Resolve(&config);
+  const ClearCrashomonEnv clear;
+  const CrashomonConfig config{nullptr, "/explicit/handler"};
+  const auto cfg = Resolve(&config);
   EXPECT_EQ(cfg.db_path, kDefaultDbPath);
   EXPECT_EQ(cfg.socket_path, "/explicit/handler");
 }
@@ -181,23 +196,23 @@ TEST(ResolveTest, ExplicitHandlerPathOnlyLeavesDbToDefault) {
 // ── Resolve: result is an owned copy ─────────────────────────────────────────
 
 TEST(ResolveTest, ResultIsIndependentOfEnvAfterResolve) {
-  ClearCrashomonEnv clear;
-  ScopedEnv e{"CRASHOMON_DB_PATH", "/original"};
-  auto cfg = Resolve(nullptr);
+  const ClearCrashomonEnv clear;
+  const ScopedEnv env{"CRASHOMON_DB_PATH", "/original"};
+  const auto cfg = Resolve(nullptr);
   // Modify the env after resolving — result must not change.
   ::setenv("CRASHOMON_DB_PATH", "/modified", 1);
   EXPECT_EQ(cfg.db_path, "/original");
 }
 
 TEST(ResolveTest, ResultIsIndependentOfConfigPointerAfterResolve) {
-  ClearCrashomonEnv clear;
-  std::string db   = "/owned/db";
-  std::string hdlr = "/owned/handler";
-  CrashomonConfig config{db.c_str(), hdlr.c_str()};
-  auto cfg = Resolve(&config);
+  const ClearCrashomonEnv clear;
+  std::string db_path   = "/owned/db";
+  std::string hdlr_path = "/owned/handler";
+  const CrashomonConfig config{db_path.c_str(), hdlr_path.c_str()};
+  const auto cfg = Resolve(&config);
   // Mutate original strings — result must not change.
-  db   = "/mutated";
-  hdlr = "/mutated";
+  db_path   = "/mutated";
+  hdlr_path = "/mutated";
   EXPECT_EQ(cfg.db_path, "/owned/db");
   EXPECT_EQ(cfg.socket_path, "/owned/handler");
 }

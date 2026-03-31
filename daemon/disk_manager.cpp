@@ -24,38 +24,38 @@ struct DmpFile {
 // Returns an error if the directory cannot be opened.
 absl::StatusOr<std::vector<DmpFile>> ListDmpFiles(
     const std::string& db_path) {
-  std::error_code ec;
-  if (!std::filesystem::is_directory(db_path, ec) || ec) {
+  std::error_code err;
+  if (!std::filesystem::is_directory(db_path, err) || err) {
     return absl::NotFoundError(
         std::string("Not a directory: ") + db_path);
   }
 
   std::vector<DmpFile> files;
   for (const auto& entry :
-       std::filesystem::directory_iterator(db_path, ec)) {
-    if (ec) break;
-    if (!entry.is_regular_file(ec) || ec) continue;
-    if (entry.path().extension() != ".dmp") continue;
+       std::filesystem::directory_iterator(db_path, err)) {
+    if (err) { break; }
+    if (!entry.is_regular_file(err) || err) { continue; }
+    if (entry.path().extension() != ".dmp") { continue; }
 
-    struct stat st;
-    if (::stat(entry.path().c_str(), &st) != 0) continue;
+    struct stat file_stat{};
+    if (::stat(entry.path().c_str(), &file_stat) != 0) { continue; }
 
-    DmpFile f;
-    f.path = entry.path();
-    f.size = static_cast<uint64_t>(st.st_size);
-    f.mtime = st.st_mtime;
-    files.push_back(std::move(f));
+    DmpFile dmp;
+    dmp.path = entry.path();
+    dmp.size = static_cast<uint64_t>(file_stat.st_size);
+    dmp.mtime = file_stat.st_mtime;
+    files.push_back(std::move(dmp));
   }
 
-  if (ec) {
+  if (err) {
     return absl::InternalError(
         std::string("directory_iterator error for ") + db_path +
-        ": " + ec.message());
+        ": " + err.message());
   }
 
   std::sort(files.begin(), files.end(),
-            [](const DmpFile& a, const DmpFile& b) {
-              return a.mtime < b.mtime;
+            [](const DmpFile& lhs, const DmpFile& rhs) {
+              return lhs.mtime < rhs.mtime;
             });
   return files;
 }
@@ -64,10 +64,10 @@ absl::StatusOr<std::vector<DmpFile>> ListDmpFiles(
 
 absl::StatusOr<uint64_t> GetTotalMinidumpSize(const std::string& db_path) {
   auto files_or = ListDmpFiles(db_path);
-  if (!files_or.ok()) return files_or.status();
+  if (!files_or.ok()) { return files_or.status(); }
 
   uint64_t total = 0;
-  for (const auto& f : *files_or) total += f.size;
+  for (const auto& dmp : *files_or) { total += dmp.size; }
   return total;
 }
 
@@ -77,28 +77,28 @@ absl::Status PruneMinidumps(const DiskManagerConfig& config) {
   }
 
   auto files_or = ListDmpFiles(config.db_path);
-  if (!files_or.ok()) return files_or.status();
+  if (!files_or.ok()) { return files_or.status(); }
   auto& files = *files_or;
 
-  time_t now = ::time(nullptr);
+  const time_t now = ::time(nullptr);
 
   uint64_t total_bytes = 0;
-  for (const auto& f : files) total_bytes += f.size;
+  for (const auto& dmp : files) { total_bytes += dmp.size; }
 
-  for (const auto& f : files) {
-    bool over_size = (config.max_bytes > 0 && total_bytes > config.max_bytes);
-    bool over_age = (config.max_age_seconds > 0 && now > f.mtime &&
-                     static_cast<uint64_t>(now - f.mtime) > config.max_age_seconds);
+  for (const auto& dmp : files) {
+    const bool over_size = (config.max_bytes > 0 && total_bytes > config.max_bytes);
+    const bool over_age = (config.max_age_seconds > 0 && now > dmp.mtime &&
+                           static_cast<uint64_t>(now - dmp.mtime) > config.max_age_seconds);
 
-    if (!over_size && !over_age) continue;
+    if (!over_size && !over_age) { continue; }
 
-    std::error_code ec;
-    if (!std::filesystem::remove(f.path, ec) || ec) {
+    std::error_code err;
+    if (!std::filesystem::remove(dmp.path, err) || err) {
       return absl::InternalError(
-          std::string("Failed to remove ") + f.path.string() +
-          ": " + ec.message());
+          std::string("Failed to remove ") + dmp.path.string() +
+          ": " + err.message());
     }
-    total_bytes -= f.size;
+    total_bytes -= dmp.size;
   }
 
   return absl::OkStatus();

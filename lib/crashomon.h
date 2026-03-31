@@ -25,10 +25,14 @@ extern "C" {
  * Configuration for explicit init (not needed for LD_PRELOAD).
  * Zero-initialize to use defaults.
  */
+// NOLINTNEXTLINE(modernize-use-using) — typedef struct is idiomatic C; consumed by C code.
 typedef struct CrashomonConfig {
   const char *db_path;      /* Minidump database path  (NULL = use env/default) */
   const char *socket_path;  /* crashomon-watcherd socket path (NULL = use env/default) */
 } CrashomonConfig;
+
+// The functions below use snake_case C naming intentionally — this is a C public API.
+// NOLINTBEGIN(readability-identifier-naming)
 
 /**
  * Initialize crash monitoring with explicit config.
@@ -46,6 +50,8 @@ void crashomon_shutdown(void);
 /**
  * Attach a key-value tag to all crash reports from this process.
  * Example: crashomon_set_tag("version", "1.2.3")
+ *
+ * NOLINTNEXTLINE(bugprone-easily-swappable-parameters) — key/value is a standard C API pattern.
  */
 void crashomon_set_tag(const char *key, const char *value);
 
@@ -61,6 +67,8 @@ void crashomon_add_breadcrumb(const char *message);
  * Example: crashomon_set_abort_message("invariant violated: count >= 0")
  */
 void crashomon_set_abort_message(const char *message);
+
+// NOLINTEND(readability-identifier-naming)
 
 #ifdef __cplusplus
 }

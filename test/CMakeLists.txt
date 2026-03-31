@@ -46,6 +46,8 @@ if(breakpad_SOURCE_DIR)
   target_include_directories(crashomon_tests SYSTEM PRIVATE "${breakpad_SOURCE_DIR}/src")
 endif()
 
+set_target_properties(crashomon_tests PROPERTIES CXX_CLANG_TIDY "${CRASHOMON_CLANG_TIDY}")
+
 gtest_discover_tests(crashomon_tests
   # Pass the fixtures directory so test_minidump_reader.cpp can locate .dmp files.
   # Tests skip gracefully (GTEST_SKIP) when the fixture files are absent.

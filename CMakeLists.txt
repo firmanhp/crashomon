@@ -46,11 +46,14 @@ if(ENABLE_ASAN)
 endif()
 
 # ── clang-tidy (opt-in) ────────────────────────────────────────────────────────
+# Applied per-target (not globally) so FetchContent dependencies are never linted.
+# Use: set_target_properties(<target> PROPERTIES CXX_CLANG_TIDY "${CRASHOMON_CLANG_TIDY}")
 option(ENABLE_CLANG_TIDY "Enable clang-tidy static analysis" OFF)
 if(ENABLE_CLANG_TIDY)
   find_program(CLANG_TIDY_EXE NAMES "clang-tidy" REQUIRED)
-  set(CMAKE_C_CLANG_TIDY   "${CLANG_TIDY_EXE}")
-  set(CMAKE_CXX_CLANG_TIDY "${CLANG_TIDY_EXE}")
+  set(CRASHOMON_CLANG_TIDY "${CLANG_TIDY_EXE}")
+else()
+  set(CRASHOMON_CLANG_TIDY "")
 endif()
 
 # ── Compiler warnings — applied to OUR targets only via interface library ──────

@@ -49,4 +49,7 @@ if(TARGET crashpad_interface)
   unset(_cp_inc)
 endif()
 
-set_target_properties(crashomon_watcherd PROPERTIES OUTPUT_NAME crashomon-watcherd)
+set_target_properties(crashomon_watcherd PROPERTIES
+  OUTPUT_NAME crashomon-watcherd
+  CXX_CLANG_TIDY "${CRASHOMON_CLANG_TIDY}"
+)

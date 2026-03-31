@@ -34,6 +34,84 @@ const std::regex kThreadRe(
 // "minidump saved to: /var/crashomon/xxx.dmp"
 const std::regex kMinidumpPathRe(R"(minidump saved to:\s*(\S+))");
 
+// ── Per-line parse helpers ────────────────────────────────────────────────────
+
+struct ParseState {
+  ParsedTombstone result;
+  ParsedThread working;
+  bool in_backtrace = false;
+  bool in_other_thread = false;
+};
+
+// Returns true if the line was consumed.
+bool TryHeader(const std::string& line, std::smatch& match, ParseState& state) {
+  if (!std::regex_search(line, match, kHeaderRe)) { return false; }
+  state.result.pid = static_cast<uint32_t>(std::stoul(match[1].str()));
+  state.result.crashing_tid = static_cast<uint32_t>(std::stoul(match[2].str()));
+  state.result.process_name = match[3].str();
+  state.working.tid = state.result.crashing_tid;
+  return true;
+}
+
+bool TrySignal(const std::string& line, std::smatch& match, ParseState& state) {
+  if (!std::regex_search(line, match, kSignalRe)) { return false; }
+  state.result.signal_number = static_cast<uint32_t>(std::stoul(match[1].str()));
+  state.result.signal_info = match[2].str();
+  if (match[3].matched) {
+    state.result.signal_code = static_cast<uint32_t>(std::stoul(match[3].str()));
+    state.result.signal_info += " / " + match[4].str();
+  }
+  state.result.fault_addr =
+      static_cast<uint64_t>(std::stoull(match[5].str(), nullptr, 16));
+  return true;
+}
+
+bool TryTimestamp(const std::string& line, std::smatch& match, ParseState& state) {
+  if (!std::regex_search(line, match, kTimestampRe)) { return false; }
+  state.result.timestamp = match[1].str();
+  return true;
+}
+
+bool TryThreadSep(const std::string& line, std::smatch& match, ParseState& state) {
+  if (!std::regex_search(line, match, kThreadRe)) { return false; }
+  if (state.in_backtrace || state.in_other_thread) {
+    state.result.threads.push_back(std::move(state.working));
+  }
+  state.working = ParsedThread();
+  state.working.tid = static_cast<uint32_t>(std::stoul(match[1].str()));
+  state.working.is_crashing = false;
+  if (match[2].matched) { state.working.name = match[2].str(); }
+  state.in_other_thread = true;
+  state.in_backtrace = false;
+  return true;
+}
+
+bool TryMinidumpPath(const std::string& line, std::smatch& match, ParseState& state) {
+  if (!std::regex_search(line, match, kMinidumpPathRe)) { return false; }
+  state.result.minidump_path = match[1].str();
+  if (state.in_backtrace || state.in_other_thread) {
+    state.result.threads.push_back(std::move(state.working));
+    state.working = ParsedThread();
+    state.in_backtrace = false;
+    state.in_other_thread = false;
+  }
+  return true;
+}
+
+bool TryFrame(const std::string& line, std::smatch& match, ParseState& state) {
+  if (!(state.in_backtrace || state.in_other_thread)) { return false; }
+  if (!std::regex_search(line, match, kFrameRe)) { return false; }
+  ParsedFrame frame;
+  frame.index = std::stoi(match[1].str());
+  frame.module_offset =
+      static_cast<uint64_t>(std::stoull(match[2].str(), nullptr, 16));
+  const std::string mod_str = match[3].str();
+  frame.module_path = (mod_str == "???") ? "" : mod_str;
+  if (match[4].matched) { frame.trailing = match[4].str(); }
+  state.working.frames.push_back(std::move(frame));
+  return true;
+}
+
 }  // namespace
 
 absl::StatusOr<ParsedTombstone> ParseTombstone(const std::string& text) {
@@ -41,99 +119,39 @@ absl::StatusOr<ParsedTombstone> ParseTombstone(const std::string& text) {
     return absl::InvalidArgumentError("Empty input");
   }
 
-  ParsedTombstone result;
+  ParseState state;
+  state.working.is_crashing = true;
 
-  // Working thread accumulates frames until we hit a new thread or end.
-  ParsedThread working;
-  working.is_crashing = true;
-  bool in_backtrace = false;
-  bool in_other_thread = false;
-
-  std::smatch m;
-  std::istringstream ss(text);
+  std::smatch match;
+  std::istringstream stream(text);
   std::string line;
 
-  while (std::getline(ss, line)) {
-    // Header
-    if (std::regex_search(line, m, kHeaderRe)) {
-      result.pid = static_cast<uint32_t>(std::stoul(m[1].str()));
-      result.crashing_tid = static_cast<uint32_t>(std::stoul(m[2].str()));
-      result.process_name = m[3].str();
-      working.tid = result.crashing_tid;
-      continue;
-    }
-    // Signal
-    if (std::regex_search(line, m, kSignalRe)) {
-      result.signal_number = static_cast<uint32_t>(std::stoul(m[1].str()));
-      result.signal_info = m[2].str();
-      if (m[3].matched) {
-        result.signal_code = static_cast<uint32_t>(std::stoul(m[3].str()));
-        result.signal_info += " / " + m[4].str();
-      }
-      result.fault_addr =
-          static_cast<uint64_t>(std::stoull(m[5].str(), nullptr, 16));
-      continue;
-    }
-    // Timestamp
-    if (std::regex_search(line, m, kTimestampRe)) {
-      result.timestamp = m[1].str();
-      continue;
-    }
-    // "backtrace:" section marker — frames that follow belong to crashing thread
+  while (std::getline(stream, line)) {
+    if (TryHeader(line, match, state)) { continue; }
+    if (TrySignal(line, match, state)) { continue; }
+    if (TryTimestamp(line, match, state)) { continue; }
     if (line.find("backtrace:") != std::string::npos) {
-      in_backtrace = true;
-      in_other_thread = false;
+      state.in_backtrace = true;
+      state.in_other_thread = false;
       continue;
     }
-    // Thread separator — save current thread and start a new one
-    if (std::regex_search(line, m, kThreadRe)) {
-      if (in_backtrace || in_other_thread) {
-        result.threads.push_back(std::move(working));
-      }
-      working = ParsedThread();
-      working.tid = static_cast<uint32_t>(std::stoul(m[1].str()));
-      working.is_crashing = false;
-      if (m[2].matched) working.name = m[2].str();
-      in_other_thread = true;
-      in_backtrace = false;
-      continue;
-    }
-    // Minidump path
-    if (std::regex_search(line, m, kMinidumpPathRe)) {
-      result.minidump_path = m[1].str();
-      if (in_backtrace || in_other_thread) {
-        result.threads.push_back(std::move(working));
-        working = ParsedThread();
-        in_backtrace = false;
-        in_other_thread = false;
-      }
-      continue;
-    }
-    // Frame line
-    if ((in_backtrace || in_other_thread) &&
-        std::regex_search(line, m, kFrameRe)) {
-      ParsedFrame f;
-      f.index = std::stoi(m[1].str());
-      f.module_offset =
-          static_cast<uint64_t>(std::stoull(m[2].str(), nullptr, 16));
-      std::string mod = m[3].str();
-      f.module_path = (mod == "???") ? "" : mod;
-      if (m[4].matched) f.trailing = m[4].str();
-      working.frames.push_back(std::move(f));
-    }
+    if (TryThreadSep(line, match, state)) { continue; }
+    if (TryMinidumpPath(line, match, state)) { continue; }
+    (void)TryFrame(line, match, state);
   }
 
   // Flush any final thread not yet saved (e.g. no minidump path line).
-  if (!working.frames.empty() || (working.tid != 0 && in_other_thread)) {
-    result.threads.push_back(std::move(working));
+  if (!state.working.frames.empty() ||
+      (state.working.tid != 0 && state.in_other_thread)) {
+    state.result.threads.push_back(std::move(state.working));
   }
 
-  if (result.threads.empty()) {
+  if (state.result.threads.empty()) {
     return absl::InvalidArgumentError(
         "No thread frames found — not a valid tombstone");
   }
 
-  return result;
+  return state.result;
 }
 
 }  // namespace crashomon

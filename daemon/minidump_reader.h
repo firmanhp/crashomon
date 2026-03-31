@@ -19,9 +19,9 @@
 namespace crashomon {
 
 struct FrameInfo {
-  uint64_t pc;             // absolute program counter
-  uint64_t module_offset;  // offset within the containing module
-  std::string module_path; // full path to the module; empty if unmapped
+  uint64_t pc = 0;             // absolute program counter
+  uint64_t module_offset = 0;  // offset within the containing module
+  std::string module_path;     // full path to the module; empty if unmapped
 };
 
 struct ThreadInfo {

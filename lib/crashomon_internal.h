@@ -27,7 +27,9 @@ constexpr std::string_view kDefaultSocketPath =
 [[nodiscard]] inline std::optional<std::string_view> GetEnv(
     const char* name) noexcept {
   const char* val = std::getenv(name);
-  if (!val) return std::nullopt;
+  if (val == nullptr) {
+    return std::nullopt;
+  }
   return std::string_view{val};
 }
 
@@ -44,7 +46,7 @@ struct ResolvedConfig {
 [[nodiscard]] inline ResolvedConfig Resolve(const CrashomonConfig* config) {
   ResolvedConfig resolved;
 
-  if (config && config->db_path) {
+  if (config != nullptr && config->db_path != nullptr) {
     resolved.db_path = config->db_path;
   } else if (auto env = GetEnv("CRASHOMON_DB_PATH")) {
     resolved.db_path = std::string{*env};
@@ -52,7 +54,7 @@ struct ResolvedConfig {
     resolved.db_path = std::string{kDefaultDbPath};
   }
 
-  if (config && config->socket_path) {
+  if (config != nullptr && config->socket_path != nullptr) {
     resolved.socket_path = config->socket_path;
   } else if (auto env = GetEnv("CRASHOMON_SOCKET_PATH")) {
     resolved.socket_path = std::string{*env};
