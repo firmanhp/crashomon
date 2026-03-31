@@ -6,7 +6,7 @@ add_executable(example_segfault segfault.cpp)
 # Do not link crashomon_warnings: its -Wnull-dereference would override our -Wno suppression
 # (INTERFACE flags are appended after PRIVATE, so last flag wins).
 target_compile_options(example_segfault PRIVATE
-  -std=c++17 -fno-exceptions
+  -std=c++20 -fno-exceptions
   -Wall -Wextra -Wpedantic -Werror -Wshadow -Wconversion -Wsign-conversion
   -Wdouble-promotion -Wformat=2 -Wformat-security -fstack-protector-strong
   -Wno-gnu-include-next

@@ -35,6 +35,7 @@
 #include <cstdio>
 #include <cstdlib>
 #include <cstring>
+#include <span>
 #include <string>
 #include <string_view>
 #include <thread>
@@ -204,11 +205,11 @@ void AcceptAndHandleClient(
 // IN_MOVED_TO event on a .dmp file.
 void ProcessInotifyEvents(std::string_view pending_dir,
                           const crashomon::DiskManagerConfig& prune_cfg,
-                          const char* buf, ssize_t count) {
-  for (ssize_t offset = 0; offset < count; ) {
+                          std::span<const char> buf) {
+  for (size_t offset = 0; offset < buf.size(); ) {
     // NOLINTNEXTLINE(cppcoreguidelines-pro-bounds-pointer-arithmetic, cppcoreguidelines-pro-type-reinterpret-cast)
-    const auto* event = reinterpret_cast<const struct inotify_event*>(buf + offset);
-    offset += static_cast<ssize_t>(sizeof(struct inotify_event) + event->len);
+    const auto* event = reinterpret_cast<const struct inotify_event*>(buf.data() + offset);
+    offset += sizeof(struct inotify_event) + event->len;
 
     if ((event->mask & IN_MOVED_TO) == 0) { continue; }
     if (event->len == 0) { continue; }
@@ -330,7 +331,8 @@ int RunWatcher(const std::string& db_path,
       break;
     }
 
-    ProcessInotifyEvents(pending_dir, prune_cfg, buf.data(), num_read);
+    ProcessInotifyEvents(pending_dir, prune_cfg,
+                         std::span<const char>{buf.data(), static_cast<size_t>(num_read)});
   }
 
   (void)inotify_rm_watch(ifd, watch_fd);

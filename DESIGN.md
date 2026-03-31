@@ -24,7 +24,7 @@ After evaluating multiple approaches, we chose **Crashpad** for crash capture + 
 | **Process overhead** | None | `crashpad_handler` (~2-5MB idle) + watcher service (~2-5MB idle). Total ~4-10MB, well under 20MB budget. |
 | **Language** | Pure C | C++ (Crashpad) + C (client shim) + C++ (watcher) |
 | **LD_PRELOAD** | Works natively via constructor | Works — constructor calls `CrashpadClient::StartHandler()` which spawns `crashpad_handler` |
-| **Build complexity** | Simple (inproc is pure C, no extra deps) | Medium (Crashpad needs C++17, zlib; CMake handles it via FetchContent) |
+| **Build complexity** | Simple (inproc is pure C, no extra deps) | Medium (Crashpad needs C++20, zlib; CMake handles it via FetchContent) |
 | **Reliability** | In-process — if process memory is corrupted, handler may fail | Out-of-process — handler runs in healthy process, more reliable |
 | **CLI/Web UI** | Must parse custom format | Uses `minidump_stackwalk` — standard tool, well-documented format |
 
@@ -114,7 +114,7 @@ After evaluating multiple approaches, we chose **Crashpad** for crash capture + 
 
 **Files**:
 - `lib/crashomon.h` — public API header (pure C, C-compatible, freestanding — no project deps required to consume)
-- `lib/crashomon.cpp` — C++17 implementation; constructor/destructor, init logic, API wrappers
+- `lib/crashomon.cpp` — C++20 implementation; constructor/destructor, init logic, API wrappers
 - `lib/CMakeLists.txt`
 
 **Build output**: `libcrashomon.so` (shared, for LD_PRELOAD) + `libcrashomon.a` (static, for explicit linking) + `crashpad_handler` binary
@@ -450,7 +450,7 @@ FetchContent, gated behind `-DENABLE_BENCHMARKS=ON`.
 |---|---|---|
 | Crash capture + signal handling | **Reuse**: Crashpad | 0 |
 | Out-of-process minidump writing | **Reuse**: crashpad_handler | 0 |
-| LD_PRELOAD shim + Crashpad init | **Build**: ~150-250 LOC C++17 (C API) | Low |
+| LD_PRELOAD shim + Crashpad init | **Build**: ~150-250 LOC C++20 (C API) | Low |
 | Watcher daemon (inotify + formatting) | **Build**: ~800-1200 LOC C++ | Medium |
 | Minidump parsing (in watcher) | **Reuse**: Breakpad minidump processor | 0 |
 | Symbol ingestion tool | **Build**: ~100-200 LOC script (wraps dump_syms) | Low |

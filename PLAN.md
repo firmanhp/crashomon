@@ -44,9 +44,9 @@ ON DEVELOPER MACHINE
 
 | Component | Language | Role |
 |-----------|----------|------|
-| `lib/` → `libcrashomon.so` | C++17 (C API) | LD_PRELOAD / linkable client library; C-compatible public header |
-| `daemon/` → `crashomon-watcherd` | C++17 | inotify watcher, tombstone formatter, disk manager |
-| `tools/analyze/` → `crashomon-analyze` | C++17 | CLI: symbolicate minidump or tombstone text |
+| `lib/` → `libcrashomon.so` | C++20 (C API) | LD_PRELOAD / linkable client library; C-compatible public header |
+| `daemon/` → `crashomon-watcherd` | C++20 | inotify watcher, tombstone formatter, disk manager |
+| `tools/analyze/` → `crashomon-analyze` | C++20 | CLI: symbolicate minidump or tombstone text |
 | `tools/syms/crashomon-syms` | Python | Ingest debug binaries into symbol store |
 | `web/` → `crashomon-web` | Python/Flask | Web UI: symbol store + crash history + analysis |
 
@@ -109,7 +109,7 @@ cd web && ruff check . && ruff format --check . && pytest tests/
 - [x] Verify: empty test suite builds and passes
 
 ### Phase 1 — Client library
-- [x] `lib/crashomon.h` + `lib/crashomon.cpp` (C++17 implementation, C-compatible header)
+- [x] `lib/crashomon.h` + `lib/crashomon.cpp` (C++20 implementation, C-compatible header)
 - [x] LD_PRELOAD constructor/destructor
 - [x] sentry_init with Crashpad backend, env var config
 - [x] Public API: set_tag, add_breadcrumb, set_abort_message

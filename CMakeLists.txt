@@ -6,7 +6,7 @@ set(CMAKE_C_STANDARD 11)
 set(CMAKE_C_STANDARD_REQUIRED ON)
 set(CMAKE_C_EXTENSIONS OFF)
 
-set(CMAKE_CXX_STANDARD 17)
+set(CMAKE_CXX_STANDARD 20)
 set(CMAKE_CXX_STANDARD_REQUIRED ON)
 set(CMAKE_CXX_EXTENSIONS OFF)
 
@@ -192,7 +192,7 @@ if(NOT crashpad_src_POPULATED)
 endif()
 
 # Crashpad's CMakeLists.txt sets CMAKE_CXX_STANDARD 20 in its own directory scope —
-# it does not pollute our project's global C++17 setting.
+# it does not pollute our project's global C++20 setting.
 set(CRASHPAD_ENABLE_INSTALL     OFF CACHE BOOL "" FORCE)
 set(CRASHPAD_ENABLE_INSTALL_DEV OFF CACHE BOOL "" FORCE)
 # Build all Crashpad static libs with -fPIC so they can be linked into libcrashomon.so.

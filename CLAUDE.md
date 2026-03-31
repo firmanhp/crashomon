@@ -6,7 +6,7 @@ Crashomon is a crash monitoring ecosystem for ELF binaries on embedded Linux. It
 
 ## Architecture summary
 
-- **libcrashomon.so**: C++17 implementation with C-compatible public header (`extern "C"` linkage). Works via LD_PRELOAD (zero-code integration) or explicit linking. Uses Crashpad directly for out-of-process crash capture. Constructor calls `CrashpadClient::StartHandler()`.
+- **libcrashomon.so**: C++20 implementation with C-compatible public header (`extern "C"` linkage). Works via LD_PRELOAD (zero-code integration) or explicit linking. Uses Crashpad directly for out-of-process crash capture. Constructor calls `CrashpadClient::StartHandler()`.
 - **crashpad_handler**: Spawned by libcrashomon.so. Uses ptrace to capture minidumps without copying full process memory. Writes to `/var/crashomon/` (configurable via `CRASHOMON_DB_PATH`).
 - **crashomon-watcherd**: systemd service. Uses inotify to watch for new minidumps, parses them via Breakpad's minidump-processor, prints Android-style tombstone to journald. Also prunes old minidumps.
 - **crashomon-analyze**: CLI tool. Symbolicates a minidump or pasted tombstone text using `minidump_stackwalk` + a symbol store. Stateless.
@@ -23,7 +23,7 @@ Crashomon is a crash monitoring ecosystem for ELF binaries on embedded Linux. It
 ## Code standards
 
 - **C**: C11, no GNU extensions (`-std=c11`)
-- **C++**: C++17, no GNU extensions, no exceptions (`-std=c++17 -fno-exceptions`)
+- **C++**: C++20, no GNU extensions, no exceptions (`-std=c++20 -fno-exceptions`)
 - **Compiler flags**: `-Wall -Wextra -Wpedantic -Werror -Wshadow -Wconversion -Wsign-conversion -Wnull-dereference -Wformat=2 -fstack-protector-strong -O3 -g -fno-exceptions`
 - **Style**: Google C++ Style Guide + Abseil Tips of the Week
 - **Formatting**: clang-format Google style (see `.clang-format`)
@@ -53,7 +53,7 @@ cmake -B build -DENABLE_BENCHMARKS=ON && cmake --build build
 ## Directory layout
 
 ```
-lib/          C++17 client library with C-compatible header (libcrashomon.so/.a)
+lib/          C++20 client library with C-compatible header (libcrashomon.so/.a)
 cmake/        CMake helper modules (cmake/breakpad.cmake defines Breakpad targets)
 daemon/       C++ watcher daemon (crashomon-watcherd)
 tools/

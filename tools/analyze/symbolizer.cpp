@@ -3,8 +3,8 @@
 #include "tools/analyze/symbolizer.h"
 
 #include <sys/stat.h>
-#include <cinttypes>
 #include <cstdio>
+#include <format>
 #include <map>
 #include <sstream>
 #include <string>
@@ -66,9 +66,7 @@ std::vector<std::string> QueryAddrLine(const std::string& binary,
   // We use plain -f (two lines per addr) for simpler parsing.
   std::string cmd = ShellQuote(addr2line) + " -e " + ShellQuote(binary) + " -f -s";
   for (const auto& r : refs) {
-    char hex[32];
-    snprintf(hex, sizeof(hex), " 0x%016" PRIx64, r.offset);
-    cmd += hex;
+    cmd += std::format(" 0x{:016x}", r.offset);
   }
   cmd += " 2>/dev/null";
 
@@ -109,7 +107,7 @@ absl::StatusOr<SymbolTable> SymbolizeWithAddrLine(
     for (const auto& frame : thread.frames) {
       if (frame.module_path.empty()) continue;
       by_module[frame.module_path].push_back(
-          {thread.tid, frame.index, frame.module_offset});
+          {.tid = thread.tid, .index = frame.index, .offset = frame.module_offset});
     }
   }
 
@@ -148,12 +146,9 @@ std::string FormatSymbolicated(const ParsedTombstone& tombstone,
   std::ostringstream out;
   out << kSep << "\n";
 
-  char hdr[256];
-  snprintf(hdr, sizeof(hdr),
-           "pid: %" PRIu32 ", tid: %" PRIu32 ", name: %s  >>> %s <<<\n",
-           tombstone.pid, tombstone.crashing_tid,
-           tombstone.process_name.c_str(), tombstone.process_name.c_str());
-  out << hdr;
+  out << std::format("pid: {}, tid: {}, name: {}  >>> {} <<<\n",
+                     tombstone.pid, tombstone.crashing_tid,
+                     tombstone.process_name, tombstone.process_name);
 
   // Signal line.
   auto slash = tombstone.signal_info.find(" / ");
@@ -162,20 +157,14 @@ std::string FormatSymbolicated(const ParsedTombstone& tombstone,
   std::string code_name = (slash != std::string::npos)
       ? tombstone.signal_info.substr(slash + 3) : "";
 
-  char sig[256];
   if (code_name.empty()) {
-    snprintf(sig, sizeof(sig),
-             "signal %" PRIu32 " (%s), fault addr 0x%016" PRIx64 "\n",
-             tombstone.signal_number, sig_name.c_str(), tombstone.fault_addr);
+    out << std::format("signal {} ({}), fault addr 0x{:016x}\n",
+                       tombstone.signal_number, sig_name, tombstone.fault_addr);
   } else {
-    snprintf(sig, sizeof(sig),
-             "signal %" PRIu32 " (%s), code %" PRIu32 " (%s), "
-             "fault addr 0x%016" PRIx64 "\n",
-             tombstone.signal_number, sig_name.c_str(),
-             tombstone.signal_code, code_name.c_str(),
-             tombstone.fault_addr);
+    out << std::format("signal {} ({}), code {} ({}), fault addr 0x{:016x}\n",
+                       tombstone.signal_number, sig_name,
+                       tombstone.signal_code, code_name, tombstone.fault_addr);
   }
-  out << sig;
 
   if (!tombstone.timestamp.empty()) {
     out << "timestamp: " << tombstone.timestamp << "\n";
@@ -183,44 +172,31 @@ std::string FormatSymbolicated(const ParsedTombstone& tombstone,
 
   auto emit_frames = [&](const ParsedThread& thread) {
     for (const auto& frame : thread.frames) {
-      char line[512];
       auto it = symbols.find({thread.tid, frame.index});
+      const auto& mod = frame.module_path.empty()
+          ? std::string_view{"???"} : std::string_view{frame.module_path};
 
       if (it != symbols.end() && it->second.function != "??") {
         const auto& sym = it->second;
         if (!sym.source_file.empty() && sym.source_line > 0) {
-          snprintf(line, sizeof(line),
-                   "    #%02d pc 0x%016" PRIx64 "  %s (%s) [%s:%d]\n",
-                   frame.index, frame.module_offset,
-                   frame.module_path.empty() ? "???" : frame.module_path.c_str(),
-                   sym.function.c_str(), sym.source_file.c_str(),
-                   sym.source_line);
+          out << std::format("    #{:02d} pc 0x{:016x}  {} ({}) [{}:{}]\n",
+                             frame.index, frame.module_offset,
+                             mod, sym.function, sym.source_file, sym.source_line);
         } else {
-          snprintf(line, sizeof(line),
-                   "    #%02d pc 0x%016" PRIx64 "  %s (%s)\n",
-                   frame.index, frame.module_offset,
-                   frame.module_path.empty() ? "???" : frame.module_path.c_str(),
-                   sym.function.c_str());
+          out << std::format("    #{:02d} pc 0x{:016x}  {} ({})\n",
+                             frame.index, frame.module_offset, mod, sym.function);
         }
       } else if (frame.module_path.empty()) {
-        snprintf(line, sizeof(line),
-                 "    #%02d pc 0x%016" PRIx64 "  ???\n",
-                 frame.index, frame.module_offset);
+        out << std::format("    #{:02d} pc 0x{:016x}  ???\n",
+                           frame.index, frame.module_offset);
+      } else if (!frame.trailing.empty()) {
+        out << std::format("    #{:02d} pc 0x{:016x}  {} {}\n",
+                           frame.index, frame.module_offset,
+                           frame.module_path, frame.trailing);
       } else {
-        // No symbol — preserve original form with trailing info if present.
-        if (!frame.trailing.empty()) {
-          snprintf(line, sizeof(line),
-                   "    #%02d pc 0x%016" PRIx64 "  %s %s\n",
-                   frame.index, frame.module_offset,
-                   frame.module_path.c_str(), frame.trailing.c_str());
-        } else {
-          snprintf(line, sizeof(line),
-                   "    #%02d pc 0x%016" PRIx64 "  %s\n",
-                   frame.index, frame.module_offset,
-                   frame.module_path.c_str());
-        }
+        out << std::format("    #{:02d} pc 0x{:016x}  {}\n",
+                           frame.index, frame.module_offset, frame.module_path);
       }
-      out << line;
     }
   };
 
@@ -233,16 +209,12 @@ std::string FormatSymbolicated(const ParsedTombstone& tombstone,
   // Other threads.
   for (size_t i = 1; i < tombstone.threads.size(); ++i) {
     const auto& t = tombstone.threads[i];
-    char sep[128];
     if (t.name.empty()) {
-      snprintf(sep, sizeof(sep),
-               "\n--- --- --- thread %" PRIu32 " --- --- ---\n", t.tid);
+      out << std::format("\n--- --- --- thread {} --- --- ---\n", t.tid);
     } else {
-      snprintf(sep, sizeof(sep),
-               "\n--- --- --- thread %" PRIu32 " (%s) --- --- ---\n",
-               t.tid, t.name.c_str());
+      out << std::format("\n--- --- --- thread {} ({}) --- --- ---\n",
+                         t.tid, t.name);
     }
-    out << sep;
     emit_frames(t);
   }
 

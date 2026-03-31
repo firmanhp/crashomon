@@ -14,10 +14,10 @@ Crash monitoring ecosystem for ELF binaries on embedded Linux. Provides Android 
 
 | Component | Language | Role |
 |---|---|---|
-| `libcrashomon.so` / `.a` | C++17 (C public API) | LD_PRELOAD crash capture client |
+| `libcrashomon.so` / `.a` | C++20 (C public API) | LD_PRELOAD crash capture client |
 | `crashpad_handler` | C++ (Crashpad) | Out-of-process minidump writer |
-| `crashomon-watcherd` | C++17 | inotify watcher, tombstone formatter, disk manager |
-| `crashomon-analyze` | C++17 | CLI symbolication tool |
+| `crashomon-watcherd` | C++20 | inotify watcher, tombstone formatter, disk manager |
+| `crashomon-analyze` | C++20 | CLI symbolication tool |
 | `crashomon-syms` | Python 3.11 | Symbol store management |
 | `crashomon-web` | Python/Flask | Web UI + REST API |
 
@@ -30,7 +30,7 @@ Crash monitoring ecosystem for ELF binaries on embedded Linux. Provides Android 
 | Tool | Version | Notes |
 |---|---|---|
 | CMake | ≥ 3.21 | |
-| C++ compiler | GCC ≥ 11 or Clang ≥ 14 | Must support C++17 |
+| C++ compiler | GCC ≥ 13 or Clang ≥ 16 | Must support C++20 |
 | Python | ≥ 3.11 | For `crashomon-syms` and `crashomon-web` |
 | `uv` | any | Python dependency management (`pip install uv`) |
 | `git` | any | FetchContent clones dependencies |
@@ -321,10 +321,10 @@ curl -X DELETE http://localhost:5000/symbols/my_binary/A1B2C3D4E5F60000
 ### Directory layout
 
 ```
-lib/            libcrashomon.so — C++17 implementation, C-compatible public header
+lib/            libcrashomon.so — C++20 implementation, C-compatible public header
 daemon/         crashomon-watcherd — inotify watcher, tombstone formatter, disk manager
 tools/
-  analyze/      crashomon-analyze — CLI symbolication (C++17)
+  analyze/      crashomon-analyze — CLI symbolication (C++20)
   syms/         crashomon-syms — symbol store management (Python)
 web/            crashomon-web — Flask UI + REST API (Python)
   tests/        pytest tests for the web layer
@@ -337,7 +337,7 @@ systemd/        systemd unit files + drop-in snippets
 
 ### Code standards
 
-- **C++17**, no exceptions (`-fno-exceptions`), no `try`/`catch`/`throw`
+- **C++20**, no exceptions (`-fno-exceptions`), no `try`/`catch`/`throw`
 - Error handling via `absl::Status` / `absl::StatusOr<T>` (internal only — never in public headers)
 - Public API (`lib/crashomon.h`) uses only C types — consumers need no extra dependencies
 - `-Wall -Wextra -Wpedantic -Werror` on all project targets

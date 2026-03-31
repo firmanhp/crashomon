@@ -2,8 +2,7 @@
 
 #include "daemon/tombstone_formatter.h"
 
-#include <cinttypes>
-#include <cstdio>
+#include <format>
 #include <sstream>
 #include <string>
 #include <string_view>
@@ -33,17 +32,10 @@ void AppendFrames(std::ostringstream& out,
   for (size_t idx = 0; idx < frames.size(); ++idx) {
     const auto& frame = frames[idx];
     if (frame.module_path.empty()) {
-      out << "    #" << idx << " pc 0x";
-      std::array<char, 20> hex{};
-      // NOLINTNEXTLINE(cppcoreguidelines-pro-type-vararg,cert-err33-c)
-      (void)std::snprintf(hex.data(), hex.size(), "%016" PRIx64, frame.pc);
-      out << hex.data() << "  ???\n";
+      out << std::format("    #{} pc 0x{:016x}  ???\n", idx, frame.pc);
     } else {
-      out << "    #" << idx << " pc 0x";
-      std::array<char, 20> hex{};
-      // NOLINTNEXTLINE(cppcoreguidelines-pro-type-vararg,cert-err33-c)
-      (void)std::snprintf(hex.data(), hex.size(), "%016" PRIx64, frame.module_offset);
-      out << hex.data() << "  " << frame.module_path << "\n";
+      out << std::format("    #{} pc 0x{:016x}  {}\n",
+                         idx, frame.module_offset, frame.module_path);
     }
   }
 }
@@ -64,16 +56,14 @@ std::string FormatTombstone(const MinidumpInfo& info) {
   // Signal line.
   auto [sig_name, code_name] = SplitSignalInfo(info.signal_info);
 
-  std::array<char, 32> hex_addr{};
-  // NOLINTNEXTLINE(cppcoreguidelines-pro-type-vararg,cert-err33-c)
-  (void)std::snprintf(hex_addr.data(), hex_addr.size(), "0x%016" PRIx64, info.fault_addr);
+  const auto hex_addr = std::format("0x{:016x}", info.fault_addr);
   if (code_name.empty()) {
     out << "signal " << info.signal_number
-        << " (" << sig_name << "), fault addr " << hex_addr.data() << "\n";
+        << " (" << sig_name << "), fault addr " << hex_addr << "\n";
   } else {
     out << "signal " << info.signal_number
         << " (" << sig_name << "), code " << info.signal_code
-        << " (" << code_name << "), fault addr " << hex_addr.data() << "\n";
+        << " (" << code_name << "), fault addr " << hex_addr << "\n";
   }
 
   out << "timestamp: " << info.timestamp << "\n";
@@ -87,11 +77,7 @@ std::string FormatTombstone(const MinidumpInfo& info) {
       out << "   ";
       // Up to 3 registers per line.
       for (size_t col = 0; col < 3 && reg_idx < regs.size(); ++col, ++reg_idx) {
-        std::array<char, 32> reg_buf{};
-        // NOLINTNEXTLINE(cppcoreguidelines-pro-type-vararg,cert-err33-c)
-        (void)std::snprintf(reg_buf.data(), reg_buf.size(), " %-3s %016" PRIx64,
-                            regs[reg_idx].first.c_str(), regs[reg_idx].second);
-        out << reg_buf.data();
+        out << std::format(" {:<3s} {:016x}", regs[reg_idx].first, regs[reg_idx].second);
         if (col < 2 && (reg_idx + 1) < regs.size()) {
           out << " ";
         }

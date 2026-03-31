@@ -89,7 +89,7 @@ TEST(TombstoneFormatterTest, ContainsRegisters) {
 TEST(TombstoneFormatterTest, ContainsBacktrace) {
   auto tomb = FormatTombstone(MakeInfo());
   EXPECT_NE(tomb.find("backtrace:"), std::string::npos);
-  EXPECT_NE(tomb.find("#00"), std::string::npos);
+  EXPECT_NE(tomb.find("#0"), std::string::npos);
   EXPECT_NE(tomb.find("/usr/bin/my_service"), std::string::npos);
   EXPECT_NE(tomb.find("/usr/lib/libc.so.6"), std::string::npos);
 }

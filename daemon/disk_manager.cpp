@@ -3,8 +3,10 @@
 #include "daemon/disk_manager.h"
 
 #include <sys/stat.h>
+#include <algorithm>
 #include <ctime>
 #include <filesystem>
+#include <ranges>
 #include <string>
 #include <vector>
 
@@ -40,11 +42,10 @@ absl::StatusOr<std::vector<DmpFile>> ListDmpFiles(
     struct stat file_stat{};
     if (::stat(entry.path().c_str(), &file_stat) != 0) { continue; }
 
-    DmpFile dmp;
-    dmp.path = entry.path();
-    dmp.size = static_cast<uint64_t>(file_stat.st_size);
-    dmp.mtime = file_stat.st_mtime;
-    files.push_back(std::move(dmp));
+    files.push_back(DmpFile{
+        .path = entry.path(),
+        .size = static_cast<uint64_t>(file_stat.st_size),
+        .mtime = file_stat.st_mtime});
   }
 
   if (err) {
@@ -53,10 +54,7 @@ absl::StatusOr<std::vector<DmpFile>> ListDmpFiles(
         ": " + err.message());
   }
 
-  std::sort(files.begin(), files.end(),
-            [](const DmpFile& lhs, const DmpFile& rhs) {
-              return lhs.mtime < rhs.mtime;
-            });
+  std::ranges::sort(files, {}, &DmpFile::mtime);
   return files;
 }
 

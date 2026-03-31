@@ -81,8 +81,10 @@ void CollectModules(const google_breakpad::ProcessState& process_state,
   for (unsigned int idx = 0; idx < module_count; ++idx) {
     const auto* mod = modules->GetModuleAtIndex(idx);
     if (mod == nullptr) { continue; }
-    info.modules.push_back({mod->code_file(), mod->base_address(), mod->size(),
-                             mod->debug_identifier()});
+    info.modules.push_back({.path = mod->code_file(),
+                             .base_address = mod->base_address(),
+                             .size = mod->size(),
+                             .build_id = mod->debug_identifier()});
   }
 }
 
