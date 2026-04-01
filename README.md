@@ -467,6 +467,285 @@ Copy the `.dmp` path to your developer machine and run `crashomon-analyze` (or u
 
 ---
 
+## Integrating into an Existing CMake Project (Cross-Compilation)
+
+This tutorial shows how to add crash monitoring to an existing CMake project that already uses a custom cross-compiler toolchain (e.g. a Yocto SDK, Buildroot sysroot, or a bare `arm-linux-gnueabihf-` prefix).
+
+### Overview
+
+Crashomon ships two build artifacts relevant to a client project:
+
+| Artifact | What you need it for |
+|---|---|
+| `libcrashomon.so` / `libcrashomon.a` | Link into your application, or preload via `LD_PRELOAD` |
+| `crashomon-watcherd` | Deploy and run on the target device |
+
+The simplest integration is **LD_PRELOAD** — build `libcrashomon.so` for the target, copy it to the device, and add two environment variables to your service. No changes to your CMakeLists.txt required.
+
+If you want crash context (tags, breadcrumbs) or prefer static linking, use explicit linking.
+
+---
+
+### Step 1: Write a toolchain file
+
+CMake cross-compilation is driven by a toolchain file. Create one for your target. This example targets a 64-bit ARMv8 Linux device with a sysroot at `/opt/my-sdk/sysroot`:
+
+```cmake
+# toolchain-aarch64.cmake
+
+set(CMAKE_SYSTEM_NAME Linux)
+set(CMAKE_SYSTEM_PROCESSOR aarch64)
+
+# Path to the cross compiler binaries
+set(CROSS_PREFIX /opt/my-sdk/bin/aarch64-linux-gnu-)
+set(CMAKE_C_COMPILER   ${CROSS_PREFIX}gcc)
+set(CMAKE_CXX_COMPILER ${CROSS_PREFIX}g++)
+set(CMAKE_AR           ${CROSS_PREFIX}ar)
+set(CMAKE_STRIP        ${CROSS_PREFIX}strip)
+
+# Sysroot — headers and libraries for the target
+set(CMAKE_SYSROOT /opt/my-sdk/sysroot)
+
+# Only search the sysroot for libraries and headers, never the host
+set(CMAKE_FIND_ROOT_PATH_MODE_PROGRAM NEVER)
+set(CMAKE_FIND_ROOT_PATH_MODE_LIBRARY ONLY)
+set(CMAKE_FIND_ROOT_PATH_MODE_INCLUDE ONLY)
+set(CMAKE_FIND_ROOT_PATH_MODE_PACKAGE ONLY)
+```
+
+Adjust `CROSS_PREFIX` and `CMAKE_SYSROOT` to match your SDK. For a Yocto SDK, source the `environment-setup-*` script first — it sets `CC`, `CXX`, and `OECORE_TARGET_SYSROOT` which you can reference here.
+
+---
+
+### Step 2: Build crashomon for the target
+
+Build crashomon as a standalone project, targeting your device. Only the client library and watcherd need to be cross-compiled.
+
+```bash
+# In the crashomon repo root
+cmake -B build-cross \
+    -DCMAKE_TOOLCHAIN_FILE=/path/to/toolchain-aarch64.cmake \
+    -DCMAKE_BUILD_TYPE=Release
+
+cmake --build build-cross -j$(nproc) \
+    --target crashomon_client crashomon_watcherd
+```
+
+This produces:
+```
+build-cross/lib/libcrashomon.so
+build-cross/lib/libcrashomon.a
+build-cross/daemon/crashomon-watcherd
+```
+
+> **Note:** FetchContent downloads source and builds all dependencies (Crashpad, Breakpad, Abseil, zlib) for the target. The first build takes longer; subsequent rebuilds are fast.
+
+---
+
+### Step 3: Option A — LD_PRELOAD (zero code changes)
+
+This requires no modifications to your project's CMakeLists.txt or source code.
+
+**On the target device:**
+
+```bash
+# Copy the shared library
+install -m 755 libcrashomon.so /usr/lib/
+
+# Copy and install the watcher
+install -m 755 crashomon-watcherd /usr/libexec/crashomon/
+
+# Install and start the systemd unit
+cp crashomon-watcherd.service /etc/systemd/system/
+systemctl enable --now crashomon-watcherd
+```
+
+**Enable crash monitoring for your service** via a systemd drop-in (no rebuild required):
+
+```bash
+mkdir -p /etc/systemd/system/my-service.service.d/
+
+cat > /etc/systemd/system/my-service.service.d/crashomon.conf << 'EOF'
+[Service]
+Environment=LD_PRELOAD=/usr/lib/libcrashomon.so
+Environment=CRASHOMON_SOCKET_PATH=/run/crashomon/handler.sock
+EOF
+
+systemctl daemon-reload
+systemctl restart my-service
+```
+
+All child processes of `my-service` inherit the environment and are monitored automatically.
+
+---
+
+### Step 3: Option B — Explicit linking (add to your CMakeLists.txt)
+
+Use this approach when you want to call the API to attach tags and breadcrumbs to crash reports, or when you prefer a fully static binary.
+
+#### Install crashomon headers and libraries
+
+After the cross build, install the artifacts to a prefix that your project can find:
+
+```bash
+cmake --install build-cross --prefix /opt/my-sdk/sysroot/usr \
+    --component crashomon_client
+```
+
+Or copy them manually:
+
+```bash
+# Headers
+install -m 644 lib/crashomon.h /opt/my-sdk/sysroot/usr/include/
+
+# Shared library
+install -m 755 build-cross/lib/libcrashomon.so \
+    /opt/my-sdk/sysroot/usr/lib/
+
+# Static library
+install -m 644 build-cross/lib/libcrashomon.a \
+    /opt/my-sdk/sysroot/usr/lib/
+```
+
+#### Add crashomon to your CMakeLists.txt
+
+**Option B1 — Find as an installed library (recommended):**
+
+```cmake
+# In your project's CMakeLists.txt
+
+# Locate the header and library under the sysroot
+find_path(CRASHOMON_INCLUDE_DIR crashomon.h
+    PATHS ${CMAKE_SYSROOT}/usr/include
+    NO_DEFAULT_PATH
+)
+find_library(CRASHOMON_LIB crashomon
+    PATHS ${CMAKE_SYSROOT}/usr/lib
+    NO_DEFAULT_PATH
+)
+
+if(NOT CRASHOMON_INCLUDE_DIR OR NOT CRASHOMON_LIB)
+    message(FATAL_ERROR "crashomon not found. Run the cross build and install step first.")
+endif()
+
+target_include_directories(my_app PRIVATE ${CRASHOMON_INCLUDE_DIR})
+target_link_libraries(my_app PRIVATE ${CRASHOMON_LIB})
+```
+
+**Option B2 — FetchContent (build alongside your project):**
+
+If you prefer to let CMake build crashomon as part of your project (one cmake invocation):
+
+```cmake
+include(FetchContent)
+
+FetchContent_Declare(crashomon
+    GIT_REPOSITORY https://github.com/firmanhp/crashomon.git
+    GIT_TAG        main   # or a specific tag/commit
+)
+FetchContent_MakeAvailable(crashomon)
+
+# Link the client library into your target
+target_link_libraries(my_app PRIVATE crashomon_client)
+```
+
+Pass your toolchain file at configure time and CMake will cross-compile crashomon and all its dependencies automatically:
+
+```bash
+cmake -B build \
+    -DCMAKE_TOOLCHAIN_FILE=/path/to/toolchain-aarch64.cmake \
+    -DFETCHCONTENT_QUIET=OFF
+cmake --build build -j$(nproc)
+```
+
+#### Initialize in your application
+
+```c
+#include "crashomon.h"
+
+int main(void) {
+    CrashomonConfig cfg = {
+        .socket_path = "/run/crashomon/handler.sock",
+    };
+    crashomon_init(&cfg);
+
+    crashomon_set_tag("version", "1.2.3");
+    crashomon_set_tag("env",     "production");
+
+    /* ... your program ... */
+
+    crashomon_shutdown();
+    return 0;
+}
+```
+
+---
+
+### Step 4: Deploy and verify
+
+Copy the cross-compiled binaries to the target and start the watcher:
+
+```bash
+# On the target
+crashomon-watcherd \
+    --db-path=/var/crashomon \
+    --socket-path=/run/crashomon/handler.sock &
+
+# Run your program (with explicit linking or LD_PRELOAD)
+LD_PRELOAD=/usr/lib/libcrashomon.so \
+  CRASHOMON_SOCKET_PATH=/run/crashomon/handler.sock \
+  ./my_program
+
+# Trigger a crash and watch for the tombstone
+journalctl -u crashomon-watcherd -f
+```
+
+You should see a tombstone printed within milliseconds of the crash.
+
+---
+
+### Toolchain-specific notes
+
+**Yocto / OpenEmbedded SDK:**
+
+Source the SDK environment before running CMake — it sets `CC`, `CXX`, `CFLAGS`, `LDFLAGS`, and `OECORE_TARGET_SYSROOT`:
+
+```bash
+source /opt/poky/4.0/environment-setup-cortexa72-poky-linux
+cmake -B build-cross -DCMAKE_TOOLCHAIN_FILE=toolchain-aarch64.cmake
+```
+
+In the toolchain file, reference the SDK variables:
+```cmake
+set(CMAKE_SYSROOT $ENV{OECORE_TARGET_SYSROOT})
+set(CMAKE_C_COMPILER $ENV{CC})
+set(CMAKE_CXX_COMPILER $ENV{CXX})
+```
+
+**Buildroot:**
+
+Use the `host/bin/<tuple>-gcc` and `host/<tuple>/sysroot` paths from your Buildroot output directory:
+
+```cmake
+set(CROSS_PREFIX /path/to/buildroot/output/host/bin/aarch64-buildroot-linux-gnu-)
+set(CMAKE_SYSROOT /path/to/buildroot/output/host/aarch64-buildroot-linux-gnu/sysroot)
+```
+
+**Static binaries:**
+
+To build a fully static `crashomon-watcherd` (useful when the target has a minimal rootfs):
+
+```bash
+cmake -B build-cross \
+    -DCMAKE_TOOLCHAIN_FILE=toolchain-aarch64.cmake \
+    -DCMAKE_EXE_LINKER_FLAGS="-static" \
+    -DCMAKE_FIND_LIBRARY_SUFFIXES=".a"
+```
+
+Note that static linking requires static versions of all system libraries (glibc, libstdc++, libpthread) in the sysroot. Musl-based toolchains (e.g. Alpine, uclibc-ng) are better suited for fully static builds.
+
+---
+
 ## Design decisions
 
 | Decision | Rationale |
