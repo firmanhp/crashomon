@@ -48,6 +48,15 @@ add_library(breakpad_processor STATIC
   "${BREAKPAD_SRC}/common/path_helper.cc"
 )
 target_compile_options(breakpad_processor PRIVATE -w)
+# Suppress INFO-level BPLOG() calls. Each BPLOG(INFO) constructs a LogStream
+# which calls localtime_r() — glibc's tzset lock is not held when the return
+# value (tzname[0]) is read back by Crashpad's TimeZone(), causing a race that
+# produces a NULL tzname[0] and a strlen(NULL) SIGSEGV under concurrent load.
+# Raising the minimum severity to ERROR eliminates the concurrent localtime_r()
+# calls from the main thread, removing the race.
+target_compile_definitions(breakpad_processor PRIVATE
+  BPLOG_MINIMUM_SEVERITY=SEVERITY_ERROR
+)
 target_include_directories(breakpad_processor PUBLIC "${BREAKPAD_SRC}")
 target_link_libraries(breakpad_processor
   PRIVATE

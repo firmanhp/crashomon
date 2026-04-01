@@ -154,9 +154,22 @@ const char* GetArgValue(const char* arg, const char* key) {
 }
 
 // ── Minidump processing ───────────────────────────────────────────────────────
-// TODO: Breakpad MinidumpProcessor crashes the daemon under high crash load.
-// ProcessNewMinidump is temporarily disabled pending investigation and fix.
-// See: test/stress_test.sh failure with ProcessNewMinidump enabled.
+
+void ProcessNewMinidump(std::string_view pending_dir, std::string_view name,
+                        const crashomon::DiskManagerConfig& prune_cfg) {
+  const std::string path = std::string(pending_dir) + "/" + std::string(name);
+  auto info_or = crashomon::ReadMinidump(path);
+  if (!info_or.ok()) {
+    Log(std::string{"crashomon-watcherd: failed to read minidump '"} + path +
+        "': " + std::string(info_or.status().message()));
+    return;
+  }
+  Log(crashomon::FormatTombstone(*info_or));
+  if (const auto prune_status = crashomon::PruneMinidumps(prune_cfg); !prune_status.ok()) {
+    Log(std::string{"crashomon-watcherd: prune failed: "} +
+        std::string(prune_status.message()));
+  }
+}
 
 // ── Crash handler hosting ─────────────────────────────────────────────────────
 
@@ -256,8 +269,8 @@ void AcceptAndShareSocket(int listen_fd, int shared_client_fd, pid_t handler_pid
 
 // Process a raw inotify read buffer, triggering minidump handling for each
 // IN_MOVED_TO event on a .dmp file.
-void ProcessInotifyEvents(std::string_view /*pending_dir*/,
-                          const crashomon::DiskManagerConfig& /*prune_cfg*/,
+void ProcessInotifyEvents(std::string_view pending_dir,
+                          const crashomon::DiskManagerConfig& prune_cfg,
                           std::span<const char> buf) {
   for (size_t offset = 0; offset < buf.size();) {
     // inotify_event is a
@@ -288,7 +301,7 @@ void ProcessInotifyEvents(std::string_view /*pending_dir*/,
       continue;
     }
 
-    // TODO: call ProcessNewMinidump here once Breakpad crash is fixed.
+    ProcessNewMinidump(pending_dir, std::string_view{name, name_len}, prune_cfg);
   }
 }
 
