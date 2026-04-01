@@ -178,22 +178,13 @@ int main(void) {
     crashomon_init(&cfg);
 
     crashomon_set_tag("version", "1.2.3");
-    crashomon_set_tag("build",   "release");
-    crashomon_add_breadcrumb("loaded config file");
-    crashomon_add_breadcrumb("connected to database");
+    crashomon_set_tag("env",     "production");
 
     // ... your program ...
 
     crashomon_shutdown();
     return 0;
 }
-```
-
-Set an abort message before calling `abort()`:
-
-```c
-crashomon_set_abort_message("invariant violated: count >= 0");
-abort();
 ```
 
 ---
@@ -672,7 +663,7 @@ int main(void) {
     crashomon_set_tag("version", "1.2.3");
     crashomon_set_tag("env",     "production");
 
-    /* ... your program ... */
+    /* ... your application ... */
 
     crashomon_shutdown();
     return 0;

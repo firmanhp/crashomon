@@ -59,23 +59,12 @@ void crashomon_shutdown(void);
 
 /**
  * Attach a key-value tag to all crash reports from this process.
+ * Tags are stored in Crashpad's SimpleStringDictionary and included in the
+ * minidump. Keys and values are truncated to 255 characters; up to 64 entries
+ * are supported. Setting the same key twice overwrites the previous value.
  * Example: crashomon_set_tag("version", "1.2.3")
- *
  */
 void crashomon_set_tag(const char *key, const char *value);
-
-/**
- * Add a breadcrumb (timestamped log entry) to the crash context.
- * Breadcrumbs appear in crash reports to show what the process was doing.
- */
-void crashomon_add_breadcrumb(const char *message);
-
-/**
- * Set an abort message that will appear in the crash report.
- * Call this before abort() to attach context (e.g., assertion details).
- * Example: crashomon_set_abort_message("invariant violated: count >= 0")
- */
-void crashomon_set_abort_message(const char *message);
 
 #ifdef __cplusplus
 }

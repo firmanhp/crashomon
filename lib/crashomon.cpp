@@ -18,6 +18,8 @@
 
 #include "base/files/scoped_file.h"
 #include "client/crashpad_client.h"
+#include "client/crashpad_info.h"
+#include "client/simple_string_dictionary.h"
 #include "crashomon_internal.h"
 
 namespace crashomon {
@@ -101,7 +103,15 @@ int DoInit(const ResolvedConfig& cfg) {
   // kTypeCheckCredentials reply could be consumed by the wrong process.
   // SO_PASSCRED is already set on the socket by the daemon before sharing.
   static crashpad::CrashpadClient client;
-  return client.SetHandlerSocket(base::ScopedFD(shared_fd), handler_pid) ? 0 : -1;
+  if (!client.SetHandlerSocket(base::ScopedFD(shared_fd), handler_pid)) {
+    return -1;
+  }
+
+  // Attach our SimpleStringDictionary to CrashpadInfo so the handler picks
+  // up tags written via crashomon_set_tag().
+  static crashpad::SimpleStringDictionary annotations;
+  crashpad::CrashpadInfo::GetCrashpadInfo()->set_simple_annotations(&annotations);
+  return 0;
 }
 
 // ── LD_PRELOAD constructor / destructor ─────────────────────────────────────
@@ -135,17 +145,10 @@ void crashomon_shutdown() {
 // pattern; parameter names make intent unambiguous.
 // NOLINTNEXTLINE(bugprone-easily-swappable-parameters)
 void crashomon_set_tag(const char* key, const char* value) {
-  // TODO: Implement with crashpad::Annotation in a follow-up.
-  (void)key;
-  (void)value;
-}
-
-void crashomon_add_breadcrumb(const char* message) {
-  // Crashpad has no breadcrumb concept. No-op.
-  (void)message;
-}
-
-void crashomon_set_abort_message(const char* message) {
-  // TODO: Implement with crashpad::Annotation in a follow-up.
-  (void)message;
+  auto* info = crashpad::CrashpadInfo::GetCrashpadInfo();
+  auto* annotations = info->simple_annotations();
+  if (annotations == nullptr || key == nullptr || value == nullptr) {
+    return;
+  }
+  annotations->SetKeyValue(key, value);
 }
