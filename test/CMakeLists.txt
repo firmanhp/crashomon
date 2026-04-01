@@ -16,6 +16,7 @@ add_executable(crashomon_tests ${TEST_SOURCES})
 target_link_libraries(crashomon_tests
   PRIVATE
     crashomon_warnings
+    crashomon_tombstone
     GTest::gtest_main
     breakpad_processor
     absl::status
@@ -23,12 +24,10 @@ target_link_libraries(crashomon_tests
     Threads::Threads
 )
 
-# Daemon modules under test — compiled directly into the test binary so tests
+# Modules under test — compiled directly into the test binary so tests
 # can #include internal headers without a separate library target.
 target_sources(crashomon_tests PRIVATE
-  ${CMAKE_SOURCE_DIR}/daemon/tombstone_formatter.cpp
   ${CMAKE_SOURCE_DIR}/daemon/disk_manager.cpp
-  ${CMAKE_SOURCE_DIR}/daemon/minidump_reader.cpp
   ${CMAKE_SOURCE_DIR}/tools/analyze/log_parser.cpp
 )
 

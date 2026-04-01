@@ -328,6 +328,7 @@ FetchContent_MakeAvailable(benchmark)
 
 # ── Subdirectories ─────────────────────────────────────────────────────────────
 add_subdirectory(lib)
+add_subdirectory(tombstone)
 add_subdirectory(daemon)
 add_subdirectory(tools/analyze)
 add_subdirectory(examples)

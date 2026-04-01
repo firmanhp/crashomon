@@ -1,6 +1,6 @@
-// daemon/tombstone_formatter.cpp — Android-style tombstone formatter
+// tombstone/tombstone_formatter.cpp — Android-style tombstone formatter
 
-#include "daemon/tombstone_formatter.h"
+#include "tombstone/tombstone_formatter.h"
 
 #include <cstddef>
 #include <format>
@@ -10,7 +10,7 @@
 #include <utility>
 #include <vector>
 
-#include "daemon/minidump_reader.h"
+#include "tombstone/minidump_reader.h"
 
 namespace crashomon {
 namespace {

@@ -4,8 +4,8 @@
 #include <cstdint>
 #include <string>
 
-#include "daemon/minidump_reader.h"
-#include "daemon/tombstone_formatter.h"
+#include "tombstone/minidump_reader.h"
+#include "tombstone/tombstone_formatter.h"
 #include "gtest/gtest.h"
 
 namespace crashomon {
@@ -37,7 +37,7 @@ constexpr uint64_t kThread2Frame0Offset = 0x10000ULL;
 // NOLINTNEXTLINE(modernize-use-trailing-return-type)
 MinidumpInfo MakeInfo() {
   MinidumpInfo
-      info;  // NOLINT(misc-include-cleaner) — MinidumpInfo comes via daemon/minidump_reader.h which
+      info;  // NOLINT(misc-include-cleaner) — MinidumpInfo comes via tombstone/minidump_reader.h which
              // is included; false positive from include-cleaner.
   info.pid = kTestPid;
   info.crashing_tid = kTestTid;
@@ -50,7 +50,7 @@ MinidumpInfo MakeInfo() {
   info.minidump_path = "/var/crashomon/test.dmp";
 
   ThreadInfo
-      crashing;  // NOLINT(misc-include-cleaner) — ThreadInfo comes via daemon/minidump_reader.h
+      crashing;  // NOLINT(misc-include-cleaner) — ThreadInfo comes via tombstone/minidump_reader.h
                  // which is included; false positive from include-cleaner.
   crashing.tid = kTestTid;
   crashing.is_crashing = true;

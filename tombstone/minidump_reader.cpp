@@ -1,6 +1,6 @@
-// daemon/minidump_reader.cpp — Breakpad minidump processor wrapper
+// tombstone/minidump_reader.cpp — Breakpad minidump processor wrapper
 
-#include "daemon/minidump_reader.h"
+#include "tombstone/minidump_reader.h"
 
 #include <sys/stat.h>  // NOLINT(misc-include-cleaner) — pulled in for struct stat; transitively available but explicitly included for clarity.
 

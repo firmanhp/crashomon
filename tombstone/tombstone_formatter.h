@@ -1,4 +1,4 @@
-// daemon/tombstone_formatter.h — Android-style tombstone formatter
+// tombstone/tombstone_formatter.h — Android-style tombstone formatter
 //
 // Formats a MinidumpInfo into a multi-line tombstone string modelled after
 // Android's debuggerd output. The caller writes the result to journald / stderr.
@@ -7,7 +7,7 @@
 
 #include <string>
 
-#include "daemon/minidump_reader.h"
+#include "tombstone/minidump_reader.h"
 
 namespace crashomon {
 

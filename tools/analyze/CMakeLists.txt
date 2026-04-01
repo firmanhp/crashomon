@@ -11,6 +11,7 @@ add_executable(crashomon_analyze
 target_link_libraries(crashomon_analyze
   PRIVATE
     crashomon_warnings
+    crashomon_tombstone
     breakpad_processor
     absl::status
     absl::statusor

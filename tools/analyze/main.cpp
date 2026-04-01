@@ -25,6 +25,8 @@
 #include <sstream>
 #include <string>
 
+#include "tombstone/minidump_reader.h"
+#include "tombstone/tombstone_formatter.h"
 #include "tools/analyze/log_parser.h"
 #include "tools/analyze/minidump_analyzer.h"
 #include "tools/analyze/symbolizer.h"
@@ -56,6 +58,7 @@ void Usage(const char* prog) {
   (void)std::fputs(("  " + std::string(prog) + " --store <dir> --stdin\n").c_str(), stderr);
   (void)std::fputs(
       ("  " + std::string(prog) + " --symbols <file.sym> --minidump <file.dmp>\n").c_str(), stderr);
+  (void)std::fputs(("  " + std::string(prog) + " --minidump <file.dmp>\n").c_str(), stderr);
   (void)std::fputs(
       "\nOptions:\n"
       "  --stackwalk-binary <path>  (default: minidump_stackwalk)\n"
@@ -111,6 +114,21 @@ int ModeStdinStore(const std::string& store, const std::string& addr2line) {
 
   (void)store;  // sym store not used in stdin+addr2line mode
   (void)std::fputs(crashomon::FormatSymbolicated(*tombstone_or, *syms_or).c_str(), stdout);
+  return 0;
+}
+
+// Print raw (unsymbolicated) Android-style tombstone from a minidump.
+// Google C++ Style Guide recommends trailing
+// return types only when required; conventional notation is clearer here.
+// NOLINTNEXTLINE(modernize-use-trailing-return-type)
+int ModeRawTombstone(const std::string& dump) {
+  auto info_or = crashomon::ReadMinidump(dump);
+  if (!info_or.ok()) {
+    (void)std::fputs(
+        ("crashomon-analyze: " + std::string(info_or.status().message()) + "\n").c_str(), stderr);
+    return 1;
+  }
+  (void)std::fputs(crashomon::FormatTombstone(*info_or).c_str(), stdout);
   return 0;
 }
 
@@ -190,6 +208,9 @@ int main(int argc, char* argv[]) {
   }
   if (!sym_file.empty() && !minidump.empty()) {
     return ModeSymFileMinidump(sym_file, minidump, stackwalk);
+  }
+  if (!minidump.empty()) {
+    return ModeRawTombstone(minidump);
   }
 
   (void)std::fputs("crashomon-analyze: no valid mode specified.\n", stderr);

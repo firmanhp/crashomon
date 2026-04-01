@@ -1,10 +1,9 @@
-// daemon/minidump_reader.h — Breakpad minidump processor wrapper
+// tombstone/minidump_reader.h — Breakpad minidump processor wrapper
 //
 // Reads a Breakpad minidump file and extracts crash info, thread stacks,
 // register state, and loaded modules. No symbol resolution is performed;
 // all frames are raw PC values with module name + offset.
 //
-// This header is internal to crashomon-watcherd.
 // absl::StatusOr is safe to use here — this is not a public API.
 
 #pragma once

@@ -46,8 +46,8 @@
 
 #include "client/crash_report_database.h"
 #include "daemon/disk_manager.h"
-#include "daemon/minidump_reader.h"
-#include "daemon/tombstone_formatter.h"
+#include "tombstone/minidump_reader.h"
+#include "tombstone/tombstone_formatter.h"
 #include "handler/linux/crash_report_exception_handler.h"
 #include "handler/linux/exception_handler_server.h"
 

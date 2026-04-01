@@ -3,20 +3,16 @@
 
 add_executable(crashomon_watcherd
   main.cpp
-  tombstone_formatter.cpp
   disk_manager.cpp
-  minidump_reader.cpp
 )
 
 target_link_libraries(crashomon_watcherd
   PRIVATE
     crashomon_warnings
-    breakpad_processor
+    crashomon_tombstone
     crashpad_handler_lib
     crashpad_tools
     crashpad_client
-    absl::status
-    absl::statusor
     Threads::Threads
 )
 
