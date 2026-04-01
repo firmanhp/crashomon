@@ -15,8 +15,7 @@ Crash monitoring ecosystem for ELF binaries on embedded Linux. Provides Android 
 | Component | Language | Role |
 |---|---|---|
 | `libcrashomon.so` / `.a` | C++20 (C public API) | LD_PRELOAD crash capture client |
-| `crashpad_handler` | C++ (Crashpad) | Out-of-process minidump writer |
-| `crashomon-watcherd` | C++20 | inotify watcher, tombstone formatter, disk manager |
+| `crashomon-watcherd` | C++20 | Crashpad handler host, inotify watcher, tombstone formatter, disk manager |
 | `crashomon-analyze` | C++20 | CLI symbolication tool |
 | `crashomon-syms` | Python 3.11 | Symbol store management |
 | `crashomon-web` | Python/Flask | Web UI + REST API |
@@ -72,8 +71,7 @@ This produces:
 ```
 build/lib/libcrashomon.so          # LD_PRELOAD library
 build/lib/libcrashomon.a           # static library
-build/crashpad_build/handler/crashpad_handler  # out-of-process crash handler
-build/daemon/crashomon-watcherd    # watcher daemon
+build/daemon/crashomon-watcherd    # watcher daemon (also hosts crash handler)
 build/tools/analyze/crashomon-analyze  # CLI symbolication
 ```
 
@@ -101,8 +99,6 @@ cmake -B build-tidy -DENABLE_CLANG_TIDY=ON && cmake --build build-tidy
 ```bash
 install -m 755 build/lib/libcrashomon.so         /usr/lib/
 install -m 755 build/daemon/crashomon-watcherd   /usr/libexec/crashomon/
-# crashpad_handler lives next to the daemon:
-install -m 755 $(find build -name crashpad_handler) /usr/libexec/crashomon/
 ```
 
 ### 2. Install and start the watcher daemon
@@ -135,13 +131,12 @@ systemctl daemon-reload
 systemctl restart my-service
 ```
 
-The drop-in sets three environment variables that the service (and all children) inherit:
+The drop-in sets two environment variables that the service (and all children) inherit:
 
 ```ini
 [Service]
 Environment=LD_PRELOAD=/usr/lib/libcrashomon.so
-Environment=CRASHOMON_DB_PATH=/var/crashomon
-Environment=CRASHOMON_HANDLER_PATH=/usr/libexec/crashomon/crashpad_handler
+Environment=CRASHOMON_SOCKET_PATH=/run/crashomon/handler.sock
 ```
 
 All dynamically-linked processes in the service tree are automatically monitored — no recompilation required.
@@ -152,10 +147,17 @@ All dynamically-linked processes in the service tree are automatically monitored
 
 ### Zero-code integration (LD_PRELOAD)
 
+Start the watcher daemon first (or rely on systemd):
+
+```bash
+crashomon-watcherd --db-path=/var/crashomon --socket-path=/run/crashomon/handler.sock &
+```
+
+Then run your program:
+
 ```bash
 LD_PRELOAD=/usr/lib/libcrashomon.so \
-  CRASHOMON_DB_PATH=/var/crashomon \
-  CRASHOMON_HANDLER_PATH=/usr/libexec/crashomon/crashpad_handler \
+  CRASHOMON_SOCKET_PATH=/run/crashomon/handler.sock \
   ./my_program
 ```
 
@@ -171,7 +173,7 @@ Link with `-lcrashomon` and call the C API to attach context to crash reports:
 int main(void) {
     CrashomonConfig cfg = {
         .db_path      = "/var/crashomon",
-        .handler_path = "/usr/libexec/crashomon/crashpad_handler",
+        .socket_path  = "/run/crashomon/handler.sock",
     };
     crashomon_init(&cfg);
 
@@ -201,14 +203,17 @@ abort();
 ```
 crashomon-watcherd [OPTIONS]
 
-  --db-path=PATH    Directory to watch for new .dmp files.
-                    Default: $CRASHOMON_DB_PATH or /var/crashomon
+  --db-path=PATH       Directory for the Crashpad database and minidumps.
+                       Default: $CRASHOMON_DB_PATH or /var/crashomon
 
-  --max-size=SIZE   Total .dmp size budget (e.g. 100M, 500K, 1G).
-                    Oldest files are deleted when exceeded. 0 = unlimited.
+  --socket-path=PATH   Unix domain socket for client crash handler connections.
+                       Default: $CRASHOMON_SOCKET_PATH or /run/crashomon/handler.sock
 
-  --max-age=AGE     Per-file age limit (e.g. 7d, 24h, 3600s).
-                    Files older than this are deleted. 0 = unlimited.
+  --max-size=SIZE      Total .dmp size budget (e.g. 100M, 500K, 1G).
+                       Oldest files are deleted when exceeded. 0 = unlimited.
+
+  --max-age=AGE        Per-file age limit (e.g. 7d, 24h, 3600s).
+                       Files older than this are deleted. 0 = unlimited.
 ```
 
 ---
@@ -467,6 +472,8 @@ Copy the `.dmp` path to your developer machine and run `crashomon-analyze` (or u
 | Decision | Rationale |
 |---|---|
 | Out-of-process crash capture (Crashpad) | Handler runs in a healthy process; in-process handlers fail when heap is corrupt |
+| Single `ExceptionHandlerServer` with shared socket | Crashpad's intended model for long-lived handlers (`multiple_clients=true`); eliminates per-client threads and subprocess spawning |
+| `SCM_RIGHTS` fd sharing over registration socket | Clients receive the shared socket endpoint from the daemon; no per-process handler spawning (which would fork-bomb under LD_PRELOAD) |
 | No heap allocation in signal path | Async-signal-safe constraint — `libcrashomon.so` itself has no signal handler |
 | `LD_PRELOAD` via constructor | Zero code changes in monitored programs; child processes inherit the env var |
 | No upload URL in Crashpad | Crash data never leaves the device; analysis is always offline |

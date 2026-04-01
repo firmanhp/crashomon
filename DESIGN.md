@@ -23,7 +23,7 @@ After evaluating multiple approaches, we chose **Crashpad** for crash capture + 
 | **Abort message capture** | Via callback (but event is sparse) | Via Crashpad annotations (set in client, embedded in minidump) |
 | **Process overhead** | None | `crashpad_handler` (~2-5MB idle) + watcher service (~2-5MB idle). Total ~4-10MB, well under 20MB budget. |
 | **Language** | Pure C | C++ (Crashpad) + C (client shim) + C++ (watcher) |
-| **LD_PRELOAD** | Works natively via constructor | Works — constructor calls `CrashpadClient::StartHandler()` which spawns `crashpad_handler` |
+| **LD_PRELOAD** | Works natively via constructor | Works — constructor connects to the pre-existing watcherd socket (no subprocess spawned; avoids fork bomb) |
 | **Build complexity** | Simple (inproc is pure C, no extra deps) | Medium (Crashpad needs C++20, zlib; CMake handles it via FetchContent) |
 | **Reliability** | In-process — if process memory is corrupted, handler may fail | Out-of-process — handler runs in healthy process, more reliable |
 | **CLI/Web UI** | Must parse custom format | Uses `minidump_stackwalk` — standard tool, well-documented format |
@@ -51,21 +51,28 @@ After evaluating multiple approaches, we chose **Crashpad** for crash capture + 
 │  │  Process (loaded via LD_PRELOAD or explicit link)     │  │
 │  │                                                       │  │
 │  │  libcrashomon.so                                      │  │
-│  │  ├─ constructor: CrashpadClient::StartHandler()       │  │
+│  │  ├─ constructor: connect → recv shared_fd via         │  │
+│  │  │    SCM_RIGHTS → SetHandlerSocket(shared_fd, pid)   │  │
 │  │  ├─ optional: crashomon_set_tag(), add_breadcrumb()   │  │
-│  │  └─ destructor: no-op (handler is independent)        │  │
-│  └──────────────┬────────────────────────────────────────┘  │
-│                 │ Unix socket (on crash)                     │
-│                 ▼                                            │
-│  ┌───────────────────────────────────────────────────────┐  │
-│  │  crashpad_handler (spawned by StartHandler())         │  │
-│  │  ├─ ptrace: reads registers, stacks, /proc/pid/maps  │  │
-│  │  └─ writes minidump to /var/crashomon/                │  │
-│  └──────────────┬────────────────────────────────────────┘  │
-│                 │ inotify (new file event)                   │
-│                 ▼                                            │
+│  │  └─ on crash: signal handler sends crash request      │  │
+│  │               waits for SIGCONT (kDumpDoneSignal)     │  │
+│  └──────┬────────────────────────────────────────────────┘  │
+│         │ shared Crashpad socket (received via SCM_RIGHTS)  │
+│         ▼                                                    │
 │  ┌───────────────────────────────────────────────────────┐  │
 │  │  crashomon-watcherd (systemd service)                 │  │
+│  │                                                       │  │
+│  │  ── registration thread (main poll loop) ──           │  │
+│  │  ├─ listens on Unix socket for new clients            │  │
+│  │  └─ sends shared_fd + PID via SCM_RIGHTS              │  │
+│  │                                                       │  │
+│  │  ── crash handler thread ──                           │  │
+│  │  ├─ ExceptionHandlerServer (multiple_clients=true)    │  │
+│  │  ├─ ptrace: reads registers, stacks, /proc/pid/maps   │  │
+│  │  ├─ writes minidump to /var/crashomon/                 │  │
+│  │  └─ sends SIGCONT to crashing thread via tgkill()     │  │
+│  │                                                       │  │
+│  │  ── inotify thread (main poll loop) ──                │  │
 │  │  ├─ watches /var/crashomon/ for new minidumps         │  │
 │  │  ├─ parses minidump → extracts crash info             │  │
 │  │  ├─ prints Android-style tombstone to journald        │  │
@@ -101,11 +108,13 @@ After evaluating multiple approaches, we chose **Crashpad** for crash capture + 
 
 **Implementation**:
 - Thin C shared library using Crashpad directly (statically linked)
-- `__attribute__((constructor))` calls `CrashpadClient::StartHandler()` with:
-  - Handler path: `/usr/libexec/crashomon/crashpad_handler` (configurable via `CRASHOMON_HANDLER_PATH` env var)
-  - Database path: `/var/crashomon/` (configurable via `CRASHOMON_DB_PATH` env var)
-  - URL: `""` (no uploads — crash data never leaves the device)
-- `__attribute__((destructor))` is a no-op (crashpad_handler runs as an independent process)
+- `__attribute__((constructor))` performs a two-phase registration:
+  1. `socket()` + `connect()` to `crashomon-watcherd`'s listen socket
+  2. `recvmsg()` with `SCM_RIGHTS` to receive the shared Crashpad socket fd + handler PID
+  3. `CrashpadClient::SetHandlerSocket(shared_fd, handler_pid)` — installs signal handlers and sets `PR_SET_PTRACER`
+  - Socket path: `/run/crashomon/handler.sock` (configurable via `CRASHOMON_SOCKET_PATH` env var)
+- `__attribute__((destructor))` is a no-op
+- Note: Spawning `crashpad_handler` per process via `StartHandler()` would cause a fork bomb under LD_PRELOAD (the subprocess inherits `LD_PRELOAD` and re-spawns forever). Connecting to a pre-existing daemon socket breaks the cycle.
 - Optional public API for explicit users (not LD_PRELOAD):
   - `crashomon_init(config)` — manual init with custom config
   - `crashomon_set_tag(key, value)` — currently a no-op; follow-up will use Crashpad annotations
@@ -117,26 +126,30 @@ After evaluating multiple approaches, we chose **Crashpad** for crash capture + 
 - `lib/crashomon.cpp` — C++20 implementation; constructor/destructor, init logic, API wrappers
 - `lib/CMakeLists.txt`
 
-**Build output**: `libcrashomon.so` (shared, for LD_PRELOAD) + `libcrashomon.a` (static, for explicit linking) + `crashpad_handler` binary
+**Build output**: `libcrashomon.so` (shared, for LD_PRELOAD) + `libcrashomon.a` (static, for explicit linking)
 
 ---
 
 ### 2. `crashomon-watcherd` — Watcher Daemon (systemd service)
 
-**Purpose**: Watches for new minidumps, formats and logs Android-style crash tombstones, manages disk.
+**Purpose**: Hosts the Crashpad exception handler, watches for new minidumps, formats and logs Android-style crash tombstones, manages disk.
 
 **Implementation** (C++):
-- Uses `inotify` to watch the Crashpad database directory for new minidump files
-- On new minidump:
-  1. Waits briefly for write completion (file size stabilization or Crashpad database lock release)
-  2. Parses minidump using Breakpad's `minidump-processor` library (or a lightweight minidump reader)
-  3. Extracts: PID, TID, process name, signal info, registers (all threads), stack traces (raw addresses + module offsets), loaded modules
-  4. Formats Android-style tombstone
-  5. Writes to journald via `sd_journal_send()` (or stderr for non-systemd fallback)
-- Disk management:
-  - Configurable max database size (e.g., 100MB)
-  - Prunes oldest minidumps when limit is exceeded
-  - Configurable max age (e.g., 7 days)
+- Two concurrent activities on one process:
+
+  **Crash handler (dedicated thread)**:
+  - Creates a `socketpair(AF_UNIX, SOCK_SEQPACKET)` at startup
+  - Single `ExceptionHandlerServer` with `InitializeWithClient(server_fd, multiple_clients=true)` — Crashpad's intended model for shared connections
+  - All crash requests from all clients are multiplexed through one epoll loop on the handler thread
+  - Server uses ptrace to read registers, stacks, `/proc/pid/maps`; writes minidump to the Crashpad database
+  - Notifies the crashing thread via `tgkill(pid, tid, kDumpDoneSignal)` (SIGCONT) after minidump is written
+
+  **Main thread (poll loop)**:
+  - Listen socket accepts client registration connections
+  - For each registration: sends `(handler_pid, shared_client_fd)` via `SCM_RIGHTS` to the client, then closes the accepted fd
+  - Inotify watches `<db_path>/pending/` for `IN_MOVED_TO` events (minidump fully written)
+  - On new minidump: parses via Breakpad minidump-processor, formats Android-style tombstone, writes to stderr (journald captures it)
+  - Disk management: prunes oldest minidumps when size/age limits are exceeded
 
 **Crash output format** (Android-inspired):
 ```

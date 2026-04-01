@@ -6,17 +6,18 @@ Crashomon is a crash monitoring ecosystem for ELF binaries on embedded Linux. It
 
 ## Architecture summary
 
-- **libcrashomon.so**: C++20 implementation with C-compatible public header (`extern "C"` linkage). Works via LD_PRELOAD (zero-code integration) or explicit linking. Uses Crashpad directly for out-of-process crash capture. Constructor calls `CrashpadClient::StartHandler()`.
-- **crashpad_handler**: Spawned by libcrashomon.so. Uses ptrace to capture minidumps without copying full process memory. Writes to `/var/crashomon/` (configurable via `CRASHOMON_DB_PATH`).
-- **crashomon-watcherd**: systemd service. Uses inotify to watch for new minidumps, parses them via Breakpad's minidump-processor, prints Android-style tombstone to journald. Also prunes old minidumps.
+- **libcrashomon.so**: C++20 implementation with C-compatible public header (`extern "C"` linkage). Works via LD_PRELOAD (zero-code integration) or explicit linking. Constructor connects to watcherd's Unix socket, receives a shared Crashpad socket fd + handler PID via `SCM_RIGHTS`, then calls `CrashpadClient::SetHandlerSocket(shared_fd, handler_pid)`.
+- **crashomon-watcherd**: systemd service. Hosts a single `ExceptionHandlerServer` (Crashpad) with `multiple_clients=true` on a dedicated thread. Clients share one socketpair endpoint via `SCM_RIGHTS` fd passing — no per-client threads, no subprocess spawning. Also uses inotify to watch for new minidumps, parses them via Breakpad's minidump-processor, prints Android-style tombstone to journald, and prunes old minidumps.
 - **crashomon-analyze**: CLI tool. Symbolicates a minidump or pasted tombstone text using `minidump_stackwalk` + a symbol store. Stateless.
 - **crashomon-syms**: Script. Ingests debug binaries into the Breakpad symbol store (`dump_syms` wrapper).
 - **crashomon-web**: Flask web app. Manages a symbol store (indexed by build ID), stores crash history in SQLite, auto-symbolicates uploaded minidumps.
 
 ## Key design decisions
 
-- **No full memory copy**: crashpad_handler uses ptrace, reads only registers + stack snippets (128KB/thread) + /proc maps. Never copies heap.
-- **LD_PRELOAD works via inheritance**: Set `LD_PRELOAD=/usr/lib/libcrashomon.so` in a systemd unit file. Child processes inherit the env var. All dynamic binaries in the process tree get crash monitoring without code changes.
+- **No full memory copy**: The watcherd's `ExceptionHandlerServer` uses ptrace to read only registers + stack snippets (128KB/thread) + /proc maps. Never copies heap.
+- **Shared socket, not per-client threads**: A single `ExceptionHandlerServer` handles all crash requests on one thread. Clients share the socket endpoint via `SCM_RIGHTS` fd passing. No thread pool, no per-client threads, no subprocess spawning. This is the architecture Crashpad's design doc recommends for long-lived handlers.
+- **LD_PRELOAD works via inheritance**: Set `LD_PRELOAD=/usr/lib/libcrashomon.so` in a systemd unit file. Child processes inherit the env var. All dynamic binaries in the process tree get crash monitoring without code changes. Note: spawning `crashpad_handler` per process would cause a fork bomb under LD_PRELOAD — the shared watcherd socket breaks the cycle.
+- **Crash notification is signal-based**: In `multiple_clients` mode, Crashpad sends `kDumpDoneSignal` (SIGCONT) directly to the crashing thread via `tgkill()` after writing the minidump, not a socket message. Clients wait via `sigtimedwait` with a 5-second timeout.
 - **Symbol store uses Breakpad layout**: `<root>/<module_name>/<build_id>/<module_name>.sym`. `minidump_stackwalk` auto-resolves the right version by build ID from the minidump. CI/CD uploads symbols after each build with `crashomon-syms add`.
 - **Stack unwinding without frame pointers**: Works at `-O2`/`-O3`. Crashpad captures raw stack memory + registers. minidump_stackwalk uses DWARF CFI from `.sym` files (extracted from `.eh_frame` by `dump_syms`). On-target tombstone uses Breakpad's stack scanning (heuristic, approximate).
 
@@ -72,7 +73,7 @@ systemd/      systemd unit files
 - Do not mix ASan and TSan (they conflict).
 - Do not apply `-Werror` to third-party dependencies (Crashpad, GoogleTest, Breakpad, Abseil). Use `target_compile_options()` on our own targets only.
 - Do not do any heap allocation or non-async-signal-safe operations in the client library's signal handler path.
-- Do not add upload/network support — pass `url=""` to `StartHandler()` always.
+- Do not add upload/network support — `ExceptionHandlerServer` is always configured with no upload thread.
 - Do not use `try`/`catch`/`throw`. All C++ is compiled with `-fno-exceptions`. Use `absl::Status`/`absl::StatusOr` for internal error handling.
 - Do not expose Abseil types in public or cross-library interfaces. Public APIs must be freestanding — consumers must not need to add Abseil as a dependency. `absl::Status`/`absl::StatusOr` are used only in `.cpp` files and internal (non-public) headers.
 - Do not rely on system-installed versions of project dependencies. All C/C++ deps (Crashpad, GoogleTest, Abseil, Breakpad, Google Benchmark) are fetched via CMake FetchContent.

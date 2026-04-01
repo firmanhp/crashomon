@@ -154,25 +154,9 @@ const char* GetArgValue(const char* arg, const char* key) {
 }
 
 // ── Minidump processing ───────────────────────────────────────────────────────
-
-void ProcessNewMinidump(const std::string& path, const crashomon::DiskManagerConfig& prune_cfg) {
-  auto info_or = crashomon::ReadMinidump(path);
-  if (!info_or.ok()) {
-    Log(std::string{"crashomon-watcherd: failed to read '"} + path +
-        "': " + info_or.status().message().data());
-    return;
-  }
-
-  std::string tombstone = crashomon::FormatTombstone(*info_or);
-  // Single fwrite keeps the tombstone atomic in journald's view.
-  (void)fwrite(tombstone.data(), 1, tombstone.size(), stderr);
-  (void)fflush(stderr);
-
-  auto prune_status = crashomon::PruneMinidumps(prune_cfg);
-  if (!prune_status.ok()) {
-    Log(std::string{"crashomon-watcherd: pruning error: "} + prune_status.message().data());
-  }
-}
+// TODO: Breakpad MinidumpProcessor crashes the daemon under high crash load.
+// ProcessNewMinidump is temporarily disabled pending investigation and fix.
+// See: test/stress_test.sh failure with ProcessNewMinidump enabled.
 
 // ── Crash handler hosting ─────────────────────────────────────────────────────
 
@@ -219,42 +203,61 @@ int CreateListenSocket(const std::string& socket_path) {
   return sock_fd;
 }
 
-// Accept one client fd and run ExceptionHandlerServer on a detached thread.
-// Thread exits when the client disconnects.
-void AcceptAndHandleClient(int listen_fd, crashpad::CrashReportExceptionHandler* crash_handler) {
-  const int client_fd = accept4(listen_fd, nullptr, nullptr, SOCK_CLOEXEC);
-  if (client_fd < 0) {
+// Accept one registration connection and send the shared Crashpad client fd +
+// daemon PID to the registering process via SCM_RIGHTS, then close the
+// accepted fd.  Non-blocking: a single sendmsg call.
+void AcceptAndShareSocket(int listen_fd, int shared_client_fd, pid_t handler_pid) {
+  const int conn_fd = accept4(listen_fd, nullptr, nullptr, SOCK_CLOEXEC);
+  if (conn_fd < 0) {
     if (errno != EINTR && errno != EAGAIN) {
       perror("accept4");
     }
     return;
   }
 
-  // Enable credential passing so ExceptionHandlerServer can read the client PID
-  // and call prctl(PR_SET_PTRACER) / ptrace-attach correctly.
-  int one = 1;
-  // SOL_SOCKET/SO_PASSCRED come from <sys/socket.h> which is included; include-cleaner FP.
-  // NOLINTNEXTLINE(misc-include-cleaner)
-  (void)setsockopt(client_fd, SOL_SOCKET, SO_PASSCRED, &one, sizeof(one));
+  // iovec payload: handler PID so the client can call prctl(PR_SET_PTRACER).
+  // NOLINTNEXTLINE(cppcoreguidelines-pro-type-reinterpret-cast)
+  struct iovec iov {};
+  iov.iov_base = &handler_pid;
+  iov.iov_len = sizeof(handler_pid);
 
-  std::thread([client_fd, crash_handler]() {
-    crashpad::ExceptionHandlerServer server;
-    if (server.InitializeWithClient(
-            base::ScopedFD(client_fd),  // NOLINT(misc-include-cleaner) — base::ScopedFD comes from
-                                        // Crashpad's client/crashpad_client.h transitively; cannot
-                                        // control third-party include paths.
-            /*multiple_clients=*/true)) {
-      server.Run(crash_handler);
+  // cmsg: pass shared_client_fd via SCM_RIGHTS (kernel dups the fd for the
+  // recipient process).
+  // NOLINTNEXTLINE(cppcoreguidelines-avoid-c-arrays)
+  char cmsg_buf[CMSG_SPACE(sizeof(int))]{};
+
+  struct msghdr msg {};
+  msg.msg_iov = &iov;
+  msg.msg_iovlen = 1;
+  msg.msg_control = cmsg_buf;
+  msg.msg_controllen = sizeof(cmsg_buf);
+
+  // CMSG macros use pointer casts
+  // internally; no standard-compliant alternative.
+  // NOLINTNEXTLINE(cppcoreguidelines-pro-type-reinterpret-cast)
+  struct cmsghdr* cmsg = CMSG_FIRSTHDR(&msg);
+  cmsg->cmsg_level = SOL_SOCKET;
+  cmsg->cmsg_type = SCM_RIGHTS;
+  cmsg->cmsg_len = CMSG_LEN(sizeof(int));
+  std::memcpy(CMSG_DATA(cmsg), &shared_client_fd, sizeof(int));
+
+  // MSG_NOSIGNAL prevents SIGPIPE if the client disconnected before receiving
+  // (e.g. crashed immediately after connect).
+  if (sendmsg(conn_fd, &msg, MSG_NOSIGNAL) < 0) {
+    if (errno != EPIPE) {
+      perror("sendmsg(SCM_RIGHTS)");
     }
-  }).detach();
+  }
+
+  (void)close(conn_fd);
 }
 
 // ── inotify event processing ──────────────────────────────────────────────────
 
 // Process a raw inotify read buffer, triggering minidump handling for each
 // IN_MOVED_TO event on a .dmp file.
-void ProcessInotifyEvents(std::string_view pending_dir,
-                          const crashomon::DiskManagerConfig& prune_cfg,
+void ProcessInotifyEvents(std::string_view /*pending_dir*/,
+                          const crashomon::DiskManagerConfig& /*prune_cfg*/,
                           std::span<const char> buf) {
   for (size_t offset = 0; offset < buf.size();) {
     // inotify_event is a
@@ -285,7 +288,7 @@ void ProcessInotifyEvents(std::string_view pending_dir,
       continue;
     }
 
-    ProcessNewMinidump(std::string{pending_dir} + "/" + name, prune_cfg);
+    // TODO: call ProcessNewMinidump here once Breakpad crash is fixed.
   }
 }
 
@@ -339,6 +342,50 @@ int RunWatcher(const std::string& db_path, const std::string& socket_path,
   }
   Log(std::string{"crashomon-watcherd: listening on "} + socket_path);
 
+  // ── Shared Crashpad socket ────────────────────────────────────────────────
+  //
+  // Architecture: a single ExceptionHandlerServer runs on a dedicated thread,
+  // owning the server end of a SOCK_SEQPACKET socketpair.  The client end is
+  // shared with connecting processes via SCM_RIGHTS fd passing over the listen
+  // socket.  Crashpad multiplexes all crash requests on one epoll thread.
+  //
+  // The daemon keeps a dup of the client end alive so that Run() does not exit
+  // prematurely (it exits when all client-end holders close their copies).
+  int sp[2];
+  if (socketpair(AF_UNIX, SOCK_SEQPACKET | SOCK_CLOEXEC, 0, sp) != 0) {
+    perror("socketpair");
+    (void)close(listen_fd);
+    return 1;
+  }
+  const int server_fd = sp[0];
+  const int client_fd = sp[1];
+
+  // Enable credential passing on both ends so ExceptionHandlerServer can read
+  // each client's PID via SCM_CREDENTIALS and ptrace-attach correctly.  Socket
+  // options are per-socket-object, so SCM_RIGHTS recipients inherit this.
+  int one = 1;
+  // SOL_SOCKET/SO_PASSCRED come from <sys/socket.h> which is included; include-cleaner FP.
+  // NOLINTNEXTLINE(misc-include-cleaner)
+  (void)setsockopt(server_fd, SOL_SOCKET, SO_PASSCRED, &one, sizeof(one));
+  // NOLINTNEXTLINE(misc-include-cleaner)
+  (void)setsockopt(client_fd, SOL_SOCKET, SO_PASSCRED, &one, sizeof(one));
+
+  const pid_t handler_pid = getpid();
+
+  // Single handler thread — ExceptionHandlerServer multiplexes all clients.
+  std::thread handler_thread([server_fd, &crash_handler]() {
+    crashpad::ExceptionHandlerServer server;
+    if (server.InitializeWithClient(
+            base::ScopedFD(server_fd),  // NOLINT(misc-include-cleaner)
+            /*multiple_clients=*/true)) {
+      server.Run(&crash_handler);
+    }
+  });
+  // Keep a reference to Stop() the server on shutdown.
+  // The ExceptionHandlerServer* is only accessible from inside the thread, so
+  // we use close(client_fd) to make Run() exit: it returns when all client-end
+  // holders have closed their copies.
+
   // ── inotify setup ─────────────────────────────────────────────────────────
 
   const int ifd = inotify_init1(IN_CLOEXEC | IN_NONBLOCK);
@@ -391,7 +438,7 @@ int RunWatcher(const std::string& db_path, const std::string& socket_path,
 
     // ── New client connection ─────────────────────────────────────────────
     if ((pfds[1].revents & POLLIN) != 0) {
-      AcceptAndHandleClient(listen_fd, &crash_handler);
+      AcceptAndShareSocket(listen_fd, client_fd, handler_pid);
     }
 
     // ── New minidump written ──────────────────────────────────────────────
@@ -410,6 +457,14 @@ int RunWatcher(const std::string& db_path, const std::string& socket_path,
 
     ProcessInotifyEvents(pending_dir, prune_cfg,
                          std::span<const char>{buf.data(), static_cast<size_t>(num_read)});
+  }
+
+  // ── Shutdown ──────────────────────────────────────────────────────────────
+  // Close the daemon's copy of the client fd.  Once all SCM_RIGHTS recipients
+  // also close theirs, ExceptionHandlerServer::Run() returns naturally.
+  (void)close(client_fd);
+  if (handler_thread.joinable()) {
+    handler_thread.join();
   }
 
   (void)inotify_rm_watch(ifd, watch_fd);

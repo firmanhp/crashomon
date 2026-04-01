@@ -23,6 +23,47 @@
 namespace crashomon {
 namespace {
 
+// Receive the shared Crashpad socket fd and handler PID from watcherd via
+// SCM_RIGHTS.  Returns the received fd on success, or -1 on failure.
+// On success, *out_pid is set to the handler PID.
+// Google C++ Style Guide recommends trailing
+// return types only when required; conventional notation is clearer here.
+// NOLINTNEXTLINE(modernize-use-trailing-return-type)
+int ReceiveSharedSocket(int conn_fd, pid_t* out_pid) {
+  pid_t pid = 0;
+  struct iovec iov {};
+  iov.iov_base = &pid;
+  iov.iov_len = sizeof(pid);
+
+  // NOLINTNEXTLINE(cppcoreguidelines-avoid-c-arrays)
+  char cmsg_buf[CMSG_SPACE(sizeof(int))]{};
+
+  struct msghdr msg {};
+  msg.msg_iov = &iov;
+  msg.msg_iovlen = 1;
+  msg.msg_control = cmsg_buf;
+  msg.msg_controllen = sizeof(cmsg_buf);
+
+  const ssize_t n = recvmsg(conn_fd, &msg, /*flags=*/0);
+  if (n < static_cast<ssize_t>(sizeof(pid))) {
+    return -1;
+  }
+
+  // Extract the file descriptor from SCM_RIGHTS ancillary data.
+  // CMSG macros use pointer casts internally; no standard-compliant alternative.
+  // NOLINTNEXTLINE(cppcoreguidelines-pro-type-reinterpret-cast)
+  struct cmsghdr* cmsg = CMSG_FIRSTHDR(&msg);
+  if (cmsg == nullptr || cmsg->cmsg_level != SOL_SOCKET ||
+      cmsg->cmsg_type != SCM_RIGHTS || cmsg->cmsg_len != CMSG_LEN(sizeof(int))) {
+    return -1;
+  }
+
+  int shared_fd = -1;
+  std::memcpy(&shared_fd, CMSG_DATA(cmsg), sizeof(int));
+  *out_pid = pid;
+  return shared_fd;
+}
+
 // Google C++ Style Guide recommends trailing
 // return types only when required; conventional notation is clearer here.
 // NOLINTNEXTLINE(modernize-use-trailing-return-type)
@@ -47,15 +88,20 @@ int DoInit(const ResolvedConfig& cfg) {
     return -1;  // watcherd not running — crash monitoring silently disabled
   }
 
-  const int one = 1;
-  // SOL_SOCKET/SO_PASSCRED come from <sys/socket.h> which is included; false positive.
-  // NOLINTNEXTLINE(misc-include-cleaner)
-  (void)setsockopt(sock, SOL_SOCKET, SO_PASSCRED, &one, sizeof(one));
+  // Receive the shared Crashpad socket fd and handler PID from watcherd.
+  // The daemon sends them via SCM_RIGHTS over the registration connection.
+  pid_t handler_pid = 0;
+  const int shared_fd = ReceiveSharedSocket(sock, &handler_pid);
+  close(sock);  // registration exchange done
+  if (shared_fd < 0) {
+    return -1;
+  }
 
-  // pid=-1: SetHandlerSocket discovers watcherd PID via SCM_CREDENTIALS,
-  // calls prctl(PR_SET_PTRACER, watcherd_pid), and installs crash signal handlers.
+  // Explicit handler_pid (not -1) is required: with a shared socket, the
+  // kTypeCheckCredentials reply could be consumed by the wrong process.
+  // SO_PASSCRED is already set on the socket by the daemon before sharing.
   static crashpad::CrashpadClient client;
-  return client.SetHandlerSocket(base::ScopedFD(sock), /*pid=*/-1) ? 0 : -1;
+  return client.SetHandlerSocket(base::ScopedFD(shared_fd), handler_pid) ? 0 : -1;
 }
 
 // ── LD_PRELOAD constructor / destructor ─────────────────────────────────────
