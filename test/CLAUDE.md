@@ -4,7 +4,7 @@
 
 The test directory contains all automated tests, fixture generation, and end-to-end demo scripts for crashomon. There are two distinct test layers:
 
-- **Unit tests** (`crashomon_tests` binary, 90 tests): built and run via CTest. 72 tests run unconditionally; 18 are fixture-based and skip gracefully when fixtures are absent.
+- **Unit tests** (`crashomon_tests` binary, 101 tests): built and run via CTest. 83 tests run unconditionally; 18 are fixture-based and skip gracefully when fixtures are absent.
 - **Integration/demo scripts** (bash): exercise the full live pipeline end-to-end and require a successful build first.
 
 ---
@@ -15,26 +15,31 @@ The test directory contains all automated tests, fixture generation, and end-to-
 
 ```bash
 cmake -B build && cmake --build build
-ctest --test-dir build                  # all 90 tests
+ctest --test-dir build                  # all 101 tests
 ctest --test-dir build -R MinidumpReader  # one suite by regex
 ctest --test-dir build --output-on-failure
 ```
 
-All 90 tests pass after a clean build. The 18 `MinidumpReaderTest.*Fixture_*` tests print `SKIP` (not `FAIL`) when fixtures are absent.
+All 101 tests pass after a clean build. The 18 `MinidumpReaderTest.*Fixture_*` tests print `SKIP` (not `FAIL`) when fixtures are absent.
 
 ### Test binary structure
 
-All test sources compile into a single binary `crashomon_tests`. The daemon modules under test (`tombstone_formatter.cpp`, `disk_manager.cpp`, `minidump_reader.cpp`, `log_parser.cpp`) are compiled directly into the test binary via `target_sources` — there is no separate internal library. This means tests can `#include` internal headers (e.g. `daemon/minidump_reader.h`) without a separate install step.
+All test sources compile into a single binary `crashomon_tests`. Modules under test are compiled directly into the test binary via `target_sources` — there is no separate internal library. This means tests can `#include` internal headers without a separate install step. Modules compiled in:
+- `daemon/disk_manager.cpp`, `tools/analyze/log_parser.cpp` — daemon and tool internals
+- `lib/crashomon.cpp` — client library (for `test_tags.cpp`; Crashpad headers are marked SYSTEM to suppress third-party warnings)
+
+`test_tags.cpp` also links `crashpad_client` to access `CrashpadInfo` and `SimpleStringDictionary` directly in test setup.
 
 ### Test files and what they cover
 
 | File | Module under test | Key test patterns |
 |---|---|---|
 | `test_crashomon.cpp` | `lib/crashomon_internal.h` — `GetEnv()`, `Resolve()` | RAII `ScopedEnv` guard to set/unset env vars; covers precedence: explicit config > env var > default |
-| `test_tombstone_formatter.cpp` | `daemon/tombstone_formatter.cpp` | Builds `MinidumpInfo` structs by hand; asserts string output contains expected fields |
+| `test_tags.cpp` | `lib/crashomon.cpp` — `crashomon_set_tag()`, `crashomon_set_abort_message()` | `TagsTest` fixture installs a local `SimpleStringDictionary` on `CrashpadInfo` in `SetUp()`, then verifies writes; covers null guards, key overwrite, 255-char truncation |
+| `test_tombstone_formatter.cpp` | `tombstone/tombstone_formatter.cpp` | Builds `MinidumpInfo` structs by hand; asserts string output contains expected fields |
 | `test_disk_manager.cpp` | `daemon/disk_manager.cpp` | Creates real temp directories/files with `mkstemp`; exercises size accounting and age-based pruning |
 | `test_log_parser.cpp` | `tools/analyze/log_parser.cpp` | Feeds hand-crafted tombstone text; asserts `ParsedTombstone` struct fields |
-| `test_minidump_reader.cpp` | `daemon/minidump_reader.cpp` | Error-path tests (no fixtures); fixture-based tests against real Crashpad `.dmp` files |
+| `test_minidump_reader.cpp` | `tombstone/minidump_reader.cpp` | Error-path tests (no fixtures); fixture-based tests against real Crashpad `.dmp` files |
 
 ### Fixture discovery
 
@@ -89,11 +94,11 @@ test/gen_fixtures.sh build test/fixtures    # explicit paths
 
 **Note on the `new/` vs `pending/` distinction**: Crashpad's `CrashReportDatabase` writes the minidump to `<db_path>/new/<uuid>.dmp`, then atomically renames it to `<db_path>/pending/<uuid>.dmp` once the write is complete. The integration scripts and the watcherd's inotify watch both target `pending/` to avoid reading a partially-written file.
 
-After generating fixtures, re-run CTest and all 90 tests pass (none skip):
+After generating fixtures, re-run CTest and all 101 tests pass (none skip):
 
 ```bash
 ctest --test-dir build
-# 100% tests passed, 0 tests failed out of 90
+# 100% tests passed, 0 tests failed out of 101
 ```
 
 ---
@@ -172,5 +177,6 @@ Follow the pattern in `test_minidump_reader.cpp`:
 ### Important constraints
 
 - No `try`/`catch`/`throw` anywhere — all C++ is compiled with `-fno-exceptions`.
-- Daemon module `.cpp` files are compiled directly into `crashomon_tests` via `target_sources`, not via a separate library. Changing internal headers requires only a rebuild, not a re-link step.
+- Module `.cpp` files are compiled directly into `crashomon_tests` via `target_sources`, not via a separate library. Changing internal headers requires only a rebuild, not a re-link step.
+- When adding a test that includes Crashpad headers directly (as `test_tags.cpp` does), add `crashpad_client` to `target_link_libraries` and the `crashpad_interface` SYSTEM-include block in `test/CMakeLists.txt` — otherwise our `-Werror` flags fire on third-party headers.
 - The `CRASHOMON_FIXTURES_DIR` env var is injected by CMake's `gtest_discover_tests` — you do not need to set it manually when running via `ctest`.

@@ -5,6 +5,7 @@ include(GoogleTest)
 
 set(TEST_SOURCES
   test_crashomon.cpp
+  test_tags.cpp
   test_tombstone_formatter.cpp
   test_disk_manager.cpp
   test_log_parser.cpp
@@ -22,6 +23,7 @@ target_link_libraries(crashomon_tests
     absl::status
     absl::statusor
     Threads::Threads
+    crashpad_client
 )
 
 # Modules under test — compiled directly into the test binary so tests
@@ -29,6 +31,7 @@ target_link_libraries(crashomon_tests
 target_sources(crashomon_tests PRIVATE
   ${CMAKE_SOURCE_DIR}/daemon/disk_manager.cpp
   ${CMAKE_SOURCE_DIR}/tools/analyze/log_parser.cpp
+  ${CMAKE_SOURCE_DIR}/lib/crashomon.cpp
 )
 
 target_include_directories(crashomon_tests
@@ -43,6 +46,14 @@ if(abseil_SOURCE_DIR)
 endif()
 if(breakpad_SOURCE_DIR)
   target_include_directories(crashomon_tests SYSTEM PRIVATE "${breakpad_SOURCE_DIR}/src")
+endif()
+# lib/crashomon.cpp and test_tags.cpp include Crashpad headers directly.
+# Mark Crashpad's directories as SYSTEM so -Werror does not fire on third-party
+# code (same approach as lib/CMakeLists.txt for crashomon_client targets).
+if(TARGET crashpad_interface)
+  target_include_directories(crashomon_tests SYSTEM PRIVATE
+    $<TARGET_PROPERTY:crashpad_interface,INTERFACE_INCLUDE_DIRECTORIES>
+  )
 endif()
 
 set_target_properties(crashomon_tests PROPERTIES CXX_CLANG_TIDY "${CRASHOMON_CLANG_TIDY}")
