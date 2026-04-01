@@ -45,7 +45,7 @@ check() {
 
 LIBCRASHOMON="${BUILD_DIR}/lib/libcrashomon.so"
 WATCHERD="${BUILD_DIR}/daemon/crashomon-watcherd"
-CRASHOMON_ANALYZE="${BUILD_DIR}/tools/analyze/crashomon-analyze"
+CRASHOMON_ANALYZE="${PROJECT_ROOT}/tools/analyze/crashomon-analyze"
 CRASHOMON_SYMS="${PROJECT_ROOT}/tools/syms/crashomon-syms"
 EXAMPLES_BIN="${BUILD_DIR}/examples"
 DUMP_SYMS="$(find "${BUILD_DIR}" -maxdepth 2 -name 'breakpad_dump_syms' -type f | head -1 || true)"

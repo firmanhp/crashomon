@@ -330,7 +330,6 @@ FetchContent_MakeAvailable(benchmark)
 add_subdirectory(lib)
 add_subdirectory(tombstone)
 add_subdirectory(daemon)
-add_subdirectory(tools/analyze)
 add_subdirectory(examples)
 
 enable_testing()
@@ -343,7 +342,8 @@ endif()
 # ── Install ────────────────────────────────────────────────────────────────────
 install(TARGETS crashomon_client DESTINATION lib)
 install(FILES lib/crashomon.h DESTINATION include/crashomon)
-install(TARGETS crashomon_watcherd crashomon_analyze DESTINATION bin)
+install(TARGETS crashomon_watcherd DESTINATION bin)
+install(PROGRAMS tools/analyze/crashomon-analyze DESTINATION bin)
 # crashpad_handler is the out-of-process crash capture daemon.
 # Installed separately since we disabled CRASHPAD_ENABLE_INSTALL to avoid export set errors.
 install(TARGETS crashpad_handler DESTINATION libexec/crashomon)

@@ -1,0 +1,90 @@
+#!/usr/bin/env python3
+"""crashomon-analyze — minidump / tombstone symbolication tool.
+
+Modes:
+  crashomon-analyze --store=<dir> --minidump=<file.dmp>
+      Symbolicate a Breakpad minidump using a symbol store.
+      Delegates to minidump_stackwalk; build IDs in the minidump auto-match
+      to .sym files in the store.
+
+  crashomon-analyze --store=<dir> --stdin
+      Read a tombstone from stdin, symbolicate using eu-addr2line.
+      Module paths in the tombstone must be accessible on this machine.
+
+  crashomon-analyze --symbols=<file.sym> --minidump=<file.dmp>
+      Symbolicate a minidump using a single explicit .sym file.
+      The file is installed into a temporary Breakpad store layout and
+      minidump_stackwalk is invoked against it.
+
+  crashomon-analyze --minidump=<file.dmp>
+      Print a raw (unsymbolicated) Android-style tombstone from a minidump.
+
+Options:
+  --stackwalk-binary=<path>   Path to minidump_stackwalk (default: minidump_stackwalk)
+  --addr2line-binary=<path>   Path to eu-addr2line (default: eu-addr2line)
+"""
+
+from __future__ import annotations
+
+import argparse
+import sys
+from pathlib import Path
+
+# Allow running as a standalone script from any working directory.
+sys.path.insert(0, str(Path(__file__).resolve().parents[2]))
+
+from web.analyze import (  # noqa: E402
+    mode_minidump_store,
+    mode_raw_tombstone,
+    mode_stdin_store,
+    mode_sym_file_minidump,
+)
+
+
+def _build_parser() -> argparse.ArgumentParser:
+    parser = argparse.ArgumentParser(
+        prog="crashomon-analyze",
+        description="Symbolicate Crashpad minidumps and tombstone text.",
+        add_help=True,
+    )
+    parser.add_argument("--store", metavar="DIR", default="")
+    parser.add_argument("--minidump", metavar="FILE", default="")
+    parser.add_argument("--symbols", metavar="FILE", default="")
+    parser.add_argument("--stdin", dest="read_stdin", action="store_true")
+    parser.add_argument(
+        "--stackwalk-binary", metavar="PATH", default="minidump_stackwalk"
+    )
+    parser.add_argument(
+        "--addr2line-binary", metavar="PATH", default="eu-addr2line"
+    )
+    return parser
+
+
+def main() -> int:
+    parser = _build_parser()
+    args = parser.parse_args()
+
+    try:
+        if args.store and args.minidump:
+            output = mode_minidump_store(args.store, args.minidump, args.stackwalk_binary)
+        elif args.store and args.read_stdin:
+            text = sys.stdin.read()
+            output = mode_stdin_store(text, args.store, args.addr2line_binary)
+        elif args.symbols and args.minidump:
+            output = mode_sym_file_minidump(args.symbols, args.minidump, args.stackwalk_binary)
+        elif args.minidump:
+            output = mode_raw_tombstone(args.minidump, args.stackwalk_binary)
+        else:
+            print("crashomon-analyze: no valid mode specified.", file=sys.stderr)
+            parser.print_usage(sys.stderr)
+            return 1
+    except (RuntimeError, ValueError, OSError) as exc:
+        print(f"crashomon-analyze: {exc}", file=sys.stderr)
+        return 1
+
+    sys.stdout.write(output)
+    return 0
+
+
+if __name__ == "__main__":
+    sys.exit(main())

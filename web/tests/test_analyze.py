@@ -1,0 +1,221 @@
+"""Tests for web.analyze mode functions and web.symbolizer.parse_stackwalk_machine."""
+
+from __future__ import annotations
+
+import textwrap
+from unittest.mock import MagicMock, patch
+
+import pytest
+
+from web.analyze import (
+    mode_minidump_store,
+    mode_raw_tombstone,
+    mode_stdin_store,
+    mode_sym_file_minidump,
+)
+from web.symbolizer import format_raw_tombstone, parse_stackwalk_machine
+
+# ---------------------------------------------------------------------------
+# Helpers
+# ---------------------------------------------------------------------------
+
+_MACHINE_OUTPUT = textwrap.dedent("""\
+    OS|Linux|0.0.0 Linux #1 SMP
+    CPU|amd64|family 6|4
+    GPU|UNKNOWN|0
+    Crash|SIGSEGV|0x0000000000000004|0
+    Module|my_service||my_service|DEADBEEF0|0x400000|0x410000|1
+    Module|libc.so||libc.so|AABBCCDD0|0x7f000000|0x7f100000|0
+    0|0|my_service||||0x1000
+    0|1|libc.so||||0x2000
+    1|0|libc.so||||0x3000
+""")
+
+
+# ---------------------------------------------------------------------------
+# parse_stackwalk_machine
+# ---------------------------------------------------------------------------
+
+
+def test_parse_machine_crash_signal():
+    t = parse_stackwalk_machine(_MACHINE_OUTPUT)
+    assert t.signal_info == "SIGSEGV"
+
+
+def test_parse_machine_fault_addr():
+    t = parse_stackwalk_machine(_MACHINE_OUTPUT)
+    assert t.fault_addr == 4
+
+
+def test_parse_machine_crashing_thread_first():
+    t = parse_stackwalk_machine(_MACHINE_OUTPUT)
+    assert t.threads[0].is_crashing
+
+
+def test_parse_machine_thread_count():
+    t = parse_stackwalk_machine(_MACHINE_OUTPUT)
+    assert len(t.threads) == 2
+
+
+def test_parse_machine_frame_count():
+    t = parse_stackwalk_machine(_MACHINE_OUTPUT)
+    assert len(t.threads[0].frames) == 2
+    assert len(t.threads[1].frames) == 1
+
+
+def test_parse_machine_frame_module():
+    t = parse_stackwalk_machine(_MACHINE_OUTPUT)
+    assert t.threads[0].frames[0].module_path == "my_service"
+    assert t.threads[0].frames[1].module_path == "libc.so"
+
+
+def test_parse_machine_frame_offset():
+    t = parse_stackwalk_machine(_MACHINE_OUTPUT)
+    assert t.threads[0].frames[0].module_offset == 0x1000
+
+
+def test_parse_machine_empty_raises():
+    with pytest.raises(ValueError):
+        parse_stackwalk_machine("")
+
+
+def test_parse_machine_no_frames_raises():
+    with pytest.raises(ValueError):
+        parse_stackwalk_machine("OS|Linux|0.0.0\nCrash|SIGSEGV|0x0|0\n")
+
+
+# ---------------------------------------------------------------------------
+# format_raw_tombstone (smoke test — exercises format_symbolicated with no syms)
+# ---------------------------------------------------------------------------
+
+
+def test_format_raw_tombstone_contains_sep():
+    t = parse_stackwalk_machine(_MACHINE_OUTPUT)
+    out = format_raw_tombstone(t)
+    assert "*** *** ***" in out
+
+
+def test_format_raw_tombstone_contains_signal():
+    t = parse_stackwalk_machine(_MACHINE_OUTPUT)
+    out = format_raw_tombstone(t)
+    assert "SIGSEGV" in out
+
+
+def test_format_raw_tombstone_contains_frame():
+    t = parse_stackwalk_machine(_MACHINE_OUTPUT)
+    out = format_raw_tombstone(t)
+    assert "my_service" in out
+
+
+# ---------------------------------------------------------------------------
+# mode_minidump_store
+# ---------------------------------------------------------------------------
+
+
+def test_mode_minidump_store_passes_args():
+    with patch("web.analyze.subprocess.run") as mock_run:
+        mock_run.return_value = MagicMock(stdout="output", returncode=0)
+        result = mode_minidump_store("/sym/store", "crash.dmp", "minidump_stackwalk")
+    cmd = mock_run.call_args[0][0]
+    assert cmd == ["minidump_stackwalk", "crash.dmp", "/sym/store"]
+    assert result == "output"
+
+
+def test_mode_minidump_store_missing_binary_raises():
+    with (
+        patch("web.analyze.subprocess.run", side_effect=FileNotFoundError),
+        pytest.raises(RuntimeError, match="not found"),
+    ):
+        mode_minidump_store("/store", "crash.dmp", "no_such_binary")
+
+
+def test_mode_minidump_store_empty_output_raises():
+    with patch("web.analyze.subprocess.run") as mock_run:
+        mock_run.return_value = MagicMock(stdout="", returncode=1)
+        with pytest.raises(RuntimeError, match="no output"):
+            mode_minidump_store("/store", "crash.dmp", "minidump_stackwalk")
+
+
+# ---------------------------------------------------------------------------
+# mode_stdin_store
+# ---------------------------------------------------------------------------
+
+
+_SIMPLE_TOMBSTONE = (
+    "pid: 1, tid: 1, name: app  >>> app <<<\n"
+    "signal 11 (SIGSEGV), fault addr 0x0\n"
+    "\n"
+    "backtrace:\n"
+    "    #00 pc 0x0000000000001000  /nonexistent/app\n"
+)
+
+
+def test_mode_stdin_store_returns_formatted():
+    # Module path /nonexistent/app won't exist so addr2line is skipped.
+    result = mode_stdin_store(_SIMPLE_TOMBSTONE, "/store", "eu-addr2line")
+    assert "*** *** ***" in result
+    assert "SIGSEGV" in result
+
+
+def test_mode_stdin_store_invalid_input_raises():
+    with pytest.raises(ValueError):
+        mode_stdin_store("", "/store", "eu-addr2line")
+
+
+# ---------------------------------------------------------------------------
+# mode_sym_file_minidump
+# ---------------------------------------------------------------------------
+
+
+_SYM_CONTENT = (
+    "MODULE Linux x86_64 DEADBEEF0 my_service\n"
+    "FILE 0 main.cpp\n"
+    "FUNC 0 10 0 main\n"
+)
+
+
+def test_mode_sym_file_minidump_creates_temp_store(tmp_path):
+    sym_file = tmp_path / "my_service.sym"
+    sym_file.write_text(_SYM_CONTENT)
+
+    with patch("web.analyze.subprocess.run") as mock_run:
+        mock_run.return_value = MagicMock(stdout="stackwalk output", returncode=0)
+        result = mode_sym_file_minidump(str(sym_file), "crash.dmp", "minidump_stackwalk")
+
+    assert result == "stackwalk output"
+    cmd = mock_run.call_args[0][0]
+    # stackwalk binary and dmp path
+    assert cmd[0] == "minidump_stackwalk"
+    assert cmd[1] == "crash.dmp"
+    # store path is a temp dir that no longer exists (cleaned up)
+    # Temp dir is cleaned up after the call — just verify the command structure.
+    assert len(cmd) == 3
+
+
+def test_mode_sym_file_minidump_missing_sym_raises(tmp_path):
+    with pytest.raises(OSError):
+        mode_sym_file_minidump(str(tmp_path / "missing.sym"), "crash.dmp", "sw")
+
+
+# ---------------------------------------------------------------------------
+# mode_raw_tombstone
+# ---------------------------------------------------------------------------
+
+
+def test_mode_raw_tombstone_uses_machine_flag():
+    with patch("web.analyze.subprocess.run") as mock_run:
+        mock_run.return_value = MagicMock(stdout=_MACHINE_OUTPUT, returncode=0)
+        result = mode_raw_tombstone("crash.dmp", "minidump_stackwalk")
+
+    cmd = mock_run.call_args[0][0]
+    assert "-m" in cmd
+    assert "crash.dmp" in cmd
+    assert "*** *** ***" in result
+
+
+def test_mode_raw_tombstone_missing_binary_raises():
+    with (
+        patch("web.analyze.subprocess.run", side_effect=FileNotFoundError),
+        pytest.raises(RuntimeError, match="not found"),
+    ):
+        mode_raw_tombstone("crash.dmp", "no_such_binary")

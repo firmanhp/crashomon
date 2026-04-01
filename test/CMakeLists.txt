@@ -8,7 +8,6 @@ set(TEST_SOURCES
   test_tags.cpp
   test_tombstone_formatter.cpp
   test_disk_manager.cpp
-  test_log_parser.cpp
   test_minidump_reader.cpp
 )
 
@@ -30,7 +29,6 @@ target_link_libraries(crashomon_tests
 # can #include internal headers without a separate library target.
 target_sources(crashomon_tests PRIVATE
   ${CMAKE_SOURCE_DIR}/daemon/disk_manager.cpp
-  ${CMAKE_SOURCE_DIR}/tools/analyze/log_parser.cpp
   ${CMAKE_SOURCE_DIR}/lib/crashomon.cpp
 )
 

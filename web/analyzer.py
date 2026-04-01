@@ -1,9 +1,10 @@
-"""Subprocess wrappers for crash symbolication tools."""
+"""Crash symbolication helpers used by the Flask web app."""
 
 from __future__ import annotations
 
-import subprocess
 from pathlib import Path
+
+from web.analyze import mode_minidump_store, mode_stdin_store
 
 
 def analyze_minidump(
@@ -16,23 +17,7 @@ def analyze_minidump(
 
     Raises RuntimeError on failure (binary not found, timeout, no output).
     """
-    try:
-        result = subprocess.run(
-            [stackwalk, str(dmp_path), str(store_path)],
-            capture_output=True,
-            text=True,
-            timeout=60,
-        )
-    except FileNotFoundError as exc:
-        raise RuntimeError(f"minidump_stackwalk not found: {stackwalk!r}") from exc
-    except subprocess.TimeoutExpired as exc:
-        raise RuntimeError("minidump_stackwalk timed out") from exc
-
-    if not result.stdout:
-        raise RuntimeError(
-            f"minidump_stackwalk produced no output (exit {result.returncode})"
-        )
-    return result.stdout
+    return mode_minidump_store(str(store_path), str(dmp_path), stackwalk)
 
 
 def analyze_tombstone_text(
@@ -40,28 +25,15 @@ def analyze_tombstone_text(
     *,
     store_path: str | Path | None = None,
     addr2line: str = "eu-addr2line",
-    analyze_binary: str = "crashomon-analyze",
+    analyze_binary: str = "crashomon-analyze",  # kept for API compatibility
 ) -> str:
-    """Symbolicate pasted tombstone text via crashomon-analyze --stdin.
+    """Symbolicate pasted tombstone text using eu-addr2line.
 
-    Falls back to returning the original text if the binary is not found
-    or times out — symbolication is best-effort.
+    Falls back to returning the original text on parse errors or if
+    eu-addr2line is not available — symbolication is best-effort.
     """
-    store = str(store_path) if store_path is not None else "/tmp"
-    cmd = [
-        analyze_binary,
-        f"--store={store}",
-        f"--addr2line-binary={addr2line}",
-        "--stdin",
-    ]
+    store = str(store_path) if store_path is not None else "/tmp"  # noqa: S108
     try:
-        result = subprocess.run(
-            cmd,
-            input=text,
-            capture_output=True,
-            text=True,
-            timeout=60,
-        )
-    except (FileNotFoundError, subprocess.TimeoutExpired):
+        return mode_stdin_store(text, store, addr2line)
+    except (ValueError, RuntimeError):
         return text
-    return result.stdout if result.stdout else text
