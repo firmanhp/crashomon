@@ -32,9 +32,6 @@ constexpr uint64_t kThread2Frame0Pc = 0x7f0000010000ULL;
 constexpr uint64_t kThread2Frame0Offset = 0x10000ULL;
 
 // Build a minimal MinidumpInfo for testing.
-// Google C++ Style Guide recommends trailing
-// return types only when required; conventional notation is clearer here.
-// NOLINTNEXTLINE(modernize-use-trailing-return-type)
 MinidumpInfo MakeInfo() {
   MinidumpInfo
       info;  // NOLINT(misc-include-cleaner) — MinidumpInfo comes via tombstone/minidump_reader.h which

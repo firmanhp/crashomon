@@ -28,9 +28,6 @@ namespace {
 // Receive the shared Crashpad socket fd and handler PID from watcherd via
 // SCM_RIGHTS.  Returns the received fd on success, or -1 on failure.
 // On success, *out_pid is set to the handler PID.
-// Google C++ Style Guide recommends trailing
-// return types only when required; conventional notation is clearer here.
-// NOLINTNEXTLINE(modernize-use-trailing-return-type)
 int ReceiveSharedSocket(int conn_fd, pid_t* out_pid) {
   pid_t pid = 0;
   struct iovec iov {};
@@ -66,9 +63,6 @@ int ReceiveSharedSocket(int conn_fd, pid_t* out_pid) {
   return shared_fd;
 }
 
-// Google C++ Style Guide recommends trailing
-// return types only when required; conventional notation is clearer here.
-// NOLINTNEXTLINE(modernize-use-trailing-return-type)
 int DoInit(const ResolvedConfig& cfg) {
   const int sock = socket(AF_UNIX, SOCK_SEQPACKET | SOCK_CLOEXEC, 0);
   if (sock < 0) {
@@ -130,9 +124,6 @@ __attribute__((destructor)) void AutoShutdown() {
 
 // ── Public C API ─────────────────────────────────────────────────────────────
 // C-compatible names — GlobalFunctionCase: lower_case in .clang-tidy covers these.
-// Google C++ Style Guide recommends trailing
-// return types only when required; conventional notation is clearer here.
-// NOLINTNEXTLINE(modernize-use-trailing-return-type)
 int crashomon_init(const CrashomonConfig* config) {
   return crashomon::DoInit(crashomon::Resolve(config));
 }

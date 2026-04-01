@@ -23,9 +23,6 @@ namespace {
 // ── Fixture path helpers ────────────────────────────────────────────────────
 
 // Returns the directory that holds the .dmp fixtures (may not exist).
-// Google C++ Style Guide recommends trailing
-// return types only when required; conventional notation is clearer here.
-// NOLINTNEXTLINE(modernize-use-trailing-return-type)
 std::filesystem::path FixturesDir() {
   const char* env = std::getenv("CRASHOMON_FIXTURES_DIR");
   if (env != nullptr && *env != '\0') {
@@ -45,9 +42,6 @@ std::filesystem::path FixturesDir() {
 }
 
 // Returns the path to a fixture file; an empty path signals "skip this test".
-// Google C++ Style Guide recommends trailing
-// return types only when required; conventional notation is clearer here.
-// NOLINTNEXTLINE(modernize-use-trailing-return-type)
 std::filesystem::path FixturePath(const std::string& name) {
   auto fixture_path = FixturesDir() / (name + ".dmp");  // non-const to enable move on return
   if (!std::filesystem::exists(fixture_path)) {

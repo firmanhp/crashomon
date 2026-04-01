@@ -46,9 +46,6 @@ typedef struct CrashomonConfig {
  * Not needed when using LD_PRELOAD — the constructor handles init automatically.
  * Returns 0 on success, non-zero on failure.
  */
-// Google C++ Style Guide recommends trailing
-// return types only when required; conventional notation is clearer here.
-// NOLINTNEXTLINE(modernize-use-trailing-return-type)
 int crashomon_init(const CrashomonConfig *config);
 
 /**

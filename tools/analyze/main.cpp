@@ -34,9 +34,6 @@
 namespace {
 
 // Match "--key=value" and return pointer to value, or nullptr if no match.
-// Google C++ Style Guide recommends trailing
-// return types only when required; conventional notation is clearer here.
-// NOLINTNEXTLINE(modernize-use-trailing-return-type)
 const char* GetArgValue(const char* arg, const char* key) {
   const size_t klen = strlen(key);
   if (strncmp(arg, key, klen) != 0) {
@@ -66,9 +63,6 @@ void Usage(const char* prog) {
       stderr);
 }
 
-// Google C++ Style Guide recommends trailing
-// return types only when required; conventional notation is clearer here.
-// NOLINTNEXTLINE(modernize-use-trailing-return-type)
 int ModeMinidumpStore(const std::string& store, const std::string& dump,
                       const std::string& stackwalk) {
   auto out_or = crashomon::RunMinidumpStackwalk(stackwalk, dump, {store});
@@ -83,7 +77,7 @@ int ModeMinidumpStore(const std::string& store, const std::string& dump,
 
 // store/addr2line have semantically distinct roles; conventional return type notation is clearer
 // per Google Style Guide.
-// NOLINTNEXTLINE(bugprone-easily-swappable-parameters,modernize-use-trailing-return-type)
+// NOLINTNEXTLINE(bugprone-easily-swappable-parameters)
 int ModeStdinStore(const std::string& store, const std::string& addr2line) {
   // Read all of stdin.
   std::ostringstream buf;
@@ -118,9 +112,6 @@ int ModeStdinStore(const std::string& store, const std::string& addr2line) {
 }
 
 // Print raw (unsymbolicated) Android-style tombstone from a minidump.
-// Google C++ Style Guide recommends trailing
-// return types only when required; conventional notation is clearer here.
-// NOLINTNEXTLINE(modernize-use-trailing-return-type)
 int ModeRawTombstone(const std::string& dump) {
   auto info_or = crashomon::ReadMinidump(dump);
   if (!info_or.ok()) {
@@ -132,9 +123,6 @@ int ModeRawTombstone(const std::string& dump) {
   return 0;
 }
 
-// Google C++ Style Guide recommends trailing
-// return types only when required; conventional notation is clearer here.
-// NOLINTNEXTLINE(modernize-use-trailing-return-type)
 int ModeSymFileMinidump(const std::string& sym_file, const std::string& dump,
                         const std::string& stackwalk) {
   auto out_or = crashomon::RunWithSingleSymFile(stackwalk, sym_file, dump);
@@ -149,9 +137,6 @@ int ModeSymFileMinidump(const std::string& sym_file, const std::string& dump,
 
 }  // namespace
 
-// Google C++ Style Guide recommends trailing
-// return types only when required; conventional notation is clearer here.
-// NOLINTNEXTLINE(modernize-use-trailing-return-type)
 int main(int argc, char* argv[]) {
   std::string store;
   std::string minidump;

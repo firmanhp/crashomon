@@ -48,9 +48,6 @@ struct ParseState {
 };
 
 // Returns true if the line was consumed.
-// Google C++ Style Guide recommends trailing
-// return types only when required; conventional notation is clearer here.
-// NOLINTNEXTLINE(modernize-use-trailing-return-type)
 bool TryHeader(const std::string& line, std::smatch& match, ParseState& state) {
   if (!std::regex_search(line, match, kHeaderRe)) {
     return false;
@@ -62,9 +59,6 @@ bool TryHeader(const std::string& line, std::smatch& match, ParseState& state) {
   return true;
 }
 
-// Google C++ Style Guide recommends trailing
-// return types only when required; conventional notation is clearer here.
-// NOLINTNEXTLINE(modernize-use-trailing-return-type)
 bool TrySignal(const std::string& line, std::smatch& match, ParseState& state) {
   if (!std::regex_search(line, match, kSignalRe)) {
     return false;
@@ -84,9 +78,6 @@ bool TrySignal(const std::string& line, std::smatch& match, ParseState& state) {
   return true;
 }
 
-// Google C++ Style Guide recommends trailing
-// return types only when required; conventional notation is clearer here.
-// NOLINTNEXTLINE(modernize-use-trailing-return-type)
 bool TryTimestamp(const std::string& line, std::smatch& match, ParseState& state) {
   if (!std::regex_search(line, match, kTimestampRe)) {
     return false;
@@ -95,9 +86,6 @@ bool TryTimestamp(const std::string& line, std::smatch& match, ParseState& state
   return true;
 }
 
-// Google C++ Style Guide recommends trailing
-// return types only when required; conventional notation is clearer here.
-// NOLINTNEXTLINE(modernize-use-trailing-return-type)
 bool TryThreadSep(const std::string& line, std::smatch& match, ParseState& state) {
   if (!std::regex_search(line, match, kThreadRe)) {
     return false;
@@ -116,9 +104,6 @@ bool TryThreadSep(const std::string& line, std::smatch& match, ParseState& state
   return true;
 }
 
-// Google C++ Style Guide recommends trailing
-// return types only when required; conventional notation is clearer here.
-// NOLINTNEXTLINE(modernize-use-trailing-return-type)
 bool TryMinidumpPath(const std::string& line, std::smatch& match, ParseState& state) {
   if (!std::regex_search(line, match, kMinidumpPathRe)) {
     return false;
@@ -133,9 +118,6 @@ bool TryMinidumpPath(const std::string& line, std::smatch& match, ParseState& st
   return true;
 }
 
-// Google C++ Style Guide recommends trailing
-// return types only when required; conventional notation is clearer here.
-// NOLINTNEXTLINE(modernize-use-trailing-return-type)
 bool TryFrame(const std::string& line, std::smatch& match, ParseState& state) {
   if (!(state.in_backtrace || state.in_other_thread)) {
     return false;
@@ -158,9 +140,6 @@ bool TryFrame(const std::string& line, std::smatch& match, ParseState& state) {
 
 }  // namespace
 
-// Google C++ Style Guide recommends trailing
-// return types only when required; conventional notation is clearer here.
-// NOLINTNEXTLINE(modernize-use-trailing-return-type)
 absl::StatusOr<ParsedTombstone> ParseTombstone(const std::string& text) {
   if (text.empty()) {
     return absl::InvalidArgumentError("Empty input");

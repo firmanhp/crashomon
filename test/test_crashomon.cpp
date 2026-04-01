@@ -46,14 +46,8 @@ class ScopedEnv {
   }
 
   ScopedEnv(const ScopedEnv&) = delete;
-  // Google C++ Style Guide recommends trailing
-  // return types only when required; conventional notation is clearer here.
-  // NOLINTNEXTLINE(modernize-use-trailing-return-type)
   ScopedEnv& operator=(const ScopedEnv&) = delete;
   ScopedEnv(ScopedEnv&&) = delete;
-  // Google C++ Style Guide recommends trailing
-  // return types only when required; conventional notation is clearer here.
-  // NOLINTNEXTLINE(modernize-use-trailing-return-type)
   ScopedEnv& operator=(ScopedEnv&&) = delete;
 
  private:
@@ -72,14 +66,8 @@ class ClearCrashomonEnv {
 
   ~ClearCrashomonEnv() = default;
   ClearCrashomonEnv(const ClearCrashomonEnv&) = delete;
-  // Google C++ Style Guide recommends trailing
-  // return types only when required; conventional notation is clearer here.
-  // NOLINTNEXTLINE(modernize-use-trailing-return-type)
   ClearCrashomonEnv& operator=(const ClearCrashomonEnv&) = delete;
   ClearCrashomonEnv(ClearCrashomonEnv&&) = delete;
-  // Google C++ Style Guide recommends trailing
-  // return types only when required; conventional notation is clearer here.
-  // NOLINTNEXTLINE(modernize-use-trailing-return-type)
   ClearCrashomonEnv& operator=(ClearCrashomonEnv&&) = delete;
 };
 

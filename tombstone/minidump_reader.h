@@ -66,9 +66,6 @@ struct MinidumpInfo {
 // Parse a Breakpad minidump file and populate MinidumpInfo.
 // Uses Breakpad's MinidumpProcessor with no symbol supplier (raw addresses).
 // Returns an error status if the file cannot be read or processed.
-// Google C++ Style Guide recommends trailing
-// return types only when required; conventional notation is clearer here.
-// NOLINTNEXTLINE(modernize-use-trailing-return-type)
 absl::StatusOr<MinidumpInfo> ReadMinidump(const std::string& path);
 
 }  // namespace crashomon

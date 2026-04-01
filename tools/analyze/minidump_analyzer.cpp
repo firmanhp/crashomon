@@ -20,9 +20,6 @@ namespace crashomon {
 namespace {
 
 // Shell-quote a single token.
-// Google C++ Style Guide recommends trailing
-// return types only when required; conventional notation is clearer here.
-// NOLINTNEXTLINE(modernize-use-trailing-return-type)
 std::string ShellQuote(std::string_view str) {
   std::string out = "'";
   for (const char cur : str) {
@@ -37,9 +34,6 @@ std::string ShellQuote(std::string_view str) {
 }
 
 // Capture stdout from `cmd`.
-// Google C++ Style Guide recommends trailing
-// return types only when required; conventional notation is clearer here.
-// NOLINTNEXTLINE(modernize-use-trailing-return-type)
 absl::StatusOr<std::string> CaptureCommand(const std::string& cmd) {
   // popen is intentional: this tool's purpose is to invoke
   // minidump_stackwalk as a subprocess and capture its stdout.
@@ -66,9 +60,6 @@ absl::StatusOr<std::string> CaptureCommand(const std::string& cmd) {
 // Parse MODULE line from a Breakpad .sym file.
 // Format: "MODULE Linux x86_64 <build_id> <module_name>"
 // Returns {module_name, build_id} or an error.
-// Google C++ Style Guide recommends trailing
-// return types only when required; conventional notation is clearer here.
-// NOLINTNEXTLINE(modernize-use-trailing-return-type)
 absl::StatusOr<std::pair<std::string, std::string>> ParseSymModuleLine(
     const std::string& sym_path) {
   std::ifstream file(sym_path);
@@ -97,9 +88,6 @@ absl::StatusOr<std::pair<std::string, std::string>> ParseSymModuleLine(
 
 }  // namespace
 
-// Google C++ Style Guide recommends trailing
-// return types only when required; conventional notation is clearer here.
-// NOLINTNEXTLINE(modernize-use-trailing-return-type)
 absl::StatusOr<std::string> RunMinidumpStackwalk(
     // stackwalk_binary (path to tool) and
     // minidump_file (input file) are semantically distinct roles; names are unambiguous.
@@ -116,9 +104,6 @@ absl::StatusOr<std::string> RunMinidumpStackwalk(
   return CaptureCommand(cmd);
 }
 
-// Google C++ Style Guide recommends trailing
-// return types only when required; conventional notation is clearer here.
-// NOLINTNEXTLINE(modernize-use-trailing-return-type)
 absl::StatusOr<std::string> RunWithSingleSymFile(
     // stackwalk_binary (path to tool),
     // sym_file_path (.sym input), and minidump_file (crash input) have distinct roles; names are

@@ -9,9 +9,6 @@ namespace crashomon {
 namespace {
 
 // A minimal tombstone text that ParseTombstone should accept.
-// Google C++ Style Guide recommends trailing
-// return types only when required; conventional notation is clearer here.
-// NOLINTNEXTLINE(modernize-use-trailing-return-type)
 std::string MinimalTombstone() {
   return "*** *** *** *** *** *** *** *** *** *** *** *** *** *** *** ***\n"
          "pid: 1234, tid: 1234, name: my_service  >>> my_service <<<\n"
@@ -23,9 +20,6 @@ std::string MinimalTombstone() {
 }
 
 // A full tombstone with timestamp, multiple threads, minidump path.
-// Google C++ Style Guide recommends trailing
-// return types only when required; conventional notation is clearer here.
-// NOLINTNEXTLINE(modernize-use-trailing-return-type)
 std::string FullTombstone() {
   return "*** *** *** *** *** *** *** *** *** *** *** *** *** *** *** ***\n"
          "pid: 42, tid: 100, name: worker  >>> worker <<<\n"

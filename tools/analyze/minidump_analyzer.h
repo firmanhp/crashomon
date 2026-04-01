@@ -21,9 +21,6 @@ namespace crashomon {
 // path.
 //
 // symbol_paths may be empty (produces raw unsymbolicated output).
-// Google C++ Style Guide recommends trailing
-// return types only when required; conventional notation is clearer here.
-// NOLINTNEXTLINE(modernize-use-trailing-return-type)
 absl::StatusOr<std::string> RunMinidumpStackwalk(std::string_view stackwalk_binary,
                                                  std::string_view minidump_file,
                                                  const std::vector<std::string>& symbol_paths);
@@ -34,9 +31,6 @@ absl::StatusOr<std::string> RunMinidumpStackwalk(std::string_view stackwalk_bina
 // sym_file_path   — path to the existing .sym file
 // minidump_file   — path to the minidump to analyse
 // stackwalk_binary — path or name of minidump_stackwalk
-// Google C++ Style Guide recommends trailing
-// return types only when required; conventional notation is clearer here.
-// NOLINTNEXTLINE(modernize-use-trailing-return-type)
 absl::StatusOr<std::string> RunWithSingleSymFile(std::string_view stackwalk_binary,
                                                  std::string_view sym_file_path,
                                                  std::string_view minidump_file);

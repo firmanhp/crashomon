@@ -31,9 +31,6 @@
 namespace crashomon {
 namespace {
 
-// Google C++ Style Guide recommends trailing
-// return types only when required; conventional notation is clearer here.
-// NOLINTNEXTLINE(modernize-use-trailing-return-type)
 std::string FormatTimestamp(uint32_t time_date_stamp) {
   const auto unix_ts = static_cast<time_t>(time_date_stamp);
   struct tm tm_buf {};
@@ -46,18 +43,12 @@ std::string FormatTimestamp(uint32_t time_date_stamp) {
   return buf.data();
 }
 
-// Google C++ Style Guide recommends trailing
-// return types only when required; conventional notation is clearer here.
-// NOLINTNEXTLINE(modernize-use-trailing-return-type)
 std::string Basename(const std::string& path) {
   const auto pos = path.rfind('/');
   return (pos == std::string::npos) ? path : path.substr(pos + 1);
 }
 
 // Collect AMD64 GPRs in tombstone display order.
-// Google C++ Style Guide recommends trailing
-// return types only when required; conventional notation is clearer here.
-// NOLINTNEXTLINE(modernize-use-trailing-return-type)
 std::vector<std::pair<std::string, uint64_t>> ExtractAMD64Regs(const MDRawContextAMD64& ctx) {
   return {
       {"rax", ctx.rax}, {"rbx", ctx.rbx}, {"rcx", ctx.rcx}, {"rdx", ctx.rdx}, {"rsi", ctx.rsi},
@@ -69,9 +60,6 @@ std::vector<std::pair<std::string, uint64_t>> ExtractAMD64Regs(const MDRawContex
 
 // Collect ARM64 GPRs in tombstone display order.
 // iregs layout: x0-x28 (indices 0-28), fp/x29 (29), lr/x30 (30), sp (31), pc (32).
-// Google C++ Style Guide recommends trailing
-// return types only when required; conventional notation is clearer here.
-// NOLINTNEXTLINE(modernize-use-trailing-return-type)
 std::vector<std::pair<std::string, uint64_t>> ExtractARM64Regs(const MDRawContextARM64& ctx) {
   // ARM64 has x0-x28 (29 regs) + fp, lr, sp, pc = 33 total.
   constexpr int arm64_last_gp_reg = 28;
@@ -112,9 +100,6 @@ void CollectModules(const google_breakpad::ProcessState& process_state, Minidump
   }
 }
 
-// Google C++ Style Guide recommends trailing
-// return types only when required; conventional notation is clearer here.
-// NOLINTNEXTLINE(modernize-use-trailing-return-type)
 ThreadInfo BuildThread(int thread_idx, bool is_crashing,
                        const std::vector<google_breakpad::CallStack*>& threads,
                        const std::vector<std::string>* thread_names) {
@@ -195,9 +180,6 @@ void ExtractRegisters(google_breakpad::Minidump& raw, MinidumpInfo& info) {
 
 }  // namespace
 
-// Google C++ Style Guide recommends trailing
-// return types only when required; conventional notation is clearer here.
-// NOLINTNEXTLINE(modernize-use-trailing-return-type)
 absl::StatusOr<MinidumpInfo> ReadMinidump(const std::string& path) {
   // High-level processing via MinidumpProcessor: gives us crash reason,
   // stack frames, and module list without needing symbols.

@@ -22,9 +22,6 @@ constexpr std::string_view kDefaultSocketPath = "/run/crashomon/handler.sock";
 // Returns the value of environment variable `name`, or std::nullopt if unset.
 // The returned string_view is valid only as long as the environment is not
 // modified (i.e. no subsequent setenv / unsetenv / putenv calls).
-// Google C++ Style Guide recommends trailing
-// return types only when required; conventional notation is clearer here.
-// NOLINTNEXTLINE(modernize-use-trailing-return-type)
 [[nodiscard]] inline std::optional<std::string_view> GetEnv(const char* name) noexcept {
   const char* val = std::getenv(name);
   if (val == nullptr) {
@@ -43,9 +40,6 @@ struct ResolvedConfig {
 //   1. Explicit CrashomonConfig field (if config != nullptr and field != nullptr)
 //   2. Environment variable (CRASHOMON_DB_PATH / CRASHOMON_SOCKET_PATH)
 //   3. Compiled-in default (kDefaultDbPath / kDefaultSocketPath)
-// Google C++ Style Guide recommends trailing
-// return types only when required; conventional notation is clearer here.
-// NOLINTNEXTLINE(modernize-use-trailing-return-type)
 [[nodiscard]] inline ResolvedConfig Resolve(const CrashomonConfig* config) {
   ResolvedConfig resolved;
 

@@ -15,9 +15,6 @@ namespace crashomon {
 // The output begins and ends with the *** separator line.
 // Registers are shown only for the crashing thread.
 // Other threads are appended with a "--- --- --- thread TID --- --- ---" header.
-// Google C++ Style Guide recommends trailing
-// return types only when required; conventional notation is clearer here.
-// NOLINTNEXTLINE(modernize-use-trailing-return-type)
 std::string FormatTombstone(const MinidumpInfo& info);
 
 }  // namespace crashomon

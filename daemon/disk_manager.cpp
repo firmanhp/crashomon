@@ -27,9 +27,6 @@ struct DmpFile {
 
 // List all .dmp files in db_path, sorted oldest-first by modification time.
 // Returns an error if the directory cannot be opened.
-// Google C++ Style Guide recommends trailing
-// return types only when required; conventional notation is clearer here.
-// NOLINTNEXTLINE(modernize-use-trailing-return-type)
 absl::StatusOr<std::vector<DmpFile>> ListDmpFiles(const std::string& db_path) {
   std::error_code err;
   if (!std::filesystem::is_directory(db_path, err) || err) {
@@ -69,9 +66,6 @@ absl::StatusOr<std::vector<DmpFile>> ListDmpFiles(const std::string& db_path) {
 
 }  // namespace
 
-// Google C++ Style Guide recommends trailing
-// return types only when required; conventional notation is clearer here.
-// NOLINTNEXTLINE(modernize-use-trailing-return-type)
 absl::StatusOr<uint64_t> GetTotalMinidumpSize(const std::string& db_path) {
   auto files_or = ListDmpFiles(db_path);
   if (!files_or.ok()) {
@@ -85,9 +79,6 @@ absl::StatusOr<uint64_t> GetTotalMinidumpSize(const std::string& db_path) {
   return total;
 }
 
-// Google C++ Style Guide recommends trailing
-// return types only when required; conventional notation is clearer here.
-// NOLINTNEXTLINE(modernize-use-trailing-return-type)
 absl::Status PruneMinidumps(const DiskManagerConfig& config) {
   if (config.max_bytes == 0 && config.max_age_seconds == 0) {
     return absl::OkStatus();

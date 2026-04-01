@@ -30,9 +30,6 @@ struct FrameRef {
 // Run `cmd` and return its stdout. Returns empty string on error.
 // The command is built by the caller; no shell metacharacters should appear
 // in untrusted values (module paths come from tombstone text).
-// Google C++ Style Guide recommends trailing
-// return types only when required; conventional notation is clearer here.
-// NOLINTNEXTLINE(modernize-use-trailing-return-type)
 std::string RunCapture(const std::string& cmd) {
   // popen is intentional: this tool's purpose is to invoke addr2line
   // as a subprocess and capture its stdout.
@@ -58,9 +55,6 @@ std::string RunCapture(const std::string& cmd) {
 // Escape a path so it is safe to embed in a shell command.
 // We only allow paths that contain no shell-special characters;
 // anything else is wrapped in single quotes with embedded ' escaped.
-// Google C++ Style Guide recommends trailing
-// return types only when required; conventional notation is clearer here.
-// NOLINTNEXTLINE(modernize-use-trailing-return-type)
 std::string ShellQuote(const std::string& str) {
   std::string out = "'";
   for (const char chr : str) {
@@ -74,9 +68,6 @@ std::string ShellQuote(const std::string& str) {
   return out;
 }
 
-// Google C++ Style Guide recommends trailing
-// return types only when required; conventional notation is clearer here.
-// NOLINTNEXTLINE(modernize-use-trailing-return-type)
 bool FileExists(const std::string& path) {
   struct stat stat_buf {};
   return ::stat(path.c_str(), &stat_buf) == 0 && S_ISREG(stat_buf.st_mode);
@@ -84,9 +75,6 @@ bool FileExists(const std::string& path) {
 
 // Call addr2line once for all offsets belonging to one module.
 // Returns lines in order: 2 lines per address (function, then file:line).
-// Google C++ Style Guide recommends trailing
-// return types only when required; conventional notation is clearer here.
-// NOLINTNEXTLINE(modernize-use-trailing-return-type)
 std::vector<std::string> QueryAddrLine(const std::string& binary, const std::string& addr2line,
                                        const std::vector<FrameRef>& refs) {
   if (refs.empty()) {
@@ -114,7 +102,7 @@ std::vector<std::string> QueryAddrLine(const std::string& binary, const std::str
 
 // func_line/loc_line are distinct addr2line output fields; conventional return type notation is
 // clearer per Google Style Guide.
-// NOLINTNEXTLINE(bugprone-easily-swappable-parameters,modernize-use-trailing-return-type)
+// NOLINTNEXTLINE(bugprone-easily-swappable-parameters)
 SymbolInfo ParseAddrLineOutput(const std::string& func_line, const std::string& loc_line) {
   SymbolInfo sym;
   sym.function = func_line;
@@ -142,9 +130,6 @@ SymbolInfo ParseAddrLineOutput(const std::string& func_line, const std::string& 
 
 }  // namespace
 
-// Google C++ Style Guide recommends trailing
-// return types only when required; conventional notation is clearer here.
-// NOLINTNEXTLINE(modernize-use-trailing-return-type)
 absl::StatusOr<SymbolTable> SymbolizeWithAddrLine(const ParsedTombstone& tombstone,
                                                   std::string_view addr2line_binary) {
   // Group frames by module path.
@@ -187,7 +172,7 @@ absl::StatusOr<SymbolTable> SymbolizeWithAddrLine(const ParsedTombstone& tombsto
 
 // function formats multiple frame types across threads; splitting would reduce clarity.
 // Conventional return type notation follows Google Style Guide.
-// NOLINTNEXTLINE(readability-function-cognitive-complexity,modernize-use-trailing-return-type)
+// NOLINTNEXTLINE(readability-function-cognitive-complexity)
 std::string FormatSymbolicated(const ParsedTombstone& tombstone, const SymbolTable& symbols) {
   static constexpr std::string_view kSep =
       "*** *** *** *** *** *** *** *** *** *** *** *** *** *** *** ***";

@@ -82,9 +82,6 @@ void Log(std::string_view msg) {
 
 // Parse a size string with optional suffix (K/M/G) and return bytes.
 // Returns 0 on error.
-// Google C++ Style Guide recommends trailing
-// return types only when required; conventional notation is clearer here.
-// NOLINTNEXTLINE(modernize-use-trailing-return-type)
 uint64_t ParseSize(const char* str) {
   if (str == nullptr || *str == '\0') {
     return 0;
@@ -111,9 +108,6 @@ uint64_t ParseSize(const char* str) {
 
 // Parse a duration string with optional suffix (s/h/d) and return seconds.
 // Returns 0 on error.
-// Google C++ Style Guide recommends trailing
-// return types only when required; conventional notation is clearer here.
-// NOLINTNEXTLINE(modernize-use-trailing-return-type)
 uint32_t ParseAge(const char* str) {
   if (str == nullptr || *str == '\0') {
     return 0;
@@ -136,9 +130,6 @@ uint32_t ParseAge(const char* str) {
 }
 
 // Match "--key=value" and return pointer to value, or nullptr if no match.
-// Google C++ Style Guide recommends trailing
-// return types only when required; conventional notation is clearer here.
-// NOLINTNEXTLINE(modernize-use-trailing-return-type)
 const char* GetArgValue(const char* arg, const char* key) {
   const size_t key_len = strlen(key);
   if (strncmp(arg, key, key_len) != 0) {
@@ -175,9 +166,6 @@ void ProcessNewMinidump(std::string_view pending_dir, std::string_view name,
 
 // Create, bind, and listen on a SOCK_SEQPACKET Unix domain socket.
 // Returns the listening fd on success, or -1 on failure.
-// Google C++ Style Guide recommends trailing
-// return types only when required; conventional notation is clearer here.
-// NOLINTNEXTLINE(modernize-use-trailing-return-type)
 int CreateListenSocket(const std::string& socket_path) {
   const int sock_fd = socket(AF_UNIX, SOCK_SEQPACKET | SOCK_CLOEXEC, 0);
   if (sock_fd < 0) {
@@ -307,9 +295,6 @@ void ProcessInotifyEvents(std::string_view pending_dir,
 
 // ── inotify + accept loop ─────────────────────────────────────────────────────
 
-// Google C++ Style Guide recommends trailing
-// return types only when required; conventional notation is clearer here.
-// NOLINTNEXTLINE(modernize-use-trailing-return-type)
 int RunWatcher(const std::string& db_path, const std::string& socket_path,
                const crashomon::DiskManagerConfig& prune_cfg) {
   // ── Crashpad handler setup ────────────────────────────────────────────────
@@ -489,9 +474,6 @@ int RunWatcher(const std::string& db_path, const std::string& socket_path,
 
 }  // namespace
 
-// Google C++ Style Guide recommends trailing
-// return types only when required; conventional notation is clearer here.
-// NOLINTNEXTLINE(modernize-use-trailing-return-type)
 int main(int argc, char* argv[]) {
   const char* db_path_env = getenv("CRASHOMON_DB_PATH");
   std::string db_path = (db_path_env != nullptr) ? db_path_env : "/var/crashomon";

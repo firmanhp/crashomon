@@ -20,9 +20,6 @@ constexpr std::string_view kSeparator =
 
 // Split "SIGSEGV / SEGV_MAPERR" into {"SIGSEGV", "SEGV_MAPERR"}.
 // If there is no " / ", returns {signal_info, ""}.
-// Google C++ Style Guide recommends trailing
-// return types only when required; conventional notation is clearer here.
-// NOLINTNEXTLINE(modernize-use-trailing-return-type)
 std::pair<std::string, std::string> SplitSignalInfo(const std::string& signal_info) {
   constexpr std::string_view sep = " / ";
   const auto pos = signal_info.find(sep);
@@ -45,9 +42,6 @@ void AppendFrames(std::ostringstream& out, const std::vector<FrameInfo>& frames)
 
 }  // namespace
 
-// Google C++ Style Guide recommends trailing
-// return types only when required; conventional notation is clearer here.
-// NOLINTNEXTLINE(modernize-use-trailing-return-type)
 std::string FormatTombstone(const MinidumpInfo& info) {
   std::ostringstream out;
 

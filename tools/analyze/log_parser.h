@@ -47,9 +47,6 @@ struct ParsedTombstone {
 // Parse a crashomon tombstone string into structured form.
 // Returns an error if the text contains no recognisable tombstone header or
 // no thread frames.
-// Google C++ Style Guide recommends trailing
-// return types only when required; conventional notation is clearer here.
-// NOLINTNEXTLINE(modernize-use-trailing-return-type)
 absl::StatusOr<ParsedTombstone> ParseTombstone(const std::string& text);
 
 }  // namespace crashomon

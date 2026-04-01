@@ -39,14 +39,8 @@ struct TempDir {
   std::filesystem::path path;
 
   TempDir(const TempDir&) = delete;
-  // Google C++ Style Guide recommends trailing
-  // return types only when required; conventional notation is clearer here.
-  // NOLINTNEXTLINE(modernize-use-trailing-return-type)
   TempDir& operator=(const TempDir&) = delete;
   TempDir(TempDir&&) = delete;
-  // Google C++ Style Guide recommends trailing
-  // return types only when required; conventional notation is clearer here.
-  // NOLINTNEXTLINE(modernize-use-trailing-return-type)
   TempDir& operator=(TempDir&&) = delete;
 
   TempDir() {
@@ -69,7 +63,7 @@ struct TempDir {
   // return value is
   // intentionally optional (side-effect callers may discard); conventional return type notation is
   // clearer per Google Style Guide.
-  // NOLINTNEXTLINE(modernize-use-nodiscard,modernize-use-trailing-return-type)
+  // NOLINTNEXTLINE(modernize-use-nodiscard)
   std::filesystem::path CreateDmp(const std::string& name, size_t size_bytes = kBytes1K) const {
     auto file_path = path / name;
     // std::ios/std::streamsize come from <ios> which is included; include-cleaner FPs.
