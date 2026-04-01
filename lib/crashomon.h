@@ -66,6 +66,15 @@ void crashomon_shutdown(void);
  */
 void crashomon_set_tag(const char *key, const char *value);
 
+/**
+ * Set an abort message that will appear in the crash report.
+ * Stored as the "abort_message" annotation, which Crashpad tooling recognises
+ * by convention (matching Android's android_set_abort_message() behaviour).
+ * Call this before abort() to attach context, e.g. an assertion detail.
+ * Example: crashomon_set_abort_message("invariant violated: count >= 0")
+ */
+void crashomon_set_abort_message(const char *message);
+
 #ifdef __cplusplus
 }
 #endif

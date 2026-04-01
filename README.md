@@ -187,6 +187,13 @@ int main(void) {
 }
 ```
 
+Set an abort message before calling `abort()`:
+
+```c
+crashomon_set_abort_message("invariant violated: count >= 0");
+abort();
+```
+
 ---
 
 ## Watcher Daemon: CLI Reference

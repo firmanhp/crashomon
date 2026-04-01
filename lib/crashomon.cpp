@@ -141,6 +141,10 @@ void crashomon_shutdown() {
   // Crashpad handler runs as an independent process; no shutdown needed.
 }
 
+void crashomon_set_abort_message(const char* message) {
+  crashomon_set_tag("abort_message", message);
+}
+
 // key/value is the standard C tag API
 // pattern; parameter names make intent unambiguous.
 // NOLINTNEXTLINE(bugprone-easily-swappable-parameters)
