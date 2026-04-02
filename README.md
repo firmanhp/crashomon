@@ -16,7 +16,7 @@ Crash monitoring ecosystem for ELF binaries on embedded Linux. Provides Android 
 |---|---|---|
 | `libcrashomon.so` / `.a` | C++20 (C public API) | LD_PRELOAD crash capture client |
 | `crashomon-watcherd` | C++20 | Crashpad handler host, inotify watcher, tombstone formatter, disk manager |
-| `crashomon-analyze` | C++20 | CLI symbolication tool |
+| `crashomon-analyze` | Python 3.11 | CLI symbolication tool |
 | `crashomon-syms` | Python 3.11 | Symbol store management |
 | `crashomon-web` | Python/Flask | Web UI + REST API |
 
@@ -72,7 +72,7 @@ This produces:
 build/lib/libcrashomon.so          # LD_PRELOAD library
 build/lib/libcrashomon.a           # static library
 build/daemon/crashomon-watcherd    # watcher daemon (also hosts crash handler)
-build/tools/analyze/crashomon-analyze  # CLI symbolication
+tools/analyze/crashomon-analyze    # CLI symbolication (Python script, no build step needed)
 ```
 
 ### Optional build flags
@@ -266,13 +266,22 @@ curl -F binary=@./build/my_binary http://crashomon-web:5000/api/symbols/upload
 Symbolicate a minidump or annotate a pasted tombstone from the developer machine:
 
 ```bash
-# Symbolicate a minidump
-crashomon-analyze /path/to/crash.dmp \
-    --symbol-store /var/crashomon/symbols
+# Symbolicate a minidump against a symbol store (auto-matches by build ID)
+crashomon-analyze --store=/var/crashomon/symbols --minidump=crash.dmp
 
-# Annotate a tombstone text file (already has raw addresses)
-crashomon-analyze --tombstone /path/to/tombstone.txt \
-    --symbol-store /var/crashomon/symbols
+# Annotate a tombstone piped from stdin
+crashomon-analyze --store=/var/crashomon/symbols --stdin < tombstone.txt
+
+# Use a single explicit .sym file
+crashomon-analyze --symbols=my_service.sym --minidump=crash.dmp
+
+# Raw unsymbolicated tombstone from a minidump (no symbol store needed)
+crashomon-analyze --minidump=crash.dmp
+
+# Override tool paths if not in PATH
+crashomon-analyze --store=... --minidump=... \
+    --stackwalk-binary=/path/to/minidump_stackwalk \
+    --addr2line-binary=/path/to/eu-addr2line
 ```
 
 Output is a symbolicated report with function names, file names, and line numbers substituted for raw program counter values.
@@ -326,11 +335,12 @@ curl -X DELETE http://localhost:5000/symbols/my_binary/A1B2C3D4E5F60000
 ```
 lib/            libcrashomon.so — C++20 implementation, C-compatible public header
 daemon/         crashomon-watcherd — inotify watcher, tombstone formatter, disk manager
+tombstone/      shared C++ library: minidump reader + tombstone formatter (used by daemon + tests)
 tools/
-  analyze/      crashomon-analyze — CLI symbolication (C++20)
+  analyze/      crashomon-analyze — CLI symbolication (Python 3.11 package)
   syms/         crashomon-syms — symbol store management (Python)
-web/            crashomon-web — Flask UI + REST API (Python)
-  tests/        pytest tests for the web layer
+web/            crashomon-web — Flask UI + REST API (Python, imports tools.analyze)
+  tests/        pytest tests for the web layer and analyze tool
 cmake/          CMake helper modules (cmake/breakpad.cmake)
 bench/          Microbenchmarks (Google Benchmark, opt-in)
 test/           C/C++ unit tests (GoogleTest) + integration scripts
@@ -359,8 +369,8 @@ clang-format -i \
   $(find lib daemon tools -name '*.c' -o -name '*.cpp' -o -name '*.h')
 
 # Python
-uv run ruff check web/ tools/syms/
-uv run ruff format --check web/ tools/syms/
+uv run ruff check web/ tools/analyze/ tools/syms/
+uv run ruff format --check web/ tools/analyze/ tools/syms/
 ```
 
 ---
@@ -379,7 +389,7 @@ ctest --test-dir build -R MinidumpReader
 ctest --test-dir build -R TombstoneFormatter
 ```
 
-### Python tests (web layer)
+### Python tests (web layer + analyze tool)
 
 ```bash
 uv run pytest web/tests/ -v

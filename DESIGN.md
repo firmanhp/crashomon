@@ -117,9 +117,8 @@ After evaluating multiple approaches, we chose **Crashpad** for crash capture + 
 - Note: Spawning `crashpad_handler` per process via `StartHandler()` would cause a fork bomb under LD_PRELOAD (the subprocess inherits `LD_PRELOAD` and re-spawns forever). Connecting to a pre-existing daemon socket breaks the cycle.
 - Optional public API for explicit users (not LD_PRELOAD):
   - `crashomon_init(config)` — manual init with custom config
-  - `crashomon_set_tag(key, value)` — currently a no-op; follow-up will use Crashpad annotations
-  - `crashomon_add_breadcrumb(message)` — no-op (Crashpad has no breadcrumb concept)
-  - `crashomon_set_abort_message(msg)` — currently a no-op; follow-up will use Crashpad annotations
+  - `crashomon_set_tag(key, value)` — stores a key/value annotation in the Crashpad crash report
+  - `crashomon_set_abort_message(msg)` — stores a message annotation visible in the crash report
 
 **Files**:
 - `lib/crashomon.h` — public API header (pure C, C-compatible, freestanding — no project deps required to consume)
@@ -180,11 +179,11 @@ minidump saved to: /var/crashomon/abcdef12-3456-7890-abcd-ef1234567890.dmp
 **Dependencies**: Breakpad's minidump processor library (for parsing minidumps), libsystemd (for journald integration)
 
 **Files**:
-- `daemon/main.cpp` — entry point, inotify loop
-- `daemon/minidump_reader.cpp/.h` — wraps Breakpad minidump processor for reading minidumps
-- `daemon/tombstone_formatter.cpp/.h` — formats crash info into Android-style text
+- `daemon/main.cpp` — entry point, inotify loop, registration socket
 - `daemon/disk_manager.cpp/.h` — prunes old minidumps based on size/age
 - `daemon/CMakeLists.txt`
+- `tombstone/minidump_reader.cpp/.h` — wraps Breakpad minidump processor (shared library; also used by tests)
+- `tombstone/tombstone_formatter.cpp/.h` — formats crash info into Android-style text
 
 **systemd unit**:
 ```ini
@@ -263,9 +262,11 @@ crashomon-syms add --store /shared/symbol_store --recursive /build/output/
 
 **Purpose**: Symbolicates a single minidump or crash log against a symbol store or explicit symbol path. Scriptable, for one-off analysis or CI integration.
 
-**Implementation** (C++):
-- For minidump input: calls `minidump_stackwalk` with the symbol store path. Build IDs in the minidump auto-resolve to the correct `.sym` files.
-- For pasted crash log (tombstone text): extracts addresses + module info via regex, uses `eu-addr2line` with `.debug` files or `minidump_stackwalk`-style lookup.
+**Implementation** (Python 3.11):
+- For minidump input: invokes `minidump_stackwalk` as a subprocess with the symbol store path. Build IDs in the minidump auto-resolve to the correct `.sym` files.
+- For pasted crash log (tombstone text): parses the tombstone with regex, invokes `eu-addr2line` per module to resolve addresses to function names and source locations.
+- For raw tombstone from a minidump (no symbol store): invokes `minidump_stackwalk -m` (machine-readable output) and reformats as an Android-style tombstone.
+- `crashomon-web` imports the core logic (`tools.analyze`) as a Python module — no subprocess overhead for the web path.
 
 **Usage**:
 ```bash
@@ -295,14 +296,13 @@ backtrace:
     #01 pc 0x0000c44  /usr/bin/my_service (worker_loop+0x14) [src/worker.c:67]
 ```
 
-**Dependencies**: Breakpad's `minidump_stackwalk` + `dump_syms`, elfutils for crash-log-text mode
+**Runtime dependencies**: `minidump_stackwalk` and `eu-addr2line` binaries in PATH (or specified via `--stackwalk-binary` / `--addr2line-binary`). No C++ library deps.
 
 **Files**:
-- `tools/analyze/main.cpp`
-- `tools/analyze/minidump_analyzer.cpp/.h` — wraps minidump_stackwalk invocation
-- `tools/analyze/log_parser.cpp/.h` — parses raw crash log text (regex on tombstone format)
-- `tools/analyze/symbolizer.cpp/.h` — wraps eu-addr2line for text mode
-- `tools/analyze/CMakeLists.txt`
+- `tools/analyze/crashomon-analyze` — CLI entry point (argparse)
+- `tools/analyze/analyze.py` — four mode functions
+- `tools/analyze/log_parser.py` — tombstone text parser (regex state machine)
+- `tools/analyze/symbolizer.py` — eu-addr2line wrapper, tombstone formatters, stackwalk -m parser
 
 ---
 
@@ -333,7 +333,7 @@ backtrace:
 - Flask app with REST API + Jinja2 templates
 - SQLite database for crash history metadata
 - Symbol store on filesystem (Breakpad layout)
-- Calls `crashomon-analyze` or `minidump_stackwalk` as subprocess for symbolication
+- Imports `tools.analyze` directly for symbolication (no subprocess round-trip)
 
 **Pages**:
 | Route | Purpose |
