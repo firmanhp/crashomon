@@ -33,7 +33,7 @@ from pathlib import Path
 # Allow running as a standalone script from any working directory.
 sys.path.insert(0, str(Path(__file__).resolve().parents[2]))
 
-from web.analyze import (  # noqa: E402
+from tools.analyze.analyze import (  # noqa: E402
     mode_minidump_store,
     mode_raw_tombstone,
     mode_stdin_store,

@@ -13,7 +13,7 @@ import subprocess
 from dataclasses import dataclass
 from pathlib import Path
 
-from web.log_parser import ParsedFrame, ParsedThread, ParsedTombstone
+from .log_parser import ParsedFrame, ParsedThread, ParsedTombstone
 
 _SEP = "*** *** *** *** *** *** *** *** *** *** *** *** *** *** *** ***"
 

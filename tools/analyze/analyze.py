@@ -11,14 +11,25 @@ import subprocess
 import tempfile
 from pathlib import Path
 
-from web.log_parser import parse_tombstone
-from web.symbol_store import _parse_module_line
-from web.symbolizer import (
+from .log_parser import parse_tombstone
+from .symbolizer import (
     format_raw_tombstone,
     format_symbolicated,
     parse_stackwalk_machine,
     symbolize_with_addr2line,
 )
+
+
+def _parse_module_line(sym_text: str) -> tuple[str, str]:
+    """Parse first line of a .sym file; return (module_name, build_id).
+
+    Raises ValueError on invalid input.
+    """
+    first_line = sym_text.splitlines()[0] if sym_text else ""
+    parts = first_line.split()
+    if len(parts) < 5 or parts[0] != "MODULE":
+        raise ValueError(f"Invalid MODULE line: {first_line!r}")
+    return parts[4], parts[3]  # module_name, build_id
 
 
 def _run_stackwalk(stackwalk: str, dmp: str, sym_paths: list[str]) -> str:

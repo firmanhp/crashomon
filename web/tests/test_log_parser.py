@@ -2,7 +2,7 @@
 
 import pytest
 
-from web.log_parser import parse_tombstone
+from tools.analyze.log_parser import parse_tombstone
 
 # ---------------------------------------------------------------------------
 # Fixtures

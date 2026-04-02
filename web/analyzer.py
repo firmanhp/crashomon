@@ -4,7 +4,7 @@ from __future__ import annotations
 
 from pathlib import Path
 
-from web.analyze import mode_minidump_store, mode_stdin_store
+from tools.analyze.analyze import mode_minidump_store, mode_stdin_store
 
 
 def analyze_minidump(

@@ -1,4 +1,4 @@
-"""Tests for web.analyze mode functions and web.symbolizer.parse_stackwalk_machine."""
+"""Tests for tools.analyze mode functions and symbolizer.parse_stackwalk_machine."""
 
 from __future__ import annotations
 
@@ -7,13 +7,13 @@ from unittest.mock import MagicMock, patch
 
 import pytest
 
-from web.analyze import (
+from tools.analyze.analyze import (
     mode_minidump_store,
     mode_raw_tombstone,
     mode_stdin_store,
     mode_sym_file_minidump,
 )
-from web.symbolizer import format_raw_tombstone, parse_stackwalk_machine
+from tools.analyze.symbolizer import format_raw_tombstone, parse_stackwalk_machine
 
 # ---------------------------------------------------------------------------
 # Helpers
@@ -113,7 +113,7 @@ def test_format_raw_tombstone_contains_frame():
 
 
 def test_mode_minidump_store_passes_args():
-    with patch("web.analyze.subprocess.run") as mock_run:
+    with patch("tools.analyze.analyze.subprocess.run") as mock_run:
         mock_run.return_value = MagicMock(stdout="output", returncode=0)
         result = mode_minidump_store("/sym/store", "crash.dmp", "minidump_stackwalk")
     cmd = mock_run.call_args[0][0]
@@ -123,14 +123,14 @@ def test_mode_minidump_store_passes_args():
 
 def test_mode_minidump_store_missing_binary_raises():
     with (
-        patch("web.analyze.subprocess.run", side_effect=FileNotFoundError),
+        patch("tools.analyze.analyze.subprocess.run", side_effect=FileNotFoundError),
         pytest.raises(RuntimeError, match="not found"),
     ):
         mode_minidump_store("/store", "crash.dmp", "no_such_binary")
 
 
 def test_mode_minidump_store_empty_output_raises():
-    with patch("web.analyze.subprocess.run") as mock_run:
+    with patch("tools.analyze.analyze.subprocess.run") as mock_run:
         mock_run.return_value = MagicMock(stdout="", returncode=1)
         with pytest.raises(RuntimeError, match="no output"):
             mode_minidump_store("/store", "crash.dmp", "minidump_stackwalk")
@@ -178,7 +178,7 @@ def test_mode_sym_file_minidump_creates_temp_store(tmp_path):
     sym_file = tmp_path / "my_service.sym"
     sym_file.write_text(_SYM_CONTENT)
 
-    with patch("web.analyze.subprocess.run") as mock_run:
+    with patch("tools.analyze.analyze.subprocess.run") as mock_run:
         mock_run.return_value = MagicMock(stdout="stackwalk output", returncode=0)
         result = mode_sym_file_minidump(str(sym_file), "crash.dmp", "minidump_stackwalk")
 
@@ -203,7 +203,7 @@ def test_mode_sym_file_minidump_missing_sym_raises(tmp_path):
 
 
 def test_mode_raw_tombstone_uses_machine_flag():
-    with patch("web.analyze.subprocess.run") as mock_run:
+    with patch("tools.analyze.analyze.subprocess.run") as mock_run:
         mock_run.return_value = MagicMock(stdout=_MACHINE_OUTPUT, returncode=0)
         result = mode_raw_tombstone("crash.dmp", "minidump_stackwalk")
 
@@ -215,7 +215,7 @@ def test_mode_raw_tombstone_uses_machine_flag():
 
 def test_mode_raw_tombstone_missing_binary_raises():
     with (
-        patch("web.analyze.subprocess.run", side_effect=FileNotFoundError),
+        patch("tools.analyze.analyze.subprocess.run", side_effect=FileNotFoundError),
         pytest.raises(RuntimeError, match="not found"),
     ):
         mode_raw_tombstone("crash.dmp", "no_such_binary")
