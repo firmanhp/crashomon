@@ -90,10 +90,9 @@ TEST(MinidumpReaderTest, GarbageFile) {
   // std::string with length constructor preserves embedded nulls.
   constexpr size_t junk_size = 18;
   const std::string junk{"not a minidump\x00\x01\x02\x03", junk_size};
-  const ssize_t written = ::write(
-      fd, junk.data(), junk.size());  // NOLINT(misc-include-cleaner) — ssize_t comes via <unistd.h>
-                                      // which is included; false positive from include-cleaner.
-  (void)written;
+  ::write(fd, junk.data(),
+          junk.size());  // NOLINT(misc-include-cleaner) — write() comes via <unistd.h>
+                         // which is included; false positive from include-cleaner.
   ::close(fd);
 
   auto result = ReadMinidump(tmpl);

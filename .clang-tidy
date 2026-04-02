@@ -2,6 +2,12 @@ Checks: >
   -*,
   bugprone-*,
   cert-*,
+  -cert-err33-c,           # Requires checking return values of POSIX/stdio functions (close,
+                           # unlink, mkdir, setsockopt, fwrite, sigaction, …). We intentionally
+                           # ignore these in best-effort cleanup paths (shutdown, stale-socket
+                           # removal, mkdir for dirs that may already exist) where there is no
+                           # meaningful recovery action. (void)-casting every call obscures intent
+                           # without adding safety.
   clang-analyzer-*,
   cppcoreguidelines-*,
   misc-*,

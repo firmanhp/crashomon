@@ -73,9 +73,9 @@ void HandleSignal(int /*sig*/) { g_stop = 1; }
 // ── Logging ───────────────────────────────────────────────────────────────────
 
 void Log(std::string_view msg) {
-  (void)std::fwrite(msg.data(), 1, msg.size(), stderr);
-  (void)std::fputc('\n', stderr);
-  (void)std::fflush(stderr);
+  std::fwrite(msg.data(), 1, msg.size(), stderr);
+  std::fputc('\n', stderr);
+  std::fflush(stderr);
 }
 
 // ── Argument parsing ──────────────────────────────────────────────────────────
@@ -181,23 +181,23 @@ int CreateListenSocket(const std::string& socket_path) {
   strncpy(addr.sun_path, socket_path.c_str(), sizeof(addr.sun_path) - 1);
 
   // Remove stale socket from a previous run.
-  (void)unlink(socket_path.c_str());
+  unlink(socket_path.c_str());
 
   // POSIX bind/connect require
   // casting sockaddr_un* to sockaddr*; no standard-compliant alternative.
   // NOLINTNEXTLINE(cppcoreguidelines-pro-type-reinterpret-cast)
   if (bind(sock_fd, reinterpret_cast<struct sockaddr*>(&addr), sizeof(addr)) != 0) {
     perror("bind");
-    (void)close(sock_fd);
+    close(sock_fd);
     return -1;
   }
 
   // Allow all users to connect (monitored processes may run as different users).
-  (void)chmod(socket_path.c_str(), kSocketPermissions);
+  chmod(socket_path.c_str(), kSocketPermissions);
 
   if (listen(sock_fd, /*backlog=*/kListenBacklog) != 0) {
     perror("listen");
-    (void)close(sock_fd);
+    close(sock_fd);
     return -1;
   }
 
@@ -250,7 +250,7 @@ void AcceptAndShareSocket(int listen_fd, int shared_client_fd, pid_t handler_pid
     }
   }
 
-  (void)close(conn_fd);
+  close(conn_fd);
 }
 
 // ── inotify event processing ──────────────────────────────────────────────────
@@ -311,8 +311,8 @@ int RunWatcher(const std::string& db_path, const std::string& socket_path,
       return 1;
     }
     // mkdir is best-effort; dirs may already exist after CrashReportDatabase::Initialize().
-    (void)mkdir(new_dir.c_str(), kDirPermissions);
-    (void)mkdir(pending_dir.c_str(), kDirPermissions);
+    mkdir(new_dir.c_str(), kDirPermissions);
+    mkdir(pending_dir.c_str(), kDirPermissions);
   }
 
   auto database = crashpad::CrashReportDatabase::Initialize(
@@ -352,7 +352,7 @@ int RunWatcher(const std::string& db_path, const std::string& socket_path,
   int sp[2];
   if (socketpair(AF_UNIX, SOCK_SEQPACKET | SOCK_CLOEXEC, 0, sp) != 0) {
     perror("socketpair");
-    (void)close(listen_fd);
+    close(listen_fd);
     return 1;
   }
   const int server_fd = sp[0];
@@ -364,9 +364,9 @@ int RunWatcher(const std::string& db_path, const std::string& socket_path,
   int one = 1;
   // SOL_SOCKET/SO_PASSCRED come from <sys/socket.h> which is included; include-cleaner FP.
   // NOLINTNEXTLINE(misc-include-cleaner)
-  (void)setsockopt(server_fd, SOL_SOCKET, SO_PASSCRED, &one, sizeof(one));
+  setsockopt(server_fd, SOL_SOCKET, SO_PASSCRED, &one, sizeof(one));
   // NOLINTNEXTLINE(misc-include-cleaner)
-  (void)setsockopt(client_fd, SOL_SOCKET, SO_PASSCRED, &one, sizeof(one));
+  setsockopt(client_fd, SOL_SOCKET, SO_PASSCRED, &one, sizeof(one));
 
   const pid_t handler_pid = getpid();
 
@@ -389,7 +389,7 @@ int RunWatcher(const std::string& db_path, const std::string& socket_path,
   const int ifd = inotify_init1(IN_CLOEXEC | IN_NONBLOCK);
   if (ifd < 0) {
     perror("inotify_init1");
-    (void)close(listen_fd);
+    close(listen_fd);
     return 1;
   }
 
@@ -399,8 +399,8 @@ int RunWatcher(const std::string& db_path, const std::string& socket_path,
   const int watch_fd = inotify_add_watch(ifd, pending_dir.c_str(), IN_MOVED_TO);
   if (watch_fd < 0) {
     perror("inotify_add_watch");
-    (void)close(ifd);
-    (void)close(listen_fd);
+    close(ifd);
+    close(listen_fd);
     return 1;
   }
 
@@ -460,15 +460,15 @@ int RunWatcher(const std::string& db_path, const std::string& socket_path,
   // ── Shutdown ──────────────────────────────────────────────────────────────
   // Close the daemon's copy of the client fd.  Once all SCM_RIGHTS recipients
   // also close theirs, ExceptionHandlerServer::Run() returns naturally.
-  (void)close(client_fd);
+  close(client_fd);
   if (handler_thread.joinable()) {
     handler_thread.join();
   }
 
-  (void)inotify_rm_watch(ifd, watch_fd);
-  (void)close(ifd);
-  (void)close(listen_fd);
-  (void)unlink(socket_path.c_str());
+  inotify_rm_watch(ifd, watch_fd);
+  close(ifd);
+  close(listen_fd);
+  unlink(socket_path.c_str());
   return 0;
 }
 
@@ -510,9 +510,9 @@ int main(int argc, char* argv[]) {
   // NOLINTNEXTLINE(misc-include-cleaner)
   struct sigaction sig_action {};
   sig_action.sa_handler = HandleSignal;            // NOLINT(misc-include-cleaner)
-  (void)sigemptyset(&sig_action.sa_mask);          // NOLINT(misc-include-cleaner)
-  (void)sigaction(SIGTERM, &sig_action, nullptr);  // NOLINT(misc-include-cleaner)
-  (void)sigaction(SIGINT, &sig_action, nullptr);   // NOLINT(misc-include-cleaner)
+  sigemptyset(&sig_action.sa_mask);          // NOLINT(misc-include-cleaner)
+  sigaction(SIGTERM, &sig_action, nullptr);  // NOLINT(misc-include-cleaner)
+  sigaction(SIGINT, &sig_action, nullptr);   // NOLINT(misc-include-cleaner)
 
   crashomon::DiskManagerConfig prune_cfg;
   prune_cfg.db_path = db_path;
