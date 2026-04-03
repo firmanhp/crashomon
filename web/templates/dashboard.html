@@ -3,6 +3,36 @@
 {% block content %}
 <h1>Dashboard</h1>
 
+{% if daily_counts %}
+<h2>Crash trend (last 14 days)</h2>
+<table>
+  <tr><th>Date</th><th>Crashes</th></tr>
+  {% for d in daily_counts %}
+  <tr>
+    <td>{{ d.date }}</td>
+    <td>{{ d.count }}</td>
+  </tr>
+  {% endfor %}
+</table>
+{% endif %}
+
+{% if crash_groups %}
+<h2>Crash groups <a href="{{ url_for('groups') }}">(view all)</a></h2>
+<table>
+  <tr><th>Process</th><th>Signal</th><th>Count</th><th>First seen</th><th>Last seen</th><th>Sample</th></tr>
+  {% for g in crash_groups[:5] %}
+  <tr>
+    <td><a href="{{ url_for('crashes', process=g.process) }}">{{ g.process }}</a></td>
+    <td>{{ g.signal }}</td>
+    <td>{{ g.count }}</td>
+    <td>{{ g.first_seen }}</td>
+    <td>{{ g.last_seen }}</td>
+    <td><a href="{{ url_for('crash_detail', crash_id=g.sample_crash_id) }}">#{{ g.sample_crash_id }}</a></td>
+  </tr>
+  {% endfor %}
+</table>
+{% endif %}
+
 {% if frequency %}
 <h2>Crash frequency</h2>
 <table>

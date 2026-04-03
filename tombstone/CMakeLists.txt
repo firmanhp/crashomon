@@ -2,6 +2,7 @@
 # Shared by crashomon-watcherd, crashomon-analyze, and unit tests.
 
 add_library(crashomon_tombstone STATIC
+  register_extract.cpp
   minidump_reader.cpp
   tombstone_formatter.cpp
 )

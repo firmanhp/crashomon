@@ -185,3 +185,141 @@ def test_get_frequency_sorted_desc(tmp_db):
         models.insert_crash(tmp_db, ts="2026-03-28T10:00:00Z", process="common", signal="SIGSEGV", report="r")
     freq = models.get_frequency(tmp_db)
     assert freq[0]["process"] == "common"
+
+
+# ---------------------------------------------------------------------------
+# compute_signature
+# ---------------------------------------------------------------------------
+
+_REPORT_WITH_FRAMES = (
+    "pid: 1, tid: 1, name: svc  >>> svc <<<\n"
+    "signal 11 (SIGSEGV)\n"
+    "backtrace:\n"
+    " 0  /usr/bin/svc + 0x1234\n"
+    " 1  /usr/lib/liba.so + 0xabcd\n"
+    " 2  /usr/lib/libb.so + 0x5678\n"
+    " 3  /usr/lib/libc.so + 0x9999\n"
+)
+
+
+def test_compute_signature_returns_16_hex_chars():
+    sig = models.compute_signature("svc", "SIGSEGV", _REPORT_WITH_FRAMES)
+    assert len(sig) == 16
+    assert all(c in "0123456789abcdef" for c in sig)
+
+
+def test_compute_signature_empty_report_returns_empty():
+    assert models.compute_signature("svc", "SIGSEGV", "no frames here") == ""
+
+
+def test_compute_signature_same_inputs_same_output():
+    sig1 = models.compute_signature("svc", "SIGSEGV", _REPORT_WITH_FRAMES)
+    sig2 = models.compute_signature("svc", "SIGSEGV", _REPORT_WITH_FRAMES)
+    assert sig1 == sig2
+
+
+def test_compute_signature_uses_only_top_3_frames():
+    # Report with exactly 3 frames should match report with 4 frames (same top 3).
+    report_3 = (
+        "backtrace:\n"
+        " 0  /usr/bin/svc + 0x1234\n"
+        " 1  /usr/lib/liba.so + 0xabcd\n"
+        " 2  /usr/lib/libb.so + 0x5678\n"
+    )
+    report_4 = report_3 + " 3  /usr/lib/libc.so + 0x9999\n"
+    assert models.compute_signature("svc", "SIGSEGV", report_3) == models.compute_signature(
+        "svc", "SIGSEGV", report_4
+    )
+
+
+def test_compute_signature_different_process_different_sig():
+    sig_a = models.compute_signature("svc_a", "SIGSEGV", _REPORT_WITH_FRAMES)
+    sig_b = models.compute_signature("svc_b", "SIGSEGV", _REPORT_WITH_FRAMES)
+    assert sig_a != sig_b
+
+
+# ---------------------------------------------------------------------------
+# get_crash_groups
+# ---------------------------------------------------------------------------
+
+
+def test_get_crash_groups_empty(tmp_db):
+    assert models.get_crash_groups(tmp_db) == []
+
+
+def test_get_crash_groups_excludes_no_signature(tmp_db):
+    # Reports without frames produce empty signature and are excluded.
+    models.insert_crash(tmp_db, ts="2026-03-28T10:00:00Z", process="svc", signal="SIGSEGV", report="no frames")
+    assert models.get_crash_groups(tmp_db) == []
+
+
+def test_get_crash_groups_returns_group(tmp_db):
+    models.insert_crash(tmp_db, ts="2026-03-28T10:00:00Z", process="svc", signal="SIGSEGV", report=_REPORT_WITH_FRAMES)
+    groups = models.get_crash_groups(tmp_db)
+    assert len(groups) == 1
+    row = groups[0]
+    assert row["process"] == "svc"
+    assert row["signal"] == "SIGSEGV"
+    assert row["count"] == 1
+    assert row["first_seen"] == row["last_seen"]
+    assert "sample_crash_id" in row
+    assert "signature" in row
+
+
+def test_get_crash_groups_count(tmp_db):
+    for ts in ("2026-03-28T10:00:00Z", "2026-03-28T11:00:00Z", "2026-03-28T12:00:00Z"):
+        models.insert_crash(tmp_db, ts=ts, process="svc", signal="SIGSEGV", report=_REPORT_WITH_FRAMES)
+    groups = models.get_crash_groups(tmp_db)
+    assert len(groups) == 1
+    assert groups[0]["count"] == 3
+
+
+def test_get_crash_groups_sorted_by_count_desc(tmp_db):
+    for _ in range(3):
+        models.insert_crash(
+            tmp_db, ts="2026-03-28T10:00:00Z", process="svc_a", signal="SIGSEGV", report=_REPORT_WITH_FRAMES
+        )
+    models.insert_crash(tmp_db, ts="2026-03-28T10:00:00Z", process="svc_b", signal="SIGABRT", report=(
+        "backtrace:\n"
+        " 0  /usr/bin/svc_b + 0xaaaa\n"
+        " 1  /usr/lib/other.so + 0xbbbb\n"
+        " 2  /usr/lib/another.so + 0xcccc\n"
+    ))
+    groups = models.get_crash_groups(tmp_db)
+    assert groups[0]["count"] >= groups[1]["count"]
+
+
+# ---------------------------------------------------------------------------
+# get_daily_counts
+# ---------------------------------------------------------------------------
+
+
+def test_get_daily_counts_empty(tmp_db):
+    assert models.get_daily_counts(tmp_db) == []
+
+
+def test_get_daily_counts_returns_dates(tmp_db):
+    models.insert_crash(tmp_db, ts="2026-03-28T10:00:00Z", process="svc", signal="SIGSEGV", report="r")
+    models.insert_crash(tmp_db, ts="2026-03-28T12:00:00Z", process="svc", signal="SIGSEGV", report="r")
+    models.insert_crash(tmp_db, ts="2026-03-29T10:00:00Z", process="svc", signal="SIGSEGV", report="r")
+    counts = models.get_daily_counts(tmp_db)
+    assert len(counts) == 2
+    dates = [r["date"] for r in counts]
+    assert "2026-03-28" in dates
+    assert "2026-03-29" in dates
+
+
+def test_get_daily_counts_ordered_oldest_first(tmp_db):
+    models.insert_crash(tmp_db, ts="2026-03-28T10:00:00Z", process="svc", signal="SIGSEGV", report="r")
+    models.insert_crash(tmp_db, ts="2026-03-30T10:00:00Z", process="svc", signal="SIGSEGV", report="r")
+    counts = models.get_daily_counts(tmp_db)
+    assert counts[0]["date"] < counts[-1]["date"]
+
+
+def test_get_daily_counts_aggregates_per_day(tmp_db):
+    for hour in range(4):
+        models.insert_crash(
+            tmp_db, ts=f"2026-03-28T{hour:02d}:00:00Z", process="svc", signal="SIGSEGV", report="r"
+        )
+    counts = models.get_daily_counts(tmp_db)
+    assert counts[0]["count"] == 4

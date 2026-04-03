@@ -62,6 +62,39 @@ def test_dashboard_shows_frequency(client, app):
 
 
 # ---------------------------------------------------------------------------
+# Groups
+# ---------------------------------------------------------------------------
+
+
+def test_groups_page_ok(client):
+    assert client.get("/groups").status_code == 200
+
+
+def test_groups_page_empty_state(client):
+    resp = client.get("/groups")
+    assert b"No crash groups" in resp.data
+
+
+def test_groups_page_shows_group(client, app):
+    report = (
+        "backtrace:\n"
+        " 0  /usr/bin/svc + 0x1234\n"
+        " 1  /usr/lib/liba.so + 0xabcd\n"
+        " 2  /usr/lib/libb.so + 0x5678\n"
+    )
+    models.insert_crash(
+        app.config["DB_PATH"],
+        ts="2026-03-28T10:00:00Z",
+        process="svc",
+        signal="SIGSEGV",
+        report=report,
+    )
+    resp = client.get("/groups")
+    assert b"svc" in resp.data
+    assert b"SIGSEGV" in resp.data
+
+
+# ---------------------------------------------------------------------------
 # Crashes list
 # ---------------------------------------------------------------------------
 

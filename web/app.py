@@ -5,13 +5,14 @@ from __future__ import annotations
 import datetime
 import os
 import re
+import secrets
 import shutil
 from pathlib import Path
 
 from flask import Flask, abort, flash, redirect, render_template, request, url_for
 from werkzeug.utils import secure_filename
 
-from web import analyzer, models, symbol_store
+from web import analyzer, auth, models, symbol_store
 
 
 def create_app(
@@ -27,7 +28,7 @@ def create_app(
     """Create and configure the Flask application."""
     app = Flask(__name__, template_folder="templates")
     app.config["TESTING"] = testing
-    app.config["SECRET_KEY"] = os.environ.get("SECRET_KEY", "dev-only-key")
+    app.config["SECRET_KEY"] = os.environ.get("SECRET_KEY", secrets.token_hex(32))
     app.config["SYMBOL_STORE"] = Path(
         symbol_store_path
         or os.environ.get("CRASHOMON_SYMBOL_STORE", "/var/crashomon/symbols")
@@ -44,6 +45,7 @@ def create_app(
         app.config["SYMBOL_STORE"].mkdir(parents=True, exist_ok=True)
         app.config["DB_PATH"].parent.mkdir(parents=True, exist_ok=True)
     models.init_db(app.config["DB_PATH"])
+    auth.init_auth(app)
 
     # ── Routes ────────────────────────────────────────────────────────────────
 
@@ -51,7 +53,20 @@ def create_app(
     def dashboard():
         frequency = models.get_frequency(app.config["DB_PATH"])
         recent = models.get_crashes(app.config["DB_PATH"], limit=10)
-        return render_template("dashboard.html", frequency=frequency, recent=recent)
+        crash_groups = models.get_crash_groups(app.config["DB_PATH"])
+        daily_counts = models.get_daily_counts(app.config["DB_PATH"])
+        return render_template(
+            "dashboard.html",
+            frequency=frequency,
+            recent=recent,
+            crash_groups=crash_groups,
+            daily_counts=daily_counts,
+        )
+
+    @app.get("/groups")
+    def groups():
+        crash_groups = models.get_crash_groups(app.config["DB_PATH"])
+        return render_template("groups.html", crash_groups=crash_groups)
 
     @app.get("/crashes")
     def crashes():

@@ -1,0 +1,32 @@
+{% extends "base.html" %}
+{% block title %}Crash Groups — Crashomon{% endblock %}
+{% block content %}
+<h1>Crash Groups</h1>
+
+{% if crash_groups %}
+<table>
+  <tr>
+    <th>Signature</th>
+    <th>Process</th>
+    <th>Signal</th>
+    <th>Count</th>
+    <th>First seen</th>
+    <th>Last seen</th>
+    <th>Sample</th>
+  </tr>
+  {% for g in crash_groups %}
+  <tr>
+    <td><code>{{ g.signature }}</code></td>
+    <td><a href="{{ url_for('crashes', process=g.process) }}">{{ g.process }}</a></td>
+    <td>{{ g.signal }}</td>
+    <td>{{ g.count }}</td>
+    <td>{{ g.first_seen }}</td>
+    <td>{{ g.last_seen }}</td>
+    <td><a href="{{ url_for('crash_detail', crash_id=g.sample_crash_id) }}">#{{ g.sample_crash_id }}</a></td>
+  </tr>
+  {% endfor %}
+</table>
+{% else %}
+<p class="muted">No crash groups yet. Groups appear once crashes with stack frames are recorded.</p>
+{% endif %}
+{% endblock %}

@@ -122,5 +122,16 @@ target_link_libraries(breakpad_dump_syms
     ZLIB::ZLIB
 )
 
+# ── breakpad_synth_minidump ────────────────────────────────────────────────────
+# SynthMinidump + test_assembler: used by gen_synthetic_fixtures (test-only).
+# Not compiled into breakpad_processor (excluded by its filter regex above).
+
+add_library(breakpad_synth_minidump STATIC
+  "${BREAKPAD_SRC}/processor/synth_minidump.cc"
+  "${BREAKPAD_SRC}/common/test_assembler.cc"
+)
+target_compile_options(breakpad_synth_minidump PRIVATE -w)
+target_include_directories(breakpad_synth_minidump PUBLIC "${BREAKPAD_SRC}")
+
 # ── Thread support (required by Threads::Threads) ──────────────────────────────
 find_package(Threads REQUIRED)

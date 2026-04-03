@@ -335,6 +335,35 @@ add_subdirectory(examples)
 enable_testing()
 add_subdirectory(test)
 
+# Python tests via pytest — wired into ctest so `ctest` covers the full suite.
+# Prefer the project's .venv interpreter (populated by uv), then fall back to
+# whatever Python3 CMake finds.  Gate on interpreter having pytest installed.
+find_program(VENV_PYTHON NAMES python python3
+  PATHS "${CMAKE_SOURCE_DIR}/.venv/bin"
+  NO_DEFAULT_PATH
+)
+if(NOT VENV_PYTHON)
+  find_package(Python3 COMPONENTS Interpreter QUIET)
+  set(VENV_PYTHON "${Python3_EXECUTABLE}")
+endif()
+if(VENV_PYTHON)
+  execute_process(
+    COMMAND ${VENV_PYTHON} -c "import pytest"
+    RESULT_VARIABLE _pytest_found
+    OUTPUT_QUIET ERROR_QUIET
+  )
+  if(_pytest_found EQUAL 0)
+    add_test(NAME python_tests
+      COMMAND ${VENV_PYTHON} -m pytest --tb=short -q
+      WORKING_DIRECTORY ${CMAKE_SOURCE_DIR}
+    )
+    set_tests_properties(python_tests PROPERTIES
+      ENVIRONMENT "PYTHONPATH=${CMAKE_SOURCE_DIR}"
+      LABELS "python"
+    )
+  endif()
+endif()
+
 if(ENABLE_BENCHMARKS)
   add_subdirectory(bench)
 endif()

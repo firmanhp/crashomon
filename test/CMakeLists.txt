@@ -9,6 +9,7 @@ set(TEST_SOURCES
   test_tombstone_formatter.cpp
   test_disk_manager.cpp
   test_minidump_reader.cpp
+  test_register_extract.cpp
 )
 
 add_executable(crashomon_tests ${TEST_SOURCES})
@@ -56,9 +57,46 @@ endif()
 
 set_target_properties(crashomon_tests PROPERTIES CXX_CLANG_TIDY "${CRASHOMON_CLANG_TIDY}")
 
+# ── Synthetic fixture generator ────────────────────────────────────────────────
+# Generates three .dmp files at build time so all 18 fixture tests run (no
+# GTEST_SKIP) without requiring a running crashomon-watcherd daemon.
+
+add_executable(gen_synthetic_fixtures gen_synthetic_fixtures.cpp)
+target_compile_options(gen_synthetic_fixtures PRIVATE -w)  # third-party headers
+target_link_libraries(gen_synthetic_fixtures
+  PRIVATE
+    breakpad_synth_minidump
+    breakpad_processor
+)
+if(breakpad_SOURCE_DIR)
+  target_include_directories(gen_synthetic_fixtures SYSTEM PRIVATE
+    "${breakpad_SOURCE_DIR}/src")
+endif()
+
+# Run the generator at build time; outputs land in build/test/fixtures/.
+set(FIXTURE_DIR "${CMAKE_CURRENT_BINARY_DIR}/fixtures")
+file(MAKE_DIRECTORY "${FIXTURE_DIR}")
+
+add_custom_command(
+  OUTPUT
+    "${FIXTURE_DIR}/segfault.dmp"
+    "${FIXTURE_DIR}/abort.dmp"
+    "${FIXTURE_DIR}/multithread.dmp"
+  COMMAND gen_synthetic_fixtures "${FIXTURE_DIR}"
+  DEPENDS gen_synthetic_fixtures
+  COMMENT "Generating synthetic minidump fixtures"
+)
+
+add_custom_target(synthetic_fixtures DEPENDS
+  "${FIXTURE_DIR}/segfault.dmp"
+  "${FIXTURE_DIR}/abort.dmp"
+  "${FIXTURE_DIR}/multithread.dmp"
+)
+
+add_dependencies(crashomon_tests synthetic_fixtures)
+
 gtest_discover_tests(crashomon_tests
-  # Pass the fixtures directory so test_minidump_reader.cpp can locate .dmp files.
-  # Tests skip gracefully (GTEST_SKIP) when the fixture files are absent.
+  # Point to the build-time fixture directory so all 18 fixture tests run.
   PROPERTIES
-    ENVIRONMENT "CRASHOMON_FIXTURES_DIR=${CMAKE_CURRENT_SOURCE_DIR}/fixtures"
+    ENVIRONMENT "CRASHOMON_FIXTURES_DIR=${FIXTURE_DIR}"
 )
