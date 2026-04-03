@@ -55,7 +55,7 @@ TEST_F(TagsTest, MultipleDistinctKeys) {
 
 TEST_F(TagsTest, NullKeyIsNoOp) {
   // key/value are easily-swappable-parameters; using distinct string literals
-  // makes the intent clear.  NOLINTNEXTLINE: first arg is intentionally null.
+  // makes the intent clear.  NOLINTNEXTLINE(cppcoreguidelines-pro-type-vararg) — first arg is intentionally null.
   crashomon_set_tag(nullptr, "value");
   EXPECT_EQ(dict_->GetCount(), 0u);
 }

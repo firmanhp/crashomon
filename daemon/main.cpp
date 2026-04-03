@@ -207,6 +207,9 @@ int CreateListenSocket(const std::string& socket_path) {
 // Accept one registration connection and send the shared Crashpad client fd +
 // daemon PID to the registering process via SCM_RIGHTS, then close the
 // accepted fd.  Non-blocking: a single sendmsg call.
+// listen_fd (incoming connections) and shared_client_fd (pre-created Crashpad
+// socket) are both int but serve different roles; pid_t distinguishes the third.
+// NOLINTNEXTLINE(bugprone-easily-swappable-parameters)
 void AcceptAndShareSocket(int listen_fd, int shared_client_fd, pid_t handler_pid) {
   const int conn_fd = accept4(listen_fd, nullptr, nullptr, SOCK_CLOEXEC);
   if (conn_fd < 0) {
@@ -217,21 +220,19 @@ void AcceptAndShareSocket(int listen_fd, int shared_client_fd, pid_t handler_pid
   }
 
   // iovec payload: handler PID so the client can call prctl(PR_SET_PTRACER).
-  // NOLINTNEXTLINE(cppcoreguidelines-pro-type-reinterpret-cast)
   struct iovec iov {};
   iov.iov_base = &handler_pid;
   iov.iov_len = sizeof(handler_pid);
 
   // cmsg: pass shared_client_fd via SCM_RIGHTS (kernel dups the fd for the
   // recipient process).
-  // NOLINTNEXTLINE(cppcoreguidelines-avoid-c-arrays)
-  char cmsg_buf[CMSG_SPACE(sizeof(int))]{};
+  std::array<char, CMSG_SPACE(sizeof(int))> cmsg_buf{};
 
   struct msghdr msg {};
   msg.msg_iov = &iov;
   msg.msg_iovlen = 1;
-  msg.msg_control = cmsg_buf;
-  msg.msg_controllen = sizeof(cmsg_buf);
+  msg.msg_control = cmsg_buf.data();
+  msg.msg_controllen = cmsg_buf.size();
 
   // CMSG macros use pointer casts
   // internally; no standard-compliant alternative.
@@ -295,6 +296,9 @@ void ProcessInotifyEvents(std::string_view pending_dir,
 
 // ── inotify + accept loop ─────────────────────────────────────────────────────
 
+// Complexity comes from a single sequential setup + event loop that must handle
+// Crashpad init, inotify, socket accept, and clean shutdown in one place.
+// NOLINTNEXTLINE(readability-function-cognitive-complexity)
 int RunWatcher(const std::string& db_path, const std::string& socket_path,
                const crashomon::DiskManagerConfig& prune_cfg) {
   // ── Crashpad handler setup ────────────────────────────────────────────────
@@ -349,14 +353,14 @@ int RunWatcher(const std::string& db_path, const std::string& socket_path,
   //
   // The daemon keeps a dup of the client end alive so that Run() does not exit
   // prematurely (it exits when all client-end holders close their copies).
-  int sp[2];
-  if (socketpair(AF_UNIX, SOCK_SEQPACKET | SOCK_CLOEXEC, 0, sp) != 0) {
+  std::array<int, 2> sock_pair{};
+  if (socketpair(AF_UNIX, SOCK_SEQPACKET | SOCK_CLOEXEC, 0, sock_pair.data()) != 0) {
     perror("socketpair");
     close(listen_fd);
     return 1;
   }
-  const int server_fd = sp[0];
-  const int client_fd = sp[1];
+  const int server_fd = sock_pair[0];
+  const int client_fd = sock_pair[1];
 
   // Enable credential passing on both ends so ExceptionHandlerServer can read
   // each client's PID via SCM_CREDENTIALS and ptrace-attach correctly.  Socket
@@ -374,7 +378,7 @@ int RunWatcher(const std::string& db_path, const std::string& socket_path,
   std::thread handler_thread([server_fd, &crash_handler]() {
     crashpad::ExceptionHandlerServer server;
     if (server.InitializeWithClient(
-            base::ScopedFD(server_fd),  // NOLINT(misc-include-cleaner)
+            base::ScopedFD(server_fd),  // NOLINT(misc-include-cleaner) — base::ScopedFD from Crashpad's base/files/scoped_file.h; include-cleaner cannot trace nested third-party headers.
             /*multiple_clients=*/true)) {
       server.Run(&crash_handler);
     }

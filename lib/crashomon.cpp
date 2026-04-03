@@ -13,6 +13,7 @@
 #include <sys/un.h>
 #include <unistd.h>
 
+#include <array>
 #include <cstring>
 #include <string>
 
@@ -34,17 +35,16 @@ int ReceiveSharedSocket(int conn_fd, pid_t* out_pid) {
   iov.iov_base = &pid;
   iov.iov_len = sizeof(pid);
 
-  // NOLINTNEXTLINE(cppcoreguidelines-avoid-c-arrays)
-  char cmsg_buf[CMSG_SPACE(sizeof(int))]{};
+  std::array<char, CMSG_SPACE(sizeof(int))> cmsg_buf{};
 
   struct msghdr msg {};
   msg.msg_iov = &iov;
   msg.msg_iovlen = 1;
-  msg.msg_control = cmsg_buf;
-  msg.msg_controllen = sizeof(cmsg_buf);
+  msg.msg_control = cmsg_buf.data();
+  msg.msg_controllen = cmsg_buf.size();
 
-  const ssize_t n = recvmsg(conn_fd, &msg, /*flags=*/0);
-  if (n < static_cast<ssize_t>(sizeof(pid))) {
+  const ssize_t recv_len = recvmsg(conn_fd, &msg, /*flags=*/0);
+  if (recv_len < static_cast<ssize_t>(sizeof(pid))) {
     return -1;
   }
 
