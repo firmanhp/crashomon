@@ -8,7 +8,7 @@
 #include <cstdint>
 #include <ctime>
 #include <filesystem>
-#include <ranges>  // NOLINT(misc-include-cleaner) — std::ranges::sort is in <algorithm> in C++20, but <ranges> is required on some implementations; keep for portability.
+#include <ranges>  // std::ranges::sort is in <algorithm> in C++20, but <ranges> is required on some implementations; keep for portability.
 #include <string>
 #include <system_error>
 #include <vector>

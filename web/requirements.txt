@@ -2,3 +2,4 @@
 # Canonical source of truth: /pyproject.toml [project.dependencies].
 # Install with uv from the project root — see web/README.md.
 flask>=3.0
+flask-wtf>=1.2

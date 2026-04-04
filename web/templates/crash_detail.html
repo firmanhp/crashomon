@@ -16,6 +16,7 @@
 
 <div style="display:flex; gap:0.5rem;">
   <form class="inline" method="post" action="{{ url_for('delete_crash', crash_id=crash.id) }}">
+    <input type="hidden" name="csrf_token" value="{{ csrf_token() }}">
     <button class="btn btn-danger" type="submit">Delete</button>
   </form>
   <a class="btn" href="{{ url_for('crashes') }}">Back to list</a>

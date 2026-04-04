@@ -5,6 +5,7 @@
 
 <h2>Upload debug binary</h2>
 <form method="post" action="{{ url_for('upload_symbols') }}" enctype="multipart/form-data" style="display:flex; gap:0.5rem; align-items:center; margin-bottom:1.5rem;">
+  <input type="hidden" name="csrf_token" value="{{ csrf_token() }}">
   <input type="file" name="binary" required>
   <button class="btn" type="submit">Extract &amp; store symbols</button>
 </form>
@@ -22,6 +23,7 @@
       <form class="inline" method="post"
             action="{{ url_for('delete_symbol', module=e.module, build_id=e.build_id) }}"
             onsubmit="this.method='delete'">
+        <input type="hidden" name="csrf_token" value="{{ csrf_token() }}">
         <button class="btn btn-danger" type="submit">remove</button>
       </form>
     </td>

@@ -11,6 +11,8 @@ Checks: >
   clang-analyzer-*,
   cppcoreguidelines-*,
   misc-*,
+  -misc-include-cleaner,    # False positives on POSIX/Crashpad headers included transitively;
+                            # suppress globally rather than annotating every callsite.
   modernize-*,
   -modernize-use-trailing-return-type,
   performance-*,

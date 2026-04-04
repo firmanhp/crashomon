@@ -30,20 +30,31 @@
 #include <sys/un.h>
 #include <unistd.h>
 
+#ifdef HAVE_LIBSYSTEMD
+#include <systemd/sd-daemon.h>
+#endif
+
 #include <array>
 #include <cerrno>
+#include <charconv>
+#include <chrono>
+#include <condition_variable>
 #include <csignal>
 #include <cstdint>
 #include <cstdio>
 #include <cstdlib>
 #include <cstring>
 #include <map>
+#include <mutex>
+#include <queue>
 #include <span>
 #include <string>
 #include <string_view>
 #include <thread>
+#include <unordered_map>
 #include <vector>
 
+#include "base/files/scoped_file.h"
 #include "client/crash_report_database.h"
 #include "daemon/disk_manager.h"
 #include "tombstone/minidump_reader.h"
@@ -62,6 +73,16 @@ constexpr mode_t kSocketPermissions = 0666;
 constexpr int kListenBacklog = 128;
 constexpr mode_t kDirPermissions = 0755;
 constexpr size_t kInotifyEventBufferCount = 16;
+// Suppress identical crash signatures within this window to limit log/disk spam.
+constexpr std::chrono::seconds kRateLimitWindow{30};
+// Size of the hex buffer for a uint64_t address (16 hex digits + null terminator).
+constexpr size_t kFaultAddrHexBufSize = 17;
+// Radix for fault address formatting.
+constexpr int kHexBase = 16;
+#ifdef HAVE_LIBSYSTEMD
+// Kick the systemd watchdog at this interval (must be < WatchdogSec / 2).
+constexpr std::chrono::seconds kWatchdogKickInterval{5};
+#endif
 
 // POSIX signal handlers can
 // only communicate via volatile sig_atomic_t globals; no async-signal-safe alternative.
@@ -144,41 +165,119 @@ const char* GetArgValue(const char* arg, const char* key) {
   return nullptr;
 }
 
+// ── Worker state ──────────────────────────────────────────────────────────────
+
+// Shared state for the minidump processing worker thread.
+// `pending`, `cv`, and `stop` are shared between the poll loop and the worker,
+// protected by `mu`.  `rate_limit_map` is accessed only from the worker thread.
+struct WorkerState {
+  std::queue<std::string> pending;
+  std::mutex mu;
+  std::condition_variable cv;
+  bool stop = false;
+  // Keyed by "process_name:signal_info:fault_addr_hex"; value is last-seen time.
+  // Single-threaded access (worker only) — no additional lock needed.
+  std::unordered_map<std::string, std::chrono::steady_clock::time_point> rate_limit_map;
+};
+
 // ── Minidump processing ───────────────────────────────────────────────────────
 
-void ProcessNewMinidump(std::string_view pending_dir, std::string_view name,
+void ProcessNewMinidump(const std::string& path, WorkerState& state,
                         const crashomon::DiskManagerConfig& prune_cfg) {
-  const std::string path = std::string(pending_dir) + "/" + std::string(name);
   auto info_or = crashomon::ReadMinidump(path);
   if (!info_or.ok()) {
     Log(std::string{"crashomon-watcherd: failed to read minidump '"} + path +
         "': " + std::string(info_or.status().message()));
     return;
   }
-  Log(crashomon::FormatTombstone(*info_or));
+  const auto& info = *info_or;
+
+  // Rate limiting: suppress identical crash signatures within kRateLimitWindow.
+  // Build the key using to_chars (non-variadic, no printf dependency).
+  std::array<char, kFaultAddrHexBufSize> fault_hex{};
+  // NOLINTNEXTLINE(cppcoreguidelines-pro-bounds-pointer-arithmetic)
+  std::to_chars(fault_hex.data(), fault_hex.data() + fault_hex.size() - 1,
+                info.fault_addr, kHexBase);
+  const std::string key =
+      info.process_name + ":" + info.signal_info + ":" + fault_hex.data();
+
+  const auto now = std::chrono::steady_clock::now();
+  const auto rate_it = state.rate_limit_map.find(key);
+  if (rate_it != state.rate_limit_map.end() && (now - rate_it->second) < kRateLimitWindow) {
+    Log(std::string{"crashomon-watcherd: suppressed duplicate crash ("} + key + ")");
+    // Still prune — the minidump file was already written to disk.
+    if (const auto prune_status = crashomon::PruneMinidumps(prune_cfg); !prune_status.ok()) {
+      Log(std::string{"crashomon-watcherd: prune failed: "} +
+          std::string(prune_status.message()));
+    }
+    return;
+  }
+  state.rate_limit_map[key] = now;
+
+  Log(crashomon::FormatTombstone(info));
   if (const auto prune_status = crashomon::PruneMinidumps(prune_cfg); !prune_status.ok()) {
     Log(std::string{"crashomon-watcherd: prune failed: "} +
         std::string(prune_status.message()));
   }
 }
 
+// ── Worker thread ─────────────────────────────────────────────────────────────
+
+// Dequeues and processes minidumps until signalled to stop.  Drains the queue
+// before returning so that minidumps written before shutdown are not lost.
+void RunWorker(WorkerState& state, const crashomon::DiskManagerConfig& prune_cfg) {
+  while (true) {
+    std::string path;
+    {
+      std::unique_lock<std::mutex> lock(state.mu);
+      state.cv.wait(lock, [&state] {
+        return state.stop || !state.pending.empty();
+      });
+      if (state.stop && state.pending.empty()) {
+        return;
+      }
+      path = std::move(state.pending.front());
+      state.pending.pop();
+    }
+    // No lock held during processing — allows the poll loop to keep enqueuing.
+    ProcessNewMinidump(path, state, prune_cfg);
+  }
+}
+
 // ── Crash handler hosting ─────────────────────────────────────────────────────
 
 // Create, bind, and listen on a SOCK_SEQPACKET Unix domain socket.
+// Refuses to start if a live daemon is already bound to socket_path.
 // Returns the listening fd on success, or -1 on failure.
 int CreateListenSocket(const std::string& socket_path) {
-  const int sock_fd = socket(AF_UNIX, SOCK_SEQPACKET | SOCK_CLOEXEC, 0);
-  if (sock_fd < 0) {
+  base::ScopedFD sock_fd_scoped(socket(AF_UNIX, SOCK_SEQPACKET | SOCK_CLOEXEC, 0));
+  if (!sock_fd_scoped.is_valid()) {
     perror("socket");
     return -1;
   }
 
   struct sockaddr_un addr {};
   addr.sun_family = AF_UNIX;
-  // sun_path is a POSIX
-  // fixed-size C array; strncpy is the prescribed way to fill it.
+  // Fill sun_path; explicitly null-terminate to handle paths that exactly fill the buffer.
   // NOLINTNEXTLINE(cppcoreguidelines-pro-bounds-array-to-pointer-decay)
   strncpy(addr.sun_path, socket_path.c_str(), sizeof(addr.sun_path) - 1);
+  addr.sun_path[sizeof(addr.sun_path) - 1] = '\0';
+
+  // Probe: if a live daemon already owns the socket, refuse to steal it.
+  {
+    base::ScopedFD probe(socket(AF_UNIX, SOCK_SEQPACKET | SOCK_CLOEXEC, 0));
+    if (probe.is_valid()) {
+      // POSIX connect requires casting sockaddr_un* to sockaddr*; no standard-compliant alternative.
+      // NOLINTNEXTLINE(cppcoreguidelines-pro-type-reinterpret-cast)
+      if (connect(probe.get(), reinterpret_cast<const struct sockaddr*>(&addr), sizeof(addr)) ==
+          0) {
+        Log(std::string{"crashomon-watcherd: socket "} + socket_path +
+            " is held by a live daemon — refusing to start");
+        return -1;
+      }
+      // ENOENT / ECONNREFUSED / ENOTSOCK → stale socket, safe to unlink.
+    }
+  }
 
   // Remove stale socket from a previous run.
   unlink(socket_path.c_str());
@@ -186,22 +285,20 @@ int CreateListenSocket(const std::string& socket_path) {
   // POSIX bind/connect require
   // casting sockaddr_un* to sockaddr*; no standard-compliant alternative.
   // NOLINTNEXTLINE(cppcoreguidelines-pro-type-reinterpret-cast)
-  if (bind(sock_fd, reinterpret_cast<struct sockaddr*>(&addr), sizeof(addr)) != 0) {
+  if (bind(sock_fd_scoped.get(), reinterpret_cast<struct sockaddr*>(&addr), sizeof(addr)) != 0) {
     perror("bind");
-    close(sock_fd);
     return -1;
   }
 
   // Allow all users to connect (monitored processes may run as different users).
   chmod(socket_path.c_str(), kSocketPermissions);
 
-  if (listen(sock_fd, /*backlog=*/kListenBacklog) != 0) {
+  if (listen(sock_fd_scoped.get(), /*backlog=*/kListenBacklog) != 0) {
     perror("listen");
-    close(sock_fd);
     return -1;
   }
 
-  return sock_fd;
+  return sock_fd_scoped.release();
 }
 
 // Accept one registration connection and send the shared Crashpad client fd +
@@ -256,10 +353,9 @@ void AcceptAndShareSocket(int listen_fd, int shared_client_fd, pid_t handler_pid
 
 // ── inotify event processing ──────────────────────────────────────────────────
 
-// Process a raw inotify read buffer, triggering minidump handling for each
+// Process a raw inotify read buffer, enqueuing full paths for each
 // IN_MOVED_TO event on a .dmp file.
-void ProcessInotifyEvents(std::string_view pending_dir,
-                          const crashomon::DiskManagerConfig& prune_cfg,
+void EnqueueInotifyEvents(std::string_view pending_dir, WorkerState& worker_state,
                           std::span<const char> buf) {
   for (size_t offset = 0; offset < buf.size();) {
     // inotify_event is a
@@ -280,9 +376,7 @@ void ProcessInotifyEvents(std::string_view pending_dir,
     // flexible array member; decaying to pointer is the only access method.
     // NOLINTNEXTLINE(cppcoreguidelines-pro-bounds-array-to-pointer-decay)
     const char* name = event->name;
-    const size_t name_len =
-        strnlen(name, event->len);  // NOLINT(misc-include-cleaner) — strnlen is in <cstring> which
-                                    // is included; false positive from include-cleaner.
+    const size_t name_len = strnlen(name, event->len);
     // suffix check on C string;
     // string_view::ends_with would require copying name into string first.
     // NOLINTNEXTLINE(cppcoreguidelines-pro-bounds-pointer-arithmetic)
@@ -290,14 +384,21 @@ void ProcessInotifyEvents(std::string_view pending_dir,
       continue;
     }
 
-    ProcessNewMinidump(pending_dir, std::string_view{name, name_len}, prune_cfg);
+    const std::string path =
+        std::string(pending_dir) + "/" + std::string(name, name_len);
+    {
+      std::lock_guard<std::mutex> lock(worker_state.mu);
+      worker_state.pending.push(path);
+    }
+    worker_state.cv.notify_one();
   }
 }
 
 // ── inotify + accept loop ─────────────────────────────────────────────────────
 
 // Complexity comes from a single sequential setup + event loop that must handle
-// Crashpad init, inotify, socket accept, and clean shutdown in one place.
+// Crashpad init, inotify, socket accept, worker thread coordination, and clean
+// shutdown in one place.
 // NOLINTNEXTLINE(readability-function-cognitive-complexity)
 int RunWatcher(const std::string& db_path, const std::string& socket_path,
                const crashomon::DiskManagerConfig& prune_cfg) {
@@ -319,9 +420,7 @@ int RunWatcher(const std::string& db_path, const std::string& socket_path,
     mkdir(pending_dir.c_str(), kDirPermissions);
   }
 
-  auto database = crashpad::CrashReportDatabase::Initialize(
-      base::FilePath(db_path));  // NOLINT(misc-include-cleaner) — base::FilePath comes from
-                                 // Crashpad transitively; cannot control third-party include paths.
+  auto database = crashpad::CrashReportDatabase::Initialize(base::FilePath(db_path));
   if (database == nullptr) {
     Log(std::string{"crashomon-watcherd: failed to initialize crash database at "} + db_path);
     return 1;
@@ -338,8 +437,8 @@ int RunWatcher(const std::string& db_path, const std::string& socket_path,
                                                       /*write_minidump_to_log=*/false,
                                                       /*user_stream_data_sources=*/nullptr);
 
-  const int listen_fd = CreateListenSocket(socket_path);
-  if (listen_fd < 0) {
+  base::ScopedFD listen_fd_scoped(CreateListenSocket(socket_path));
+  if (!listen_fd_scoped.is_valid()) {
     return 1;
   }
   Log(std::string{"crashomon-watcherd: listening on "} + socket_path);
@@ -356,7 +455,6 @@ int RunWatcher(const std::string& db_path, const std::string& socket_path,
   std::array<int, 2> sock_pair{};
   if (socketpair(AF_UNIX, SOCK_SEQPACKET | SOCK_CLOEXEC, 0, sock_pair.data()) != 0) {
     perror("socketpair");
-    close(listen_fd);
     return 1;
   }
   const int server_fd = sock_pair[0];
@@ -366,20 +464,42 @@ int RunWatcher(const std::string& db_path, const std::string& socket_path,
   // each client's PID via SCM_CREDENTIALS and ptrace-attach correctly.  Socket
   // options are per-socket-object, so SCM_RIGHTS recipients inherit this.
   int one = 1;
-  // SOL_SOCKET/SO_PASSCRED come from <sys/socket.h> which is included; include-cleaner FP.
-  // NOLINTNEXTLINE(misc-include-cleaner)
   setsockopt(server_fd, SOL_SOCKET, SO_PASSCRED, &one, sizeof(one));
-  // NOLINTNEXTLINE(misc-include-cleaner)
   setsockopt(client_fd, SOL_SOCKET, SO_PASSCRED, &one, sizeof(one));
 
   const pid_t handler_pid = getpid();
 
+  // ── inotify setup ─────────────────────────────────────────────────────────
+
+  base::ScopedFD ifd_scoped(inotify_init1(IN_CLOEXEC | IN_NONBLOCK));
+  if (!ifd_scoped.is_valid()) {
+    perror("inotify_init1");
+    return 1;
+  }
+
+  // Watch db_path/pending/ for IN_MOVED_TO — Crashpad writes minidumps to
+  // new/<uuid>.dmp then atomically renames to pending/<uuid>.dmp.  The file is
+  // fully written and ready to read only after the rename completes.
+  const int watch_fd = inotify_add_watch(ifd_scoped.get(), pending_dir.c_str(), IN_MOVED_TO);
+  if (watch_fd < 0) {
+    perror("inotify_add_watch");
+    return 1;
+  }
+
+  Log(std::string{"crashomon-watcherd: watching "} + pending_dir);
+
+  // All setup complete — notify systemd that we are ready.
+#ifdef HAVE_LIBSYSTEMD
+  sd_notify(0, "READY=1");
+#endif
+
+  // ── Spawn threads ─────────────────────────────────────────────────────────
+
   // Single handler thread — ExceptionHandlerServer multiplexes all clients.
   std::thread handler_thread([server_fd, &crash_handler]() {
     crashpad::ExceptionHandlerServer server;
-    if (server.InitializeWithClient(
-            base::ScopedFD(server_fd),  // NOLINT(misc-include-cleaner) — base::ScopedFD from Crashpad's base/files/scoped_file.h; include-cleaner cannot trace nested third-party headers.
-            /*multiple_clients=*/true)) {
+    if (server.InitializeWithClient(base::ScopedFD(server_fd),
+                                    /*multiple_clients=*/true)) {
       server.Run(&crash_handler);
     }
   });
@@ -388,45 +508,37 @@ int RunWatcher(const std::string& db_path, const std::string& socket_path,
   // we use close(client_fd) to make Run() exit: it returns when all client-end
   // holders have closed their copies.
 
-  // ── inotify setup ─────────────────────────────────────────────────────────
-
-  const int ifd = inotify_init1(IN_CLOEXEC | IN_NONBLOCK);
-  if (ifd < 0) {
-    perror("inotify_init1");
-    close(listen_fd);
-    return 1;
-  }
-
-  // Watch db_path/pending/ for IN_MOVED_TO — Crashpad writes minidumps to
-  // new/<uuid>.dmp then atomically renames to pending/<uuid>.dmp.  The file is
-  // fully written and ready to read only after the rename completes.
-  const int watch_fd = inotify_add_watch(ifd, pending_dir.c_str(), IN_MOVED_TO);
-  if (watch_fd < 0) {
-    perror("inotify_add_watch");
-    close(ifd);
-    close(listen_fd);
-    return 1;
-  }
-
-  Log(std::string{"crashomon-watcherd: watching "} + pending_dir);
+  WorkerState worker_state;
+  std::thread worker_thread(RunWorker, std::ref(worker_state), std::cref(prune_cfg));
 
   // Buffer sized for kInotifyEventBufferCount events with maximum-length names.
   constexpr size_t buf_size = sizeof(struct inotify_event) + NAME_MAX + 1;
   std::array<char, buf_size * kInotifyEventBufferCount> buf{};
 
   // Poll on both inotify fd and the listen socket.
-  // pollfd/POLLIN/poll/nfds_t all come from <poll.h> which is included; include-cleaner FPs.
-  // NOLINTNEXTLINE(misc-include-cleaner)
   std::array<struct pollfd, 2> pfds{};
-  pfds[0].fd = ifd;
-  pfds[0].events = POLLIN;  // NOLINT(misc-include-cleaner)
-  pfds[1].fd = listen_fd;
-  pfds[1].events = POLLIN;  // NOLINT(misc-include-cleaner)
+  pfds[0].fd = ifd_scoped.get();
+  pfds[0].events = POLLIN;
+  pfds[1].fd = listen_fd_scoped.get();
+  pfds[1].events = POLLIN;
+
+#ifdef HAVE_LIBSYSTEMD
+  auto last_watchdog = std::chrono::steady_clock::now();
+#endif
 
   while (g_stop == 0) {
-    // poll/nfds_t come from <poll.h> which is included; include-cleaner FPs.
-    // NOLINTNEXTLINE(misc-include-cleaner)
     const int ready = poll(pfds.data(), static_cast<nfds_t>(pfds.size()), /*timeout_ms=*/500);
+
+#ifdef HAVE_LIBSYSTEMD
+    {
+      const auto now = std::chrono::steady_clock::now();
+      if (now - last_watchdog >= kWatchdogKickInterval) {
+        sd_notify(0, "WATCHDOG=1");
+        last_watchdog = now;
+      }
+    }
+#endif
+
     if (ready < 0) {
       if (errno == EINTR) {
         continue;
@@ -440,7 +552,7 @@ int RunWatcher(const std::string& db_path, const std::string& socket_path,
 
     // ── New client connection ─────────────────────────────────────────────
     if ((pfds[1].revents & POLLIN) != 0) {
-      AcceptAndShareSocket(listen_fd, client_fd, handler_pid);
+      AcceptAndShareSocket(listen_fd_scoped.get(), client_fd, handler_pid);
     }
 
     // ── New minidump written ──────────────────────────────────────────────
@@ -448,7 +560,7 @@ int RunWatcher(const std::string& db_path, const std::string& socket_path,
       continue;
     }
 
-    const ssize_t num_read = read(ifd, buf.data(), buf.size());
+    const ssize_t num_read = read(ifd_scoped.get(), buf.data(), buf.size());
     if (num_read < 0) {
       if (errno == EINTR || errno == EAGAIN) {
         continue;
@@ -457,7 +569,7 @@ int RunWatcher(const std::string& db_path, const std::string& socket_path,
       break;
     }
 
-    ProcessInotifyEvents(pending_dir, prune_cfg,
+    EnqueueInotifyEvents(pending_dir, worker_state,
                          std::span<const char>{buf.data(), static_cast<size_t>(num_read)});
   }
 
@@ -469,9 +581,19 @@ int RunWatcher(const std::string& db_path, const std::string& socket_path,
     handler_thread.join();
   }
 
-  inotify_rm_watch(ifd, watch_fd);
-  close(ifd);
-  close(listen_fd);
+  // Signal the worker to drain its queue and exit.  Join after handler_thread
+  // so that any final minidumps written by Crashpad are enqueued before we stop.
+  {
+    std::lock_guard<std::mutex> lock(worker_state.mu);
+    worker_state.stop = true;
+  }
+  worker_state.cv.notify_one();
+  if (worker_thread.joinable()) {
+    worker_thread.join();
+  }
+
+  inotify_rm_watch(ifd_scoped.get(), watch_fd);
+  // ifd_scoped and listen_fd_scoped auto-close on scope exit.
   unlink(socket_path.c_str());
   return 0;
 }
@@ -510,13 +632,11 @@ int main(int argc, char* argv[]) {
     }
   }
 
-  // sigaction/sa_handler/sigemptyset from <csignal>; include-cleaner FPs.
-  // NOLINTNEXTLINE(misc-include-cleaner)
   struct sigaction sig_action {};
-  sig_action.sa_handler = HandleSignal;            // NOLINT(misc-include-cleaner)
-  sigemptyset(&sig_action.sa_mask);          // NOLINT(misc-include-cleaner)
-  sigaction(SIGTERM, &sig_action, nullptr);  // NOLINT(misc-include-cleaner)
-  sigaction(SIGINT, &sig_action, nullptr);   // NOLINT(misc-include-cleaner)
+  sig_action.sa_handler = HandleSignal;
+  sigemptyset(&sig_action.sa_mask);
+  sigaction(SIGTERM, &sig_action, nullptr);
+  sigaction(SIGINT, &sig_action, nullptr);
 
   crashomon::DiskManagerConfig prune_cfg;
   prune_cfg.db_path = db_path;

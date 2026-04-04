@@ -6,12 +6,14 @@
 <h2>Upload minidump (.dmp)</h2>
 <form method="post" action="{{ url_for('upload_crash') }}" enctype="multipart/form-data"
       style="display:flex; gap:0.5rem; align-items:center; margin-bottom:2rem;">
+  <input type="hidden" name="csrf_token" value="{{ csrf_token() }}">
   <input type="file" name="minidump" accept=".dmp">
   <button class="btn" type="submit">Analyze</button>
 </form>
 
 <h2>Paste tombstone text</h2>
 <form method="post" action="{{ url_for('upload_crash') }}">
+  <input type="hidden" name="csrf_token" value="{{ csrf_token() }}">
   <textarea name="tombstone" rows="22" style="width:100%; min-width:60ch;"
             placeholder="Paste crashomon tombstone text here..."></textarea>
   <br>

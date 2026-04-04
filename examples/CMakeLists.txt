@@ -23,6 +23,9 @@ set_target_properties(example_segfault PROPERTIES
 
 add_executable(example_abort abort.c)
 target_link_libraries(example_abort PRIVATE crashomon_warnings)
+# Release builds inject -DNDEBUG which silences assert(). Undo that so the
+# intentional assertion failure actually fires and produces a SIGABRT minidump.
+target_compile_options(example_abort PRIVATE -UNDEBUG)
 set_target_properties(example_abort PROPERTIES
   OUTPUT_NAME crashomon-example-abort
 )

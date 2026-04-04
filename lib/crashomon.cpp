@@ -14,6 +14,7 @@
 #include <unistd.h>
 
 #include <array>
+#include <cstdio>
 #include <cstring>
 #include <string>
 
@@ -71,17 +72,24 @@ int DoInit(const ResolvedConfig& cfg) {
 
   struct sockaddr_un addr {};
   addr.sun_family = AF_UNIX;
-  // sun_path is a POSIX
-  // fixed-size C array; strncpy is the prescribed way to fill it.
+  // Fill sun_path; explicitly null-terminate to handle paths that exactly fill the buffer.
   // NOLINTNEXTLINE(cppcoreguidelines-pro-bounds-array-to-pointer-decay)
   strncpy(addr.sun_path, cfg.socket_path.c_str(), sizeof(addr.sun_path) - 1);
+  addr.sun_path[sizeof(addr.sun_path) - 1] = '\0';
 
   // POSIX bind/connect require
   // casting sockaddr_un* to sockaddr*; no standard-compliant alternative.
   // NOLINTNEXTLINE(cppcoreguidelines-pro-type-reinterpret-cast)
   if (connect(sock, reinterpret_cast<struct sockaddr*>(&addr), sizeof(addr)) != 0) {
+    // Warn via stderr — captured by journald when running under systemd,
+    // and visible in /proc/<pid>/fd/2 for interactive processes.
+    std::fputs("crashomon: could not connect to watcherd at ", stderr);
+    std::fputs(cfg.socket_path.c_str(), stderr);
+    std::fputs(": ", stderr);
+    std::fputs(strerror(errno), stderr);
+    std::fputc('\n', stderr);
     close(sock);
-    return -1;  // watcherd not running — crash monitoring silently disabled
+    return -1;
   }
 
   // Receive the shared Crashpad socket fd and handler PID from watcherd.

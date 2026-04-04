@@ -5,7 +5,8 @@ After=local-fs.target
 Wants=local-fs.target
 
 [Service]
-Type=simple
+Type=notify
+WatchdogSec=10s
 ExecStart=/usr/libexec/crashomon/crashomon-watcherd \
     --db-path=/var/crashomon \
     --max-size=100M \

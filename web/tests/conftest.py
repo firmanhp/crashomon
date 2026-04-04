@@ -15,6 +15,8 @@ def app(tmp_path):
         db_path=str(tmp_path / "crashes.db"),
         testing=True,
     )
+    # Disable CSRF in tests — forms don't carry CSRF tokens.
+    a.config["WTF_CSRF_ENABLED"] = False
     return a
 
 

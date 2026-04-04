@@ -45,6 +45,18 @@ if(TARGET crashpad_interface)
   unset(_cp_inc)
 endif()
 
+# sd_notify watchdog support — optional, falls back gracefully if libsystemd is absent.
+find_package(PkgConfig QUIET)
+if(PkgConfig_FOUND)
+  pkg_check_modules(LIBSYSTEMD QUIET libsystemd)
+  if(LIBSYSTEMD_FOUND)
+    target_compile_definitions(crashomon_watcherd PRIVATE HAVE_LIBSYSTEMD=1)
+    target_link_libraries(crashomon_watcherd PRIVATE ${LIBSYSTEMD_LIBRARIES})
+    # SYSTEM suppresses -Werror on systemd headers (not our code).
+    target_include_directories(crashomon_watcherd SYSTEM PRIVATE ${LIBSYSTEMD_INCLUDE_DIRS})
+  endif()
+endif()
+
 set_target_properties(crashomon_watcherd PROPERTIES
   OUTPUT_NAME crashomon-watcherd
   CXX_CLANG_TIDY "${CRASHOMON_CLANG_TIDY}"

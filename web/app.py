@@ -10,6 +10,7 @@ import shutil
 from pathlib import Path
 
 from flask import Flask, abort, flash, redirect, render_template, request, url_for
+from flask_wtf.csrf import CSRFProtect
 from werkzeug.utils import secure_filename
 
 from web import analyzer, auth, models, symbol_store
@@ -29,6 +30,7 @@ def create_app(
     app = Flask(__name__, template_folder="templates")
     app.config["TESTING"] = testing
     app.config["SECRET_KEY"] = os.environ.get("SECRET_KEY", secrets.token_hex(32))
+    csrf = CSRFProtect(app)
     app.config["SYMBOL_STORE"] = Path(
         symbol_store_path
         or os.environ.get("CRASHOMON_SYMBOL_STORE", "/var/crashomon/symbols")
@@ -189,6 +191,8 @@ def create_app(
                 )
             except (RuntimeError, FileNotFoundError) as exc:
                 flash(f"Symbol extraction failed: {exc}", "error")
+            finally:
+                bin_path.unlink(missing_ok=True)
         return redirect(url_for("symbols"))
 
     @app.delete("/symbols/<module>/<build_id>")
@@ -200,6 +204,7 @@ def create_app(
         return "", 204
 
     @app.post("/api/symbols/upload")
+    @csrf.exempt
     def api_upload_symbols():
         """CI/CD REST endpoint: POST multipart with 'sym' or 'binary' field."""
         sym_file = request.files.get("sym")
@@ -229,10 +234,13 @@ def create_app(
                 return {"status": "ok", "stored": rel}, 201
             except (RuntimeError, FileNotFoundError) as exc:
                 return {"status": "error", "message": str(exc)}, 500
+            finally:
+                bin_path.unlink(missing_ok=True)
 
         return {"status": "error", "message": "no file provided"}, 400
 
     @app.post("/api/crashes/upload")
+    @csrf.exempt
     def api_upload_crash():
         """REST endpoint: POST with 'minidump' file, returns crash id."""
         dmp_file = request.files.get("minidump")
