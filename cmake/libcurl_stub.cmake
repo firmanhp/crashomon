@@ -16,7 +16,7 @@
 
 set(_curl_stub_include_dir "${CMAKE_BINARY_DIR}/curl_stub")
 configure_file(
-  "${CMAKE_CURRENT_LIST_DIR}/cmake/curl_stub/curl.h"
+  "${CMAKE_CURRENT_LIST_DIR}/curl_stub/curl.h"
   "${_curl_stub_include_dir}/curl/curl.h"
   COPYONLY
 )
