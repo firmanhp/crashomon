@@ -99,6 +99,11 @@ void Log(std::string_view msg) {
   std::fflush(stderr);
 }
 
+void LogTombstone(std::string_view msg) {
+  std::fwrite(msg.data(), 1, msg.size(), stdout);
+  std::fflush(stdout);
+}
+
 // ── Argument parsing ──────────────────────────────────────────────────────────
 
 // Parse a size string with optional suffix (K/M/G) and return bytes.
@@ -188,6 +193,9 @@ void ProcessNewMinidump(const std::string& path, WorkerState& state,
   if (!info_or.ok()) {
     Log(std::string{"crashomon-watcherd: failed to read minidump '"} + path +
         "': " + std::string(info_or.status().message()));
+    if (const auto prune_status = crashomon::PruneMinidumps(prune_cfg); !prune_status.ok()) {
+      Log(std::string{"crashomon-watcherd: prune failed: "} + std::string(prune_status.message()));
+    }
     return;
   }
   const auto& info = *info_or;
@@ -212,7 +220,7 @@ void ProcessNewMinidump(const std::string& path, WorkerState& state,
   }
   state.rate_limit_map[key] = now;
 
-  Log(crashomon::FormatTombstone(info));
+  LogTombstone(crashomon::FormatTombstone(info));
   if (const auto prune_status = crashomon::PruneMinidumps(prune_cfg); !prune_status.ok()) {
     Log(std::string{"crashomon-watcherd: prune failed: "} + std::string(prune_status.message()));
   }
