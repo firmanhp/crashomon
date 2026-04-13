@@ -20,6 +20,7 @@
 //   but sizeof(MDRawSystemInfo)=56 (MDCPUInformation union is 24 bytes, sized to
 //   x86_cpu_info). Writing raw bytes lets us hit the exact expected size.
 
+#include <cstdint>
 #include <fstream>
 #include <iostream>
 #include <string>
