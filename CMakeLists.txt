@@ -57,6 +57,27 @@ else()
   set(CRASHOMON_CLANG_TIDY "")
 endif()
 
+# ── Install options ────────────────────────────────────────────────────────────
+# Default ON when crashomon is the top-level project so `cmake --install` works
+# out of the box. OFF when consumed via add_subdirectory or FetchContent so that
+# embedders do not inherit install rules they did not ask for.
+# Mirrors the pattern used by Crashpad (CRASHPAD_ENABLE_INSTALL), abseil,
+# googletest, and google-benchmark.
+if(CMAKE_SOURCE_DIR STREQUAL PROJECT_SOURCE_DIR)
+  set(_CRASHOMON_INSTALL_DEFAULT ON)
+else()
+  set(_CRASHOMON_INSTALL_DEFAULT OFF)
+endif()
+
+option(CRASHOMON_ENABLE_INSTALL   "Generate crashomon install() rules"    ${_CRASHOMON_INSTALL_DEFAULT})
+option(CRASHOMON_INSTALL_CLIENT   "Install client library + header"        ON)
+option(CRASHOMON_INSTALL_WATCHERD "Install watcherd daemon + dump_syms"    ON)
+option(CRASHOMON_INSTALL_ANALYZE  "Install analyze CLI + stackwalk"        ON)
+# Separate build toggle: build the analyze tools (minidump_stackwalk) without
+# installing them. Useful when consuming crashomon as a subproject but still
+# needing the tool at build time.
+option(CRASHOMON_BUILD_ANALYZE    "Build analyze tools without installing" OFF)
+
 # ── Compiler warnings — applied to OUR targets only via interface library ──────
 # Third-party deps (Crashpad, GoogleTest) are fetched separately and must
 # NOT inherit -Werror. We use target_link_libraries(our_target PRIVATE crashomon_warnings)
@@ -329,38 +350,38 @@ if(ENABLE_TESTS)
 endif()
 
 # ── Install ────────────────────────────────────────────────────────────────────
-# Components allow selective install:
-#   cmake --install build --component client    # library + header only
-#   cmake --install build --component watcherd  # daemon + handler tools
-#   cmake --install build --component analyze   # analysis CLI + minidump_stackwalk
-#   cmake --install build                        # everything (default, all components)
+# CRASHOMON_ENABLE_INSTALL is ON by default only when crashomon is the top-level
+# project. Per-component flags further narrow what gets installed.
+# Selective install: cmake --install build --component <client|watcherd|analyze>
+if(CRASHOMON_ENABLE_INSTALL)
+  include(GNUInstallDirs)
 
-# client: the shared library and its public header
-install(TARGETS crashomon_client
-  DESTINATION lib
-  COMPONENT client
-)
-install(FILES lib/crashomon.h
-  DESTINATION include/crashomon
-  COMPONENT client
-)
+  if(CRASHOMON_INSTALL_CLIENT)
+    install(TARGETS crashomon_client
+      LIBRARY  DESTINATION ${CMAKE_INSTALL_LIBDIR}  COMPONENT client
+      ARCHIVE  DESTINATION ${CMAKE_INSTALL_LIBDIR}  COMPONENT client
+      RUNTIME  DESTINATION ${CMAKE_INSTALL_BINDIR}  COMPONENT client
+    )
+    install(FILES lib/crashomon.h
+      DESTINATION ${CMAKE_INSTALL_INCLUDEDIR}/crashomon
+      COMPONENT client)
+  endif()
 
-# watcherd: daemon binary and the crash-capture support tools
-install(TARGETS crashomon_watcherd
-  DESTINATION bin
-  COMPONENT watcherd
-)
-install(PROGRAMS $<TARGET_FILE:breakpad_dump_syms>
-  DESTINATION libexec/crashomon
-  COMPONENT watcherd
-)
+  if(CRASHOMON_INSTALL_WATCHERD)
+    install(TARGETS crashomon_watcherd
+      RUNTIME DESTINATION ${CMAKE_INSTALL_BINDIR}
+      COMPONENT watcherd)
+    install(PROGRAMS $<TARGET_FILE:breakpad_dump_syms>
+      DESTINATION ${CMAKE_INSTALL_LIBEXECDIR}/crashomon
+      COMPONENT watcherd)
+  endif()
 
-# analyze: offline symbolication CLI and the stackwalk tool it drives
-install(PROGRAMS tools/analyze/crashomon-analyze
-  DESTINATION bin
-  COMPONENT analyze
-)
-install(PROGRAMS $<TARGET_FILE:minidump_stackwalk>
-  DESTINATION libexec/crashomon
-  COMPONENT analyze
-)
+  if(CRASHOMON_INSTALL_ANALYZE)
+    install(PROGRAMS tools/analyze/crashomon-analyze
+      DESTINATION ${CMAKE_INSTALL_BINDIR}
+      COMPONENT analyze)
+    install(PROGRAMS $<TARGET_FILE:minidump_stackwalk>
+      DESTINATION ${CMAKE_INSTALL_LIBEXECDIR}/crashomon
+      COMPONENT analyze)
+  endif()
+endif()

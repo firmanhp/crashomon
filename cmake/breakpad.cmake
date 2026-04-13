@@ -68,13 +68,18 @@ target_link_libraries(breakpad_processor
 # ── minidump_stackwalk ─────────────────────────────────────────────────────────
 # CLI tool: symbolicates a minidump against a Breakpad symbol store.
 # Used by crashomon-analyze and crashomon-web as a subprocess.
+# Skipped when neither the analyze install component nor the explicit build
+# toggle is requested — avoids compiling Breakpad's stackwalk sources in
+# subproject / embedder configurations that only need the client + watcherd.
 
-add_executable(minidump_stackwalk
-  "${BREAKPAD_SRC}/processor/minidump_stackwalk.cc"
-)
-target_compile_options(minidump_stackwalk PRIVATE -w)
-target_include_directories(minidump_stackwalk PRIVATE "${BREAKPAD_SRC}")
-target_link_libraries(minidump_stackwalk PRIVATE breakpad_processor)
+if(CRASHOMON_INSTALL_ANALYZE OR CRASHOMON_BUILD_ANALYZE)
+  add_executable(minidump_stackwalk
+    "${BREAKPAD_SRC}/processor/minidump_stackwalk.cc"
+  )
+  target_compile_options(minidump_stackwalk PRIVATE -w)
+  target_include_directories(minidump_stackwalk PRIVATE "${BREAKPAD_SRC}")
+  target_link_libraries(minidump_stackwalk PRIVATE breakpad_processor)
+endif()
 
 # ── breakpad_dump_syms ─────────────────────────────────────────────────────────
 # CLI tool: extracts DWARF debug info from ELF binaries into Breakpad .sym files.
