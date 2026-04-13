@@ -145,6 +145,7 @@ set(CMAKE_POSITION_INDEPENDENT_CODE ON)
 add_subdirectory(
   "${crashpad_src_SOURCE_DIR}/external/crashpad"
   "${CMAKE_BINARY_DIR}/crashpad_build"
+  EXCLUDE_FROM_ALL  # suppress Crashpad's own install() rules; we install only what we need
 )
 set(CMAKE_POSITION_INDEPENDENT_CODE OFF)
 
@@ -328,16 +329,38 @@ if(ENABLE_TESTS)
 endif()
 
 # ── Install ────────────────────────────────────────────────────────────────────
-install(TARGETS crashomon_client DESTINATION lib)
-install(FILES lib/crashomon.h DESTINATION include/crashomon)
-install(TARGETS crashomon_watcherd DESTINATION bin)
-install(PROGRAMS tools/analyze/crashomon-analyze DESTINATION bin)
-# crashpad_handler is the out-of-process crash capture daemon.
-# Installed separately since we disabled CRASHPAD_ENABLE_INSTALL to avoid export set errors.
-install(TARGETS crashpad_handler DESTINATION libexec/crashomon)
-install(PROGRAMS
-  $<TARGET_FILE:minidump_stackwalk>
-  $<TARGET_FILE:breakpad_dump_syms>
-  DESTINATION libexec/crashomon
+# Components allow selective install:
+#   cmake --install build --component client    # library + header only
+#   cmake --install build --component watcherd  # daemon + handler tools
+#   cmake --install build --component analyze   # analysis CLI + minidump_stackwalk
+#   cmake --install build                        # everything (default, all components)
+
+# client: the shared library and its public header
+install(TARGETS crashomon_client
+  DESTINATION lib
+  COMPONENT client
 )
-install(DIRECTORY systemd/ DESTINATION lib/systemd/system)
+install(FILES lib/crashomon.h
+  DESTINATION include/crashomon
+  COMPONENT client
+)
+
+# watcherd: daemon binary and the crash-capture support tools
+install(TARGETS crashomon_watcherd
+  DESTINATION bin
+  COMPONENT watcherd
+)
+install(PROGRAMS $<TARGET_FILE:breakpad_dump_syms>
+  DESTINATION libexec/crashomon
+  COMPONENT watcherd
+)
+
+# analyze: offline symbolication CLI and the stackwalk tool it drives
+install(PROGRAMS tools/analyze/crashomon-analyze
+  DESTINATION bin
+  COMPONENT analyze
+)
+install(PROGRAMS $<TARGET_FILE:minidump_stackwalk>
+  DESTINATION libexec/crashomon
+  COMPONENT analyze
+)
