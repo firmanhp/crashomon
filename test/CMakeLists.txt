@@ -5,6 +5,7 @@ include(GoogleTest)
 
 set(TEST_SOURCES
   test_crashomon.cpp
+  test_connect_retry.cpp
   test_tags.cpp
   test_tombstone_formatter.cpp
   test_disk_manager.cpp

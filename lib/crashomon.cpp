@@ -14,8 +14,10 @@
 #include <unistd.h>
 
 #include <array>
+#include <cerrno>
 #include <cstdio>
 #include <cstring>
+#include <ctime>
 #include <string>
 
 #include "base/files/scoped_file.h"
@@ -77,17 +79,59 @@ int DoInit(const ResolvedConfig& cfg) {
   strncpy(addr.sun_path, cfg.socket_path.c_str(), sizeof(addr.sun_path) - 1);
   addr.sun_path[sizeof(addr.sun_path) - 1] = '\0';
 
-  // POSIX bind/connect require
-  // casting sockaddr_un* to sockaddr*; no standard-compliant alternative.
-  // NOLINTNEXTLINE(cppcoreguidelines-pro-type-reinterpret-cast)
-  if (connect(sock, reinterpret_cast<struct sockaddr*>(&addr), sizeof(addr)) != 0) {
+  // Retry connecting for up to 3 seconds to tolerate watcherd still starting up.
+  // ENOENT  — socket file not yet created.
+  // ECONNREFUSED — socket exists but watcherd not yet listening.
+  static constexpr int kConnectTimeoutSec = 3;
+  static constexpr long kRetryIntervalNs = 100'000'000L;  // 100 ms
+
+  struct timespec deadline {};
+  clock_gettime(CLOCK_MONOTONIC, &deadline);
+  deadline.tv_sec += kConnectTimeoutSec;
+
+  bool connected = false;
+  bool waiting_printed = false;
+  int connect_errno = 0;
+  while (true) {
+    // POSIX bind/connect require casting sockaddr_un* to sockaddr*; no standard-compliant
+    // alternative.
+    // NOLINTNEXTLINE(cppcoreguidelines-pro-type-reinterpret-cast)
+    if (connect(sock, reinterpret_cast<struct sockaddr*>(&addr), sizeof(addr)) == 0) {
+      connected = true;
+      break;
+    }
+    connect_errno = errno;
+    if (connect_errno != ENOENT && connect_errno != ECONNREFUSED) {
+      break;  // Non-transient error — do not retry.
+    }
+    struct timespec now {};
+    clock_gettime(CLOCK_MONOTONIC, &now);
+    if (now.tv_sec > deadline.tv_sec ||
+        (now.tv_sec == deadline.tv_sec && now.tv_nsec >= deadline.tv_nsec)) {
+      break;  // Deadline reached.
+    }
+    if (!waiting_printed) {
+      std::fputs("crashomon: waiting for watcherd at ", stderr);
+      std::fputs(cfg.socket_path.c_str(), stderr);
+      std::fputs(" (up to 3s)...\n", stderr);
+      waiting_printed = true;
+    }
+    struct timespec interval {0, kRetryIntervalNs};
+    nanosleep(&interval, nullptr);
+  }
+
+  if (!connected) {
     // Warn via stderr — captured by journald when running under systemd,
     // and visible in /proc/<pid>/fd/2 for interactive processes.
     std::fputs("crashomon: could not connect to watcherd at ", stderr);
     std::fputs(cfg.socket_path.c_str(), stderr);
-    std::fputs(": ", stderr);
-    std::fputs(strerror(errno), stderr);
-    std::fputc('\n', stderr);
+    if (connect_errno == ENOENT || connect_errno == ECONNREFUSED) {
+      std::fputs(": not available after 3s, running without crash monitoring\n", stderr);
+    } else {
+      std::fputs(": ", stderr);
+      std::fputs(strerror(connect_errno), stderr);
+      std::fputc('\n', stderr);
+    }
     close(sock);
     return -1;
   }
