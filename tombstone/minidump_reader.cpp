@@ -133,10 +133,19 @@ void ExtractRegisters(google_breakpad::Minidump& raw, MinidumpInfo& info) {
   if (ctx == nullptr) {
     return;
   }
-  if (const auto* amd64 = ctx->GetContextAMD64()) {
-    info.threads[0].registers = ExtractAMD64Regs(*amd64);
-  } else if (const auto* arm64 = ctx->GetContextARM64()) {
-    info.threads[0].registers = ExtractARM64Regs(*arm64);
+  switch (ctx->GetContextCPU()) {
+    case MD_CONTEXT_AMD64:
+      if (const auto* amd64 = ctx->GetContextAMD64()) {
+        info.threads[0].registers = ExtractAMD64Regs(*amd64);
+      }
+      break;
+    case MD_CONTEXT_ARM64:
+      if (const auto* arm64 = ctx->GetContextARM64()) {
+        info.threads[0].registers = ExtractARM64Regs(*arm64);
+      }
+      break;
+    default:
+      break;
   }
 }
 

@@ -146,8 +146,9 @@ TEST(TombstoneFormatterTest, MultipleThreads) {
   idle.frames = {{kThread2Frame0Pc, kThread2Frame0Offset, "/usr/lib/libc.so.6"}};
   info.threads.push_back(idle);
 
+  // Only the crashing thread is printed; other threads are stored in the minidump only.
   auto tomb = FormatTombstone(info);
-  EXPECT_NE(tomb.find("--- --- --- thread 1235"), std::string::npos);
+  EXPECT_EQ(tomb.find("--- --- --- thread 1235"), std::string::npos);
 }
 
 TEST(TombstoneFormatterTest, ThreadWithName) {
@@ -159,8 +160,9 @@ TEST(TombstoneFormatterTest, ThreadWithName) {
   named.is_crashing = false;
   info.threads.push_back(named);
 
+  // Non-crashing thread names are not printed; stored in the minidump only.
   auto tomb = FormatTombstone(info);
-  EXPECT_NE(tomb.find("worker"), std::string::npos);
+  EXPECT_EQ(tomb.find("worker"), std::string::npos);
 }
 
 TEST(TombstoneFormatterTest, UnmappedFrame) {
