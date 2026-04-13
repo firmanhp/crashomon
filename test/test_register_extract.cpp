@@ -3,8 +3,9 @@
 // These tests construct raw context structs with known values and verify the
 // output without needing a minidump file or a running daemon.
 
-// Processor headers pull in minidump_format.h → breakpad_types.h (defines
-// uint128_struct). Include them BEFORE the CPU-specific headers.
+// breakpad_types.h defines uint128_struct; must precede the CPU-specific
+// headers that reference it.
+#include "google_breakpad/common/breakpad_types.h"
 #include "google_breakpad/common/minidump_cpu_amd64.h"
 #include "google_breakpad/common/minidump_cpu_arm64.h"
 #include "google_breakpad/processor/minidump.h"  // IWYU pragma: keep

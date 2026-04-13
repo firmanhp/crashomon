@@ -25,8 +25,8 @@
 #include <iostream>
 #include <string>
 
-// Processor headers pull in minidump_format.h → breakpad_types.h (defines
-// uint128_struct). Include them BEFORE minidump_cpu_amd64.h which uses that type.
+// breakpad_types.h defines uint128_struct; must precede minidump_cpu_amd64.h.
+#include "google_breakpad/common/breakpad_types.h"
 #include "google_breakpad/common/minidump_cpu_amd64.h"
 #include "google_breakpad/common/minidump_format.h"
 #include "google_breakpad/processor/minidump.h"
