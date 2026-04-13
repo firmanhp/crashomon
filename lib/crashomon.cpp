@@ -18,9 +18,11 @@
 #include <cstdio>
 #include <cstring>
 #include <ctime>
+#include <mutex>
 #include <string>
 
 #include "base/files/scoped_file.h"
+#include "base/logging.h"
 #include "client/crashpad_client.h"
 #include "client/crashpad_info.h"
 #include "client/simple_string_dictionary.h"
@@ -28,6 +30,29 @@
 
 namespace crashomon {
 namespace {
+
+// Swallow the known-harmless `prctl` WARNING emitted by Crashpad's
+// crashpad_client_linux.cc when `PR_SET_PTRACER` fails with EINVAL on kernels
+// without the Yama LSM. Without Yama, the restriction PR_SET_PTRACER relaxes
+// does not exist, so the handler can still ptrace the client fine. All other
+// Crashpad log messages pass through unchanged.
+bool CrashpadLogFilter(logging::LogSeverity severity,
+                       const char* file,
+                       int /*line*/,
+                       size_t message_start,
+                       const std::string& str) {
+  if (severity == logging::LOG_WARNING && file != nullptr &&
+      std::strstr(file, "crashpad_client_linux.cc") != nullptr &&
+      str.find("prctl", message_start) != std::string::npos) {
+    return true;  // suppress
+  }
+  return false;  // let mini_chromium print normally
+}
+
+void InstallCrashpadLogFilterOnce() {
+  static std::once_flag once;
+  std::call_once(once, [] { logging::SetLogMessageHandler(&CrashpadLogFilter); });
+}
 
 // Receive the shared Crashpad socket fd and handler PID from watcherd via
 // SCM_RIGHTS.  Returns the received fd on success, or -1 on failure.
@@ -67,6 +92,11 @@ int ReceiveSharedSocket(int conn_fd, pid_t* out_pid) {
 }
 
 int DoInit(const ResolvedConfig& cfg) {
+  // Silence Crashpad's harmless PR_SET_PTRACER EINVAL warning (from
+  // crashpad_client_linux.cc:393 on SetHandlerSocket and :448 on every fork)
+  // before any Crashpad code runs.
+  InstallCrashpadLogFilterOnce();
+
   const int sock = socket(AF_UNIX, SOCK_SEQPACKET | SOCK_CLOEXEC, 0);
   if (sock < 0) {
     return -1;
