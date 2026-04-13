@@ -212,6 +212,11 @@ crashomon-watcherd [OPTIONS]
 
   --max-age=AGE        Per-file age limit (e.g. 7d, 24h, 3600s).
                        Files older than this are deleted. 0 = unlimited.
+
+  --export-path=PATH   Directory to copy each new minidump into on arrival.
+                       Files are named: {process}_{build_id8}_{YYYYMMDDHHmmss}.crashdump
+                       Pruned by the same --max-size/--max-age limits as the db.
+                       Default: $CRASHOMON_EXPORT_PATH or disabled.
 ```
 
 ---
