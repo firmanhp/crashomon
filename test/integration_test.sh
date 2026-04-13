@@ -195,7 +195,7 @@ if [[ -f "${LIBCRASHOMON}" && -f "${WATCHERD}" ]]; then
   "${WATCHERD}" \
     --db-path="${EXPORT_DB_DIR}" \
     --socket-path="${EXPORT_SOCK}" \
-    --export-dir="${EXPORT_DIR}" \
+    --export-path="${EXPORT_DIR}" \
     >"${WORK_DIR}/export_watcherd.log" 2>&1 &
   EXPORT_WATCHERD_PID=$!
 

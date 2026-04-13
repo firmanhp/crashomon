@@ -74,6 +74,19 @@ struct TempDir {
     return file_path;
   }
 
+  // Create a .crashdump file of the given size (filled with zeros). Returns the path.
+  // NOLINTNEXTLINE(modernize-use-nodiscard)
+  std::filesystem::path CreateCrashdump(const std::string& name,
+                                        size_t size_bytes = kBytes1K) const {
+    auto file_path = path / name;
+    // std::ios/std::streamsize come from <ios> which is included; include-cleaner FPs.
+    // NOLINTNEXTLINE(misc-include-cleaner)
+    std::ofstream ofs(file_path, std::ios::binary);
+    std::vector<char> zeros(size_bytes, 0);
+    ofs.write(zeros.data(), static_cast<std::streamsize>(size_bytes));
+    return file_path;
+  }
+
   // Set the modification time of a file to `mtime`.
   static void SetMtime(const std::filesystem::path& file_path, time_t mtime) {
     // utimensat
@@ -210,6 +223,160 @@ TEST(DiskManagerTest, SingleFileAtExactSizeBoundary) {
   cfg.max_bytes = kBytes1K;  // exact — should not prune
   ASSERT_TRUE(PruneMinidumps(cfg).ok());
   EXPECT_TRUE(std::filesystem::exists(tmp.path / "a.dmp"));
+}
+
+// ── PruneMinidumps: export_path ───────────────────────────────────────────────
+
+// Empty export_path with active limits: no error, db_path still pruned normally.
+TEST(DiskManagerTest, ExportPathEmptyIsSkipped) {
+  const TempDir dbt;
+  auto old = dbt.CreateDmp("old.dmp", kBytes1K);
+  auto newer = dbt.CreateDmp("newer.dmp", kBytes1K);
+  const time_t now = time(nullptr);
+  TempDir::SetMtime(old, now - kAge100s);
+  TempDir::SetMtime(newer, now - kAge10s);
+
+  DiskManagerConfig cfg;
+  cfg.db_path = dbt.path.string();
+  cfg.export_path = "";      // explicitly empty — no export pruning
+  cfg.max_bytes = kBytes1K;  // would prune one file
+  ASSERT_TRUE(PruneMinidumps(cfg).ok());
+  // db_path is still pruned as normal
+  EXPECT_FALSE(std::filesystem::exists(dbt.path / "old.dmp"));
+  EXPECT_TRUE(std::filesystem::exists(dbt.path / "newer.dmp"));
+}
+
+// Non-empty export_path that does not exist returns an error (with limits active).
+TEST(DiskManagerTest, ExportPathNonexistentReturnsError) {
+  const TempDir dbt;
+  dbt.CreateDmp("a.dmp", kBytes1K);
+
+  DiskManagerConfig cfg;
+  cfg.db_path = dbt.path.string();
+  cfg.export_path = "/nonexistent/export/path/that/does/not/exist";
+  cfg.max_bytes = kBytes1K;
+  EXPECT_FALSE(PruneMinidumps(cfg).ok());
+}
+
+// .crashdump files in export_path are pruned when total size exceeds max_bytes.
+TEST(DiskManagerTest, ExportPathSizeLimitDeletesOldestFirst) {
+  const TempDir dbt;
+  const TempDir exp;
+  dbt.CreateDmp("a.dmp", kBytes512);  // db_path under budget — should not be touched
+
+  auto old_cd = exp.CreateCrashdump("old.crashdump", kBytes1K);
+  auto new_cd = exp.CreateCrashdump("new.crashdump", kBytes1K);
+  const time_t now = time(nullptr);
+  TempDir::SetMtime(old_cd, now - kAge100s);
+  TempDir::SetMtime(new_cd, now - kAge10s);
+
+  DiskManagerConfig cfg;
+  cfg.db_path = dbt.path.string();
+  cfg.export_path = exp.path.string();
+  cfg.max_bytes = kBytes1K;  // allow only one .crashdump
+
+  ASSERT_TRUE(PruneMinidumps(cfg).ok());
+
+  EXPECT_FALSE(std::filesystem::exists(exp.path / "old.crashdump"));
+  EXPECT_TRUE(std::filesystem::exists(exp.path / "new.crashdump"));
+  // db_path untouched
+  EXPECT_TRUE(std::filesystem::exists(dbt.path / "a.dmp"));
+}
+
+// .crashdump files in export_path are pruned when older than max_age_seconds.
+TEST(DiskManagerTest, ExportPathAgeLimitDeletesStaleFiles) {
+  const TempDir dbt;
+  const TempDir exp;
+
+  auto old_cd = exp.CreateCrashdump("old.crashdump", kBytes512);
+  auto fresh_cd = exp.CreateCrashdump("fresh.crashdump", kBytes512);
+  const time_t now = time(nullptr);
+  TempDir::SetMtime(old_cd, now - kAge1000s);  // 1000 s ago — over limit
+  TempDir::SetMtime(fresh_cd, now - kAge10s);  // 10 s ago — under limit
+
+  DiskManagerConfig cfg;
+  cfg.db_path = dbt.path.string();
+  cfg.export_path = exp.path.string();
+  cfg.max_age_seconds = kAge500s;
+
+  ASSERT_TRUE(PruneMinidumps(cfg).ok());
+  EXPECT_FALSE(std::filesystem::exists(exp.path / "old.crashdump"));
+  EXPECT_TRUE(std::filesystem::exists(exp.path / "fresh.crashdump"));
+}
+
+// .crashdump file within limits is preserved.
+TEST(DiskManagerTest, ExportPathUnderBudgetPreservesFiles) {
+  const TempDir dbt;
+  const TempDir exp;
+  exp.CreateCrashdump("a.crashdump", kBytes512);
+
+  DiskManagerConfig cfg;
+  cfg.db_path = dbt.path.string();
+  cfg.export_path = exp.path.string();
+  cfg.max_bytes = kBytes1M;  // well above 512 bytes
+  ASSERT_TRUE(PruneMinidumps(cfg).ok());
+  EXPECT_TRUE(std::filesystem::exists(exp.path / "a.crashdump"));
+}
+
+// .dmp and .crashdump files are pruned independently: a .crashdump file in
+// export_path is not counted toward db_path's budget and vice versa.
+TEST(DiskManagerTest, BothPathsPrunedIndependentlyByExtension) {
+  const TempDir dbt;
+  const TempDir exp;
+
+  // db_path: two .dmp files, total 2 KB
+  auto old_dmp = dbt.CreateDmp("old.dmp", kBytes1K);
+  auto new_dmp = dbt.CreateDmp("new.dmp", kBytes1K);
+  // export_path: two .crashdump files, total 2 KB
+  auto old_cd = exp.CreateCrashdump("old.crashdump", kBytes1K);
+  auto new_cd = exp.CreateCrashdump("new.crashdump", kBytes1K);
+
+  const time_t now = time(nullptr);
+  TempDir::SetMtime(old_dmp, now - kAge100s);
+  TempDir::SetMtime(new_dmp, now - kAge10s);
+  TempDir::SetMtime(old_cd, now - kAge100s);
+  TempDir::SetMtime(new_cd, now - kAge10s);
+
+  DiskManagerConfig cfg;
+  cfg.db_path = dbt.path.string();
+  cfg.export_path = exp.path.string();
+  cfg.max_bytes = kBytes1K;  // allow only one file in each directory
+
+  ASSERT_TRUE(PruneMinidumps(cfg).ok());
+
+  // oldest .dmp pruned from db_path
+  EXPECT_FALSE(std::filesystem::exists(dbt.path / "old.dmp"));
+  EXPECT_TRUE(std::filesystem::exists(dbt.path / "new.dmp"));
+  // oldest .crashdump pruned from export_path
+  EXPECT_FALSE(std::filesystem::exists(exp.path / "old.crashdump"));
+  EXPECT_TRUE(std::filesystem::exists(exp.path / "new.crashdump"));
+  // no cross-contamination: only .dmp files in db_path
+  EXPECT_TRUE(std::filesystem::directory_iterator(dbt.path)->path().extension() == ".dmp");
+}
+
+// .dmp files in export_path are not pruned (wrong extension for that directory).
+TEST(DiskManagerTest, ExportPathIgnoresDmpFiles) {
+  const TempDir dbt;
+  const TempDir exp;
+  // Put a .dmp file directly in export_path — it should NOT be removed.
+  auto dmp_in_exp = exp.CreateDmp("stray.dmp", kBytes1K);
+  exp.CreateCrashdump("real.crashdump", kBytes1K);
+
+  const time_t now = time(nullptr);
+  TempDir::SetMtime(dmp_in_exp, now - kAge1000s);  // very old — would be pruned if scanned
+  TempDir::SetMtime(exp.path / "real.crashdump", now - kAge1000s);
+
+  DiskManagerConfig cfg;
+  cfg.db_path = dbt.path.string();
+  cfg.export_path = exp.path.string();
+  cfg.max_bytes = kBytes512;  // tight limit to force pruning
+  cfg.max_age_seconds = kAge10s;
+
+  ASSERT_TRUE(PruneMinidumps(cfg).ok());
+  // .crashdump was pruned because it's old
+  EXPECT_FALSE(std::filesystem::exists(exp.path / "real.crashdump"));
+  // .dmp in export_path was not touched
+  EXPECT_TRUE(std::filesystem::exists(exp.path / "stray.dmp"));
 }
 
 }  // namespace

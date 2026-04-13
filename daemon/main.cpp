@@ -40,9 +40,7 @@
 #endif
 
 #include <array>
-#include <cctype>
 #include <cerrno>
-#include <charconv>
 #include <chrono>
 #include <condition_variable>
 #include <csignal>
@@ -50,8 +48,6 @@
 #include <cstdio>
 #include <cstdlib>
 #include <cstring>
-#include <ctime>
-#include <filesystem>
 #include <map>
 #include <mutex>
 #include <queue>
@@ -65,10 +61,9 @@
 #include "base/files/scoped_file.h"
 #include "client/crash_report_database.h"
 #include "daemon/disk_manager.h"
+#include "daemon/worker.h"
 #include "handler/linux/crash_report_exception_handler.h"
 #include "handler/linux/exception_handler_server.h"
-#include "tombstone/minidump_reader.h"
-#include "tombstone/tombstone_formatter.h"
 
 namespace {
 
@@ -81,12 +76,6 @@ constexpr mode_t kSocketPermissions = 0666;
 constexpr int kListenBacklog = 128;
 constexpr mode_t kDirPermissions = 0755;
 constexpr size_t kInotifyEventBufferCount = 16;
-// Suppress identical crash signatures within this window to limit log/disk spam.
-constexpr std::chrono::seconds kRateLimitWindow{30};
-// Size of the hex buffer for a uint64_t address (16 hex digits + null terminator).
-constexpr size_t kFaultAddrHexBufSize = 17;
-// Radix for fault address formatting.
-constexpr int kHexBase = 16;
 #ifdef HAVE_LIBSYSTEMD
 // Kick the systemd watchdog at this interval (must be < WatchdogSec / 2).
 constexpr std::chrono::seconds kWatchdogKickInterval{5};
@@ -105,11 +94,6 @@ void Log(std::string_view msg) {
   std::fwrite(msg.data(), 1, msg.size(), stderr);
   std::fputc('\n', stderr);
   std::fflush(stderr);
-}
-
-void LogTombstone(std::string_view msg) {
-  std::fwrite(msg.data(), 1, msg.size(), stdout);
-  std::fflush(stdout);
 }
 
 // ── Argument parsing ──────────────────────────────────────────────────────────
@@ -176,125 +160,6 @@ const char* GetArgValue(const char* arg, const char* key) {
     return arg + key_len + 1;  // NOLINT(cppcoreguidelines-pro-bounds-pointer-arithmetic)
   }
   return nullptr;
-}
-
-// ── Worker state ──────────────────────────────────────────────────────────────
-
-// Shared state for the minidump processing worker thread.
-// `pending`, `cv`, and `stop` are shared between the poll loop and the worker,
-// protected by `mu`.  `rate_limit_map` is accessed only from the worker thread.
-struct WorkerState {
-  std::queue<std::string> pending;
-  std::mutex mu;
-  std::condition_variable cv;
-  bool stop = false;
-  // Keyed by "process_name:signal_info:fault_addr_hex"; value is last-seen time.
-  // Single-threaded access (worker only) — no additional lock needed.
-  std::unordered_map<std::string, std::chrono::steady_clock::time_point> rate_limit_map;
-};
-
-// Copy src_path into export_path as {process}_{build_id8}_{YYYYMMDDHHmmss}.crashdump.
-// Logs and continues on failure — export is best-effort.
-void ExportMinidump(const std::string& src_path, std::string_view export_path,
-                    const crashomon::MinidumpInfo& info) {
-  constexpr std::size_t build_id_len = 8;
-  constexpr std::size_t timestamp_buf_len = 15;  // "YYYYMMDDHHmmSS" + '\0'
-
-  std::string name;
-  for (const char chr : info.process_name) {
-    name += (std::isalnum(static_cast<unsigned char>(chr)) != 0 || chr == '-') ? chr : '_';
-  }
-
-  const std::string_view raw_id =
-      info.modules.empty() ? "" : std::string_view(info.modules[0].build_id);
-  std::string bid;
-  for (const char chr : raw_id) {
-    if (std::isxdigit(static_cast<unsigned char>(chr)) != 0) {
-      bid += static_cast<char>(std::tolower(static_cast<unsigned char>(chr)));
-    }
-    if (bid.size() == build_id_len) {
-      break;
-    }
-  }
-  if (bid.size() < build_id_len) {
-    bid.resize(build_id_len, '0');
-  }
-
-  const std::time_t now = std::time(nullptr);
-  std::tm tm_buf{};
-  gmtime_r(&now, &tm_buf);
-  std::array<char, timestamp_buf_len> timestamp{};
-  std::strftime(timestamp.data(), timestamp.size(), "%Y%m%d%H%M%S", &tm_buf);
-
-  const std::filesystem::path dst =
-      std::filesystem::path(std::string(export_path)) /
-      (name + "_" + bid + "_" + timestamp.data() + ".crashdump");
-  std::error_code err;
-  std::filesystem::copy_file(src_path, dst, std::filesystem::copy_options::overwrite_existing, err);
-  if (err) {
-    Log(std::string{"crashomon-watcherd: export failed → "} + dst.string() + ": " +
-        err.message());
-  }
-}
-
-// ── Minidump processing ───────────────────────────────────────────────────────
-
-void ProcessNewMinidump(const std::string& path, WorkerState& state,
-                        const crashomon::DiskManagerConfig& prune_cfg,
-                        std::string_view export_path) {
-  auto info_or = crashomon::ReadMinidump(path);
-  if (!info_or.ok()) {
-    Log(std::string{"crashomon-watcherd: failed to read minidump '"} + path +
-        "': " + std::string(info_or.status().message()));
-  } else {
-    const auto& info = *info_or;
-
-    // Rate limiting: suppress identical crash signatures within kRateLimitWindow.
-    // Build the key using to_chars (non-variadic, no printf dependency).
-    std::array<char, kFaultAddrHexBufSize> fault_hex{};
-    // NOLINTNEXTLINE(cppcoreguidelines-pro-bounds-pointer-arithmetic)
-    std::to_chars(fault_hex.data(), fault_hex.data() + fault_hex.size() - 1, info.fault_addr,
-                  kHexBase);
-    const std::string key = info.process_name + ":" + info.signal_info + ":" + fault_hex.data();
-
-    const auto now = std::chrono::steady_clock::now();
-    const auto rate_it = state.rate_limit_map.find(key);
-    if (rate_it != state.rate_limit_map.end() && (now - rate_it->second) < kRateLimitWindow) {
-      Log(std::string{"crashomon-watcherd: suppressed duplicate crash ("} + key + ")");
-    } else {
-      state.rate_limit_map[key] = now;
-      LogTombstone(crashomon::FormatTombstone(info));
-      if (!export_path.empty()) {
-        ExportMinidump(path, export_path, info);
-      }
-    }
-  }
-
-  if (const auto prune_status = crashomon::PruneMinidumps(prune_cfg); !prune_status.ok()) {
-    Log(std::string{"crashomon-watcherd: prune failed: "} + std::string(prune_status.message()));
-  }
-}
-
-// ── Worker thread ─────────────────────────────────────────────────────────────
-
-// Dequeues and processes minidumps until signalled to stop.  Drains the queue
-// before returning so that minidumps written before shutdown are not lost.
-void RunWorker(WorkerState& state, const crashomon::DiskManagerConfig& prune_cfg,
-               std::string_view export_path) {
-  while (true) {
-    std::string path;
-    {
-      std::unique_lock<std::mutex> lock(state.mu);
-      state.cv.wait(lock, [&state] { return state.stop || !state.pending.empty(); });
-      if (state.stop && state.pending.empty()) {
-        return;
-      }
-      path = std::move(state.pending.front());
-      state.pending.pop();
-    }
-    // No lock held during processing — allows the poll loop to keep enqueuing.
-    ProcessNewMinidump(path, state, prune_cfg, export_path);
-  }
 }
 
 // ── Crash handler hosting ─────────────────────────────────────────────────────
@@ -408,7 +273,7 @@ void AcceptAndShareSocket(int listen_fd, int shared_client_fd, pid_t handler_pid
 
 // Process a raw inotify read buffer, enqueuing full paths for each
 // IN_MOVED_TO event on a .dmp file.
-void EnqueueInotifyEvents(std::string_view pending_dir, WorkerState& worker_state,
+void EnqueueInotifyEvents(std::string_view pending_dir, crashomon::WorkerState& worker_state,
                           std::span<const char> buf) {
   for (size_t offset = 0; offset < buf.size();) {
     // inotify_event is a
@@ -560,8 +425,8 @@ int RunWatcher(const std::string& db_path, const std::string& socket_path,
   // we use close(client_fd) to make Run() exit: it returns when all client-end
   // holders have closed their copies.
 
-  WorkerState worker_state;
-  std::thread worker_thread(RunWorker, std::ref(worker_state), std::cref(prune_cfg),
+  crashomon::WorkerState worker_state;
+  std::thread worker_thread(crashomon::RunWorker, std::ref(worker_state), std::cref(prune_cfg),
                             std::string_view{export_path});
 
   // Buffer sized for kInotifyEventBufferCount events with maximum-length names.

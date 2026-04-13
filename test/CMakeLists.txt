@@ -10,6 +10,7 @@ set(DAEMON_TEST_SOURCES
   test_disk_manager.cpp
   test_minidump_reader.cpp
   test_register_extract.cpp
+  test_worker.cpp
 )
 
 add_executable(crashomon_daemon_tests ${DAEMON_TEST_SOURCES})
@@ -28,6 +29,7 @@ target_link_libraries(crashomon_daemon_tests
 # Modules under test compiled directly so tests can #include internal headers.
 target_sources(crashomon_daemon_tests PRIVATE
   ${PROJECT_SOURCE_DIR}/daemon/disk_manager.cpp
+  ${PROJECT_SOURCE_DIR}/daemon/worker.cpp
 )
 
 target_include_directories(crashomon_daemon_tests

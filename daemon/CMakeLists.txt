@@ -4,6 +4,7 @@
 add_executable(crashomon_watcherd
   main.cpp
   disk_manager.cpp
+  worker.cpp
 )
 
 target_link_libraries(crashomon_watcherd
