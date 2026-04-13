@@ -92,6 +92,12 @@ if(NOT zlib_dep_POPULATED)
   set(ZLIB_BUILD_EXAMPLES OFF CACHE BOOL "" FORCE)
   add_subdirectory("${zlib_dep_SOURCE_DIR}" "${zlib_dep_BINARY_DIR}" EXCLUDE_FROM_ALL)
   target_compile_options(zlibstatic PRIVATE -w)
+  # Pin zlibstatic's output to its own build dir regardless of any
+  # CMAKE_ARCHIVE_OUTPUT_DIRECTORY set by a parent project. ZLIB::ZLIB's
+  # IMPORTED_LOCATION hardcodes this path and must match the actual output.
+  set_target_properties(zlibstatic PROPERTIES
+    ARCHIVE_OUTPUT_DIRECTORY "${zlib_dep_BINARY_DIR}"
+  )
 endif()
 # Create ZLIB::ZLIB as an IMPORTED target (not ALIAS) so it is valid in CMake export sets.
 # ALIAS targets of non-IMPORTED builds cause export set validation failures (CMake requires
