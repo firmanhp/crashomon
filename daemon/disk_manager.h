@@ -18,6 +18,7 @@ namespace crashomon {
 
 struct DiskManagerConfig {
   std::string db_path;
+  std::string export_path;       // export directory to prune alongside db_path; empty = disabled
   uint64_t max_bytes = 0;        // total size limit; 0 = unlimited
   uint32_t max_age_seconds = 0;  // per-file age limit; 0 = unlimited
 };
