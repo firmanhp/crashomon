@@ -36,17 +36,13 @@ namespace {
 // without the Yama LSM. Without Yama, the restriction PR_SET_PTRACER relaxes
 // does not exist, so the handler can still ptrace the client fine. All other
 // Crashpad log messages pass through unchanged.
-bool CrashpadLogFilter(logging::LogSeverity severity,
-                       const char* file,
-                       int /*line*/,
-                       size_t message_start,
-                       const std::string& str) {
-  if (severity == logging::LOG_WARNING && file != nullptr &&
-      std::strstr(file, "crashpad_client_linux.cc") != nullptr &&
-      str.find("prctl", message_start) != std::string::npos) {
-    return true;  // suppress
-  }
-  return false;  // let mini_chromium print normally
+bool CrashpadLogFilter(logging::LogSeverity severity, const char* file, int /*line*/,
+                       size_t message_start, const std::string& str) {
+  // Suppress harmless PR_SET_PTRACER warning from Crashpad under LD_PRELOAD.
+  // Return true = suppress, false = let mini_chromium print normally.
+  return severity == logging::LOG_WARNING && file != nullptr &&
+         std::strstr(file, "crashpad_client_linux.cc") != nullptr &&
+         str.find("prctl", message_start) != std::string::npos;
 }
 
 void InstallCrashpadLogFilterOnce() {
@@ -146,7 +142,9 @@ int DoInit(const ResolvedConfig& cfg) {
       std::fputs(" (up to 3s)...\n", stderr);
       waiting_printed = true;
     }
-    struct timespec interval {0, kRetryIntervalNs};
+    const struct timespec interval {
+      0, kRetryIntervalNs
+    };
     nanosleep(&interval, nullptr);
   }
 

@@ -9,13 +9,12 @@
 // against the default socket path (which is absent in the test environment).
 // The TimeoutTest below adds another ~3s.  Total overhead: ~6s.
 
-#include "lib/crashomon.h"
-
 #include <fcntl.h>
 #include <sys/socket.h>
 #include <sys/un.h>
 #include <unistd.h>
 
+#include <array>
 #include <atomic>
 #include <chrono>
 #include <cstring>
@@ -23,6 +22,7 @@
 #include <thread>
 
 #include "gtest/gtest.h"
+#include "lib/crashomon.h"
 
 namespace {
 
@@ -30,10 +30,9 @@ namespace {
 // Drain() restores the original fd and returns everything written to it.
 class StderrCapture {
  public:
-  StderrCapture() {
-    const int ret = pipe2(pipe_, O_CLOEXEC);
+  StderrCapture() : saved_stderr_(dup(STDERR_FILENO)) {
+    const int ret = pipe2(pipe_.data(), O_CLOEXEC);
     (void)ret;  // failure leaves pipe_[0/1] = -1; Drain() will skip them
-    saved_stderr_ = dup(STDERR_FILENO);
     dup2(pipe_[1], STDERR_FILENO);
     close(pipe_[1]);
     pipe_[1] = -1;
@@ -44,7 +43,9 @@ class StderrCapture {
       dup2(saved_stderr_, STDERR_FILENO);
       close(saved_stderr_);
     }
-    if (pipe_[0] >= 0) close(pipe_[0]);
+    if (pipe_[0] >= 0) {
+      close(pipe_[0]);
+    }
   }
 
   // Restores stderr and drains all buffered output from the pipe.
@@ -55,11 +56,12 @@ class StderrCapture {
     close(saved_stderr_);
     saved_stderr_ = -1;
 
+    constexpr std::size_t read_buf_len = 256;
     std::string result;
-    char buf[256];
-    ssize_t n = 0;
-    while ((n = read(pipe_[0], buf, sizeof(buf))) > 0) {
-      result.append(buf, static_cast<size_t>(n));
+    std::array<char, read_buf_len> buf{};
+    ssize_t num_read = 0;
+    while ((num_read = read(pipe_[0], buf.data(), buf.size())) > 0) {
+      result.append(buf.data(), static_cast<size_t>(num_read));
     }
     close(pipe_[0]);
     pipe_[0] = -1;
@@ -72,7 +74,7 @@ class StderrCapture {
   StderrCapture& operator=(StderrCapture&&) = delete;
 
  private:
-  int pipe_[2] = {-1, -1};
+  std::array<int, 2> pipe_ = {-1, -1};
   int saved_stderr_ = -1;
 };
 
@@ -86,20 +88,22 @@ std::string SocketPath(const char* tag) {
 // Returns the server fd, or -1 on failure.
 int MakeListeningSocket(const std::string& path) {
   ::unlink(path.c_str());
-  const int fd = ::socket(AF_UNIX, SOCK_SEQPACKET | SOCK_CLOEXEC, 0);
-  if (fd < 0) return -1;
+  const int sock_fd = ::socket(AF_UNIX, SOCK_SEQPACKET | SOCK_CLOEXEC, 0);
+  if (sock_fd < 0) {
+    return -1;
+  }
   struct sockaddr_un addr {};
   addr.sun_family = AF_UNIX;
   // NOLINTNEXTLINE(cppcoreguidelines-pro-bounds-array-to-pointer-decay)
   strncpy(addr.sun_path, path.c_str(), sizeof(addr.sun_path) - 1);
   // NOLINTNEXTLINE(cppcoreguidelines-pro-type-reinterpret-cast)
-  if (::bind(fd, reinterpret_cast<struct sockaddr*>(&addr), sizeof(addr)) != 0 ||
-      ::listen(fd, 1) != 0) {
-    ::close(fd);
+  if (::bind(sock_fd, reinterpret_cast<struct sockaddr*>(&addr), sizeof(addr)) != 0 ||
+      ::listen(sock_fd, 1) != 0) {
+    ::close(sock_fd);
     ::unlink(path.c_str());
     return -1;
   }
-  return fd;
+  return sock_fd;
 }
 
 // ── ConnectRetry tests ────────────────────────────────────────────────────────
@@ -145,14 +149,19 @@ TEST(ConnectRetryTest, SocketAppearsBeforeTimeoutConnectsEarly) {
   // close it immediately.  Closing the accepted fd makes ReceiveSharedSocket
   // fail on the client side (recvmsg returns EOF), which is expected here —
   // we are only testing the retry behavior, not the full handshake.
+  constexpr int delay_ms = 300;
   std::atomic<int> server_fd{-1};
-  std::thread server_thread([&path, &server_fd] {
-    std::this_thread::sleep_for(std::chrono::milliseconds(300));
-    const int fd = MakeListeningSocket(path);
-    server_fd.store(fd);
-    if (fd < 0) return;
-    const int client_fd = ::accept(fd, nullptr, nullptr);
-    if (client_fd >= 0) ::close(client_fd);
+  std::thread server_thread([&path, &server_fd, delay_ms] {
+    std::this_thread::sleep_for(std::chrono::milliseconds(delay_ms));
+    const int srv_fd = MakeListeningSocket(path);
+    server_fd.store(srv_fd);
+    if (srv_fd < 0) {
+      return;
+    }
+    const int client_fd = ::accept(srv_fd, nullptr, nullptr);
+    if (client_fd >= 0) {
+      ::close(client_fd);
+    }
   });
 
   const CrashomonConfig cfg{nullptr, path.c_str()};
@@ -172,8 +181,7 @@ TEST(ConnectRetryTest, SocketAppearsBeforeTimeoutConnectsEarly) {
   EXPECT_NE(result, 0);  // ReceiveSharedSocket failed — expected.
   EXPECT_GE(elapsed, std::chrono::milliseconds(200))
       << "connected faster than the 300ms server delay";
-  EXPECT_LT(elapsed, std::chrono::seconds(3))
-      << "did not connect within the 3s window";
+  EXPECT_LT(elapsed, std::chrono::seconds(3)) << "did not connect within the 3s window";
   EXPECT_NE(output.find("waiting for watcherd"), std::string::npos)
       << "expected 'waiting' notice (retry occurred); got:\n"
       << output;
@@ -188,15 +196,17 @@ TEST(ConnectRetryTest, ImmediateConnectPrintsNoWaitingMessage) {
   const std::string path = SocketPath("immediate");
   ::unlink(path.c_str());
 
-  const int fd = MakeListeningSocket(path);
-  ASSERT_GE(fd, 0) << "failed to create listening socket at " << path;
+  const int srv_fd = MakeListeningSocket(path);
+  ASSERT_GE(srv_fd, 0) << "failed to create listening socket at " << path;
 
   // Accept in a background thread so the server is ready when the client
   // connects.  Closing immediately makes ReceiveSharedSocket fail on the
   // client — expected, we are not testing the full handshake.
-  std::thread server_thread([fd] {
-    const int client_fd = ::accept(fd, nullptr, nullptr);
-    if (client_fd >= 0) ::close(client_fd);
+  std::thread server_thread([srv_fd] {
+    const int client_fd = ::accept(srv_fd, nullptr, nullptr);
+    if (client_fd >= 0) {
+      ::close(client_fd);
+    }
   });
 
   const CrashomonConfig cfg{nullptr, path.c_str()};
@@ -208,7 +218,7 @@ TEST(ConnectRetryTest, ImmediateConnectPrintsNoWaitingMessage) {
   const std::string output = cap.Drain();
 
   server_thread.join();
-  ::close(fd);
+  ::close(srv_fd);
   ::unlink(path.c_str());
 
   EXPECT_NE(result, 0);  // ReceiveSharedSocket failed — expected.

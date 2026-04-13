@@ -197,37 +197,43 @@ struct WorkerState {
 // Logs and continues on failure — export is best-effort.
 void ExportMinidump(const std::string& src_path, std::string_view export_path,
                     const crashomon::MinidumpInfo& info) {
+  constexpr std::size_t build_id_len = 8;
+  constexpr std::size_t timestamp_buf_len = 15;  // "YYYYMMDDHHmmSS" + '\0'
+
   std::string name;
-  for (char c : info.process_name) {
-    name += (std::isalnum(static_cast<unsigned char>(c)) || c == '-') ? c : '_';
+  for (const char chr : info.process_name) {
+    name += (std::isalnum(static_cast<unsigned char>(chr)) != 0 || chr == '-') ? chr : '_';
   }
 
-  const std::string_view raw_id = info.modules.empty() ? "" : std::string_view(info.modules[0].build_id);
+  const std::string_view raw_id =
+      info.modules.empty() ? "" : std::string_view(info.modules[0].build_id);
   std::string bid;
-  for (char c : raw_id) {
-    if (std::isxdigit(static_cast<unsigned char>(c))) {
-      bid += static_cast<char>(std::tolower(static_cast<unsigned char>(c)));
+  for (const char chr : raw_id) {
+    if (std::isxdigit(static_cast<unsigned char>(chr)) != 0) {
+      bid += static_cast<char>(std::tolower(static_cast<unsigned char>(chr)));
     }
-    if (bid.size() == 8) {
+    if (bid.size() == build_id_len) {
       break;
     }
   }
-  if (bid.size() < 8) {
-    bid.resize(8, '0');
+  if (bid.size() < build_id_len) {
+    bid.resize(build_id_len, '0');
   }
 
-  std::time_t now = std::time(nullptr);
+  const std::time_t now = std::time(nullptr);
   std::tm tm_buf{};
   gmtime_r(&now, &tm_buf);
-  std::array<char, 15> ts{};
-  std::strftime(ts.data(), ts.size(), "%Y%m%d%H%M%S", &tm_buf);
+  std::array<char, timestamp_buf_len> timestamp{};
+  std::strftime(timestamp.data(), timestamp.size(), "%Y%m%d%H%M%S", &tm_buf);
 
   const std::filesystem::path dst =
-      std::filesystem::path(std::string(export_path)) / (name + "_" + bid + "_" + ts.data() + ".crashdump");
-  std::error_code ec;
-  std::filesystem::copy_file(src_path, dst, std::filesystem::copy_options::overwrite_existing, ec);
-  if (ec) {
-    Log(std::string{"crashomon-watcherd: export failed → "} + dst.string() + ": " + ec.message());
+      std::filesystem::path(std::string(export_path)) /
+      (name + "_" + bid + "_" + timestamp.data() + ".crashdump");
+  std::error_code err;
+  std::filesystem::copy_file(src_path, dst, std::filesystem::copy_options::overwrite_existing, err);
+  if (err) {
+    Log(std::string{"crashomon-watcherd: export failed → "} + dst.string() + ": " +
+        err.message());
   }
 }
 
@@ -312,7 +318,7 @@ int CreateListenSocket(const std::string& socket_path) {
 
   // Probe: if a live daemon already owns the socket, refuse to steal it.
   {
-    base::ScopedFD probe(socket(AF_UNIX, SOCK_SEQPACKET | SOCK_CLOEXEC, 0));
+    const base::ScopedFD probe(socket(AF_UNIX, SOCK_SEQPACKET | SOCK_CLOEXEC, 0));
     if (probe.is_valid()) {
       // POSIX connect requires casting sockaddr_un* to sockaddr*; no standard-compliant
       // alternative. NOLINTNEXTLINE(cppcoreguidelines-pro-type-reinterpret-cast)
@@ -433,7 +439,7 @@ void EnqueueInotifyEvents(std::string_view pending_dir, WorkerState& worker_stat
 
     const std::string path = std::string(pending_dir) + "/" + std::string(name, name_len);
     {
-      std::lock_guard<std::mutex> lock(worker_state.mu);
+      const std::lock_guard<std::mutex> lock(worker_state.mu);
       worker_state.pending.push(path);
     }
     worker_state.cv.notify_one();
@@ -447,8 +453,7 @@ void EnqueueInotifyEvents(std::string_view pending_dir, WorkerState& worker_stat
 // shutdown in one place.
 // NOLINTNEXTLINE(readability-function-cognitive-complexity)
 int RunWatcher(const std::string& db_path, const std::string& socket_path,
-               const crashomon::DiskManagerConfig& prune_cfg,
-               const std::string& export_path) {
+               const crashomon::DiskManagerConfig& prune_cfg, const std::string& export_path) {
   // ── Crashpad handler setup ────────────────────────────────────────────────
 
   // Crashpad database lifecycle: writes to new/, then renames to pending/.
@@ -484,7 +489,7 @@ int RunWatcher(const std::string& db_path, const std::string& socket_path,
                                                       /*write_minidump_to_log=*/false,
                                                       /*user_stream_data_sources=*/nullptr);
 
-  base::ScopedFD listen_fd_scoped(CreateListenSocket(socket_path));
+  const base::ScopedFD listen_fd_scoped(CreateListenSocket(socket_path));
   if (!listen_fd_scoped.is_valid()) {
     return 1;
   }
@@ -518,7 +523,7 @@ int RunWatcher(const std::string& db_path, const std::string& socket_path,
 
   // ── inotify setup ─────────────────────────────────────────────────────────
 
-  base::ScopedFD ifd_scoped(inotify_init1(IN_CLOEXEC | IN_NONBLOCK));
+  const base::ScopedFD ifd_scoped(inotify_init1(IN_CLOEXEC | IN_NONBLOCK));
   if (!ifd_scoped.is_valid()) {
     perror("inotify_init1");
     return 1;
@@ -632,7 +637,7 @@ int RunWatcher(const std::string& db_path, const std::string& socket_path,
   // Signal the worker to drain its queue and exit.  Join after handler_thread
   // so that any final minidumps written by Crashpad are enqueued before we stop.
   {
-    std::lock_guard<std::mutex> lock(worker_state.mu);
+    const std::lock_guard<std::mutex> lock(worker_state.mu);
     worker_state.stop = true;
   }
   worker_state.cv.notify_one();

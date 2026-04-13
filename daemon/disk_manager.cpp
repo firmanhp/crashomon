@@ -67,8 +67,8 @@ absl::StatusOr<std::vector<DmpFile>> ListFilesByExtension(const std::string& dir
 
 // Prune files from dir (oldest-first) until total size is within max_bytes and
 // all files are within max_age_seconds.  No-ops if both limits are zero.
-absl::Status PruneDirectory(const std::string& dir, std::string_view ext,
-                             uint64_t max_bytes, uint32_t max_age_seconds) {
+absl::Status PruneDirectory(const std::string& dir, std::string_view ext, uint64_t max_bytes,
+                            uint32_t max_age_seconds) {
   if (max_bytes == 0 && max_age_seconds == 0) {
     return absl::OkStatus();
   }
@@ -82,25 +82,25 @@ absl::Status PruneDirectory(const std::string& dir, std::string_view ext,
   const time_t now = ::time(nullptr);
 
   uint64_t total_bytes = 0;
-  for (const auto& f : files) {
-    total_bytes += f.size;
+  for (const auto& file : files) {
+    total_bytes += file.size;
   }
 
-  for (const auto& f : files) {
+  for (const auto& file : files) {
     const bool over_size = (max_bytes > 0 && total_bytes > max_bytes);
-    const bool over_age = (max_age_seconds > 0 && now > f.mtime &&
-                           static_cast<uint64_t>(now - f.mtime) > max_age_seconds);
+    const bool over_age = (max_age_seconds > 0 && now > file.mtime &&
+                           static_cast<uint64_t>(now - file.mtime) > max_age_seconds);
 
     if (!over_size && !over_age) {
       continue;
     }
 
     std::error_code err;
-    if (!std::filesystem::remove(f.path, err) || err) {
-      return absl::InternalError(std::string("Failed to remove ") + f.path.string() + ": " +
+    if (!std::filesystem::remove(file.path, err) || err) {
+      return absl::InternalError(std::string("Failed to remove ") + file.path.string() + ": " +
                                  err.message());
     }
-    total_bytes -= f.size;
+    total_bytes -= file.size;
   }
 
   return absl::OkStatus();
@@ -122,15 +122,16 @@ absl::StatusOr<uint64_t> GetTotalMinidumpSize(const std::string& db_path) {
 }
 
 absl::Status PruneMinidumps(const DiskManagerConfig& config) {
-  if (auto s = PruneDirectory(config.db_path, ".dmp", config.max_bytes, config.max_age_seconds);
-      !s.ok()) {
-    return s;
+  if (auto status = PruneDirectory(config.db_path, ".dmp", config.max_bytes,
+                                    config.max_age_seconds);
+      !status.ok()) {
+    return status;
   }
   if (!config.export_path.empty()) {
-    if (auto s = PruneDirectory(config.export_path, ".crashdump", config.max_bytes,
-                                config.max_age_seconds);
-        !s.ok()) {
-      return s;
+    if (auto status = PruneDirectory(config.export_path, ".crashdump", config.max_bytes,
+                                     config.max_age_seconds);
+        !status.ok()) {
+      return status;
     }
   }
   return absl::OkStatus();

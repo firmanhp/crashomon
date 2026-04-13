@@ -61,8 +61,7 @@ static inline CURLcode curl_global_init(long flags) {
   (void)flags;
   return CURLE_OK;
 }
-static inline struct curl_slist *curl_slist_append(struct curl_slist *s,
-                                                   const char *d) {
+static inline struct curl_slist *curl_slist_append(struct curl_slist *s, const char *d) {
   (void)s;
   (void)d;
   return 0;
