@@ -1,21 +1,20 @@
 include(GoogleTest)
 
-# ── Unit test binary ───────────────────────────────────────────────────────────
-# Each test file tests a single module.
+# ── Daemon unit tests ──────────────────────────────────────────────────────────
+# Tests for daemon internals (tombstone, disk_manager, minidump_reader,
+# register_extract).  Does NOT link against the crashomon client library or
+# crashpad_client, so there is no startup connection retry delay.
 
-set(TEST_SOURCES
-  test_crashomon.cpp
-  test_connect_retry.cpp
-  test_tags.cpp
+set(DAEMON_TEST_SOURCES
   test_tombstone_formatter.cpp
   test_disk_manager.cpp
   test_minidump_reader.cpp
   test_register_extract.cpp
 )
 
-add_executable(crashomon_tests ${TEST_SOURCES})
+add_executable(crashomon_daemon_tests ${DAEMON_TEST_SOURCES})
 
-target_link_libraries(crashomon_tests
+target_link_libraries(crashomon_daemon_tests
   PRIVATE
     crashomon_warnings
     crashomon_tombstone
@@ -24,42 +23,82 @@ target_link_libraries(crashomon_tests
     absl::status
     absl::statusor
     Threads::Threads
-    crashpad_client
 )
 
-# Modules under test — compiled directly into the test binary so tests
-# can #include internal headers without a separate library target.
-target_sources(crashomon_tests PRIVATE
+# Modules under test compiled directly so tests can #include internal headers.
+target_sources(crashomon_daemon_tests PRIVATE
   ${PROJECT_SOURCE_DIR}/daemon/disk_manager.cpp
-  ${PROJECT_SOURCE_DIR}/lib/crashomon.cpp
 )
 
-target_include_directories(crashomon_tests
+target_include_directories(crashomon_daemon_tests
   PRIVATE
     ${PROJECT_SOURCE_DIR}
     ${CMAKE_CURRENT_SOURCE_DIR}
 )
 
-# Same Abseil SYSTEM-include workaround as in daemon/CMakeLists.txt.
 if(abseil_SOURCE_DIR)
-  target_include_directories(crashomon_tests SYSTEM PRIVATE "${abseil_SOURCE_DIR}")
+  target_include_directories(crashomon_daemon_tests SYSTEM PRIVATE "${abseil_SOURCE_DIR}")
 endif()
 if(breakpad_SOURCE_DIR)
-  target_include_directories(crashomon_tests SYSTEM PRIVATE "${breakpad_SOURCE_DIR}/src")
+  target_include_directories(crashomon_daemon_tests SYSTEM PRIVATE "${breakpad_SOURCE_DIR}/src")
+endif()
+
+set_target_properties(crashomon_daemon_tests PROPERTIES CXX_CLANG_TIDY "${CRASHOMON_CLANG_TIDY}")
+
+# ── Client unit tests ──────────────────────────────────────────────────────────
+# Tests for the crashomon client library (config resolution, tags, connect
+# retry).  Links lib/crashomon.cpp and crashpad_client.
+#
+# CRASHOMON_TESTING_SKIP_AUTOINIT disables the AutoInit() constructor so the
+# binary does not spend 3 s retrying the default socket path at startup.
+# Tests that need the retry logic (test_connect_retry.cpp) call
+# crashomon_init() directly and are not affected by this flag.
+
+set(CLIENT_TEST_SOURCES
+  test_crashomon.cpp
+  test_tags.cpp
+  test_connect_retry.cpp
+)
+
+add_executable(crashomon_client_tests ${CLIENT_TEST_SOURCES})
+
+target_compile_definitions(crashomon_client_tests PRIVATE CRASHOMON_TESTING_SKIP_AUTOINIT)
+
+target_link_libraries(crashomon_client_tests
+  PRIVATE
+    crashomon_warnings
+    GTest::gtest_main
+    crashpad_client
+    Threads::Threads
+)
+
+# lib/crashomon.cpp compiled directly so tests can #include internal headers.
+target_sources(crashomon_client_tests PRIVATE
+  ${PROJECT_SOURCE_DIR}/lib/crashomon.cpp
+)
+
+target_include_directories(crashomon_client_tests
+  PRIVATE
+    ${PROJECT_SOURCE_DIR}
+    ${CMAKE_CURRENT_SOURCE_DIR}
+)
+
+if(abseil_SOURCE_DIR)
+  target_include_directories(crashomon_client_tests SYSTEM PRIVATE "${abseil_SOURCE_DIR}")
 endif()
 # lib/crashomon.cpp and test_tags.cpp include Crashpad headers directly.
 # Mark Crashpad's directories as SYSTEM so -Werror does not fire on third-party
 # code (same approach as lib/CMakeLists.txt for crashomon_client targets).
 if(TARGET crashpad_interface)
-  target_include_directories(crashomon_tests SYSTEM PRIVATE
+  target_include_directories(crashomon_client_tests SYSTEM PRIVATE
     $<TARGET_PROPERTY:crashpad_interface,INTERFACE_INCLUDE_DIRECTORIES>
   )
 endif()
 
-set_target_properties(crashomon_tests PROPERTIES CXX_CLANG_TIDY "${CRASHOMON_CLANG_TIDY}")
+set_target_properties(crashomon_client_tests PROPERTIES CXX_CLANG_TIDY "${CRASHOMON_CLANG_TIDY}")
 
 # ── Synthetic fixture generator ────────────────────────────────────────────────
-# Generates three .dmp files at build time so all 18 fixture tests run (no
+# Generates three .dmp files at build time so all fixture tests run (no
 # GTEST_SKIP) without requiring a running crashomon-watcherd daemon.
 
 add_executable(gen_synthetic_fixtures gen_synthetic_fixtures.cpp)
@@ -94,10 +133,12 @@ add_custom_target(synthetic_fixtures DEPENDS
   "${FIXTURE_DIR}/multithread.dmp"
 )
 
-add_dependencies(crashomon_tests synthetic_fixtures)
+add_dependencies(crashomon_daemon_tests synthetic_fixtures)
 
-gtest_discover_tests(crashomon_tests
-  # Point to the build-time fixture directory so all 18 fixture tests run.
+gtest_discover_tests(crashomon_daemon_tests
+  # Point to the build-time fixture directory so all fixture tests run.
   PROPERTIES
     ENVIRONMENT "CRASHOMON_FIXTURES_DIR=${FIXTURE_DIR}"
 )
+
+gtest_discover_tests(crashomon_client_tests)

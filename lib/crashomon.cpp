@@ -195,7 +195,12 @@ int DoInit(const ResolvedConfig& cfg) {
 // These fire automatically when the library is loaded/unloaded — no code
 // changes are required in the monitored process.
 
+// CRASHOMON_TESTING_SKIP_AUTOINIT is defined by the client test binary so the
+// constructor does not burn 3 s retrying against an absent watcherd at startup.
+// Tests that exercise the retry logic call crashomon_init() directly.
+#ifndef CRASHOMON_TESTING_SKIP_AUTOINIT
 __attribute__((constructor)) void AutoInit() { DoInit(Resolve(nullptr)); }
+#endif
 
 __attribute__((destructor)) void AutoShutdown() {
   // Crashpad handler runs as an independent process; no shutdown needed.
