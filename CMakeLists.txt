@@ -287,7 +287,7 @@ if(ENABLE_TESTS)
   # Prefer the project's .venv interpreter (populated by uv), then fall back to
   # whatever Python3 CMake finds.  Gate on interpreter having pytest installed.
   find_program(VENV_PYTHON NAMES python python3
-    PATHS "${CMAKE_SOURCE_DIR}/.venv/bin"
+    PATHS "${PROJECT_SOURCE_DIR}/.venv/bin"
     NO_DEFAULT_PATH
   )
   if(NOT VENV_PYTHON)
@@ -303,10 +303,10 @@ if(ENABLE_TESTS)
     if(_pytest_found EQUAL 0)
       add_test(NAME python_tests
         COMMAND ${VENV_PYTHON} -m pytest --tb=short -q
-        WORKING_DIRECTORY ${CMAKE_SOURCE_DIR}
+        WORKING_DIRECTORY ${PROJECT_SOURCE_DIR}
       )
       set_tests_properties(python_tests PROPERTIES
-        ENVIRONMENT "PYTHONPATH=${CMAKE_SOURCE_DIR}"
+        ENVIRONMENT "PYTHONPATH=${PROJECT_SOURCE_DIR}"
         LABELS "python"
       )
     endif()

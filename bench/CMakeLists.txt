@@ -19,7 +19,7 @@ target_link_libraries(crashomon_bench
 
 target_include_directories(crashomon_bench
   PRIVATE
-    ${CMAKE_SOURCE_DIR}
+    ${PROJECT_SOURCE_DIR}
     ${CMAKE_CURRENT_SOURCE_DIR}
 )
 

@@ -29,13 +29,13 @@ target_link_libraries(crashomon_tests
 # Modules under test — compiled directly into the test binary so tests
 # can #include internal headers without a separate library target.
 target_sources(crashomon_tests PRIVATE
-  ${CMAKE_SOURCE_DIR}/daemon/disk_manager.cpp
-  ${CMAKE_SOURCE_DIR}/lib/crashomon.cpp
+  ${PROJECT_SOURCE_DIR}/daemon/disk_manager.cpp
+  ${PROJECT_SOURCE_DIR}/lib/crashomon.cpp
 )
 
 target_include_directories(crashomon_tests
   PRIVATE
-    ${CMAKE_SOURCE_DIR}
+    ${PROJECT_SOURCE_DIR}
     ${CMAKE_CURRENT_SOURCE_DIR}
 )
 

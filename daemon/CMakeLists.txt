@@ -18,7 +18,7 @@ target_link_libraries(crashomon_watcherd
 
 target_include_directories(crashomon_watcherd
   PRIVATE
-    ${CMAKE_SOURCE_DIR}
+    ${PROJECT_SOURCE_DIR}
     ${CMAKE_CURRENT_SOURCE_DIR}
 )
 

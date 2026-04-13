@@ -18,7 +18,7 @@ target_link_libraries(crashomon_tombstone
 
 target_include_directories(crashomon_tombstone
   PUBLIC
-    ${CMAKE_SOURCE_DIR}
+    ${PROJECT_SOURCE_DIR}
 )
 
 # Abseil headers use __int128 (a GCC extension) and have internal sign-conversion
