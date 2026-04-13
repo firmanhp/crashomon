@@ -1,7 +1,6 @@
 // tombstone/minidump_reader.cpp — Breakpad minidump processor wrapper
 
 #include "tombstone/minidump_reader.h"
-#include "tombstone/register_extract.h"
 
 #include <sys/stat.h>  // NOLINT(misc-include-cleaner) — pulled in for struct stat; transitively available but explicitly included for clarity.
 
@@ -13,6 +12,7 @@
 
 #include "absl/status/status.h"
 #include "absl/status/statusor.h"
+#include "google_breakpad/common/minidump_format.h"
 #include "google_breakpad/processor/call_stack.h"
 #include "google_breakpad/processor/code_module.h"
 #include "google_breakpad/processor/code_modules.h"
@@ -21,7 +21,7 @@
 #include "google_breakpad/processor/process_result.h"
 #include "google_breakpad/processor/process_state.h"
 #include "google_breakpad/processor/stack_frame.h"
-#include "google_breakpad/common/minidump_format.h"
+#include "tombstone/register_extract.h"
 
 namespace crashomon {
 namespace {
@@ -42,7 +42,6 @@ std::string Basename(const std::string& path) {
   const auto pos = path.rfind('/');
   return (pos == std::string::npos) ? path : path.substr(pos + 1);
 }
-
 
 void CollectModules(const google_breakpad::ProcessState& process_state, MinidumpInfo& info) {
   const auto* modules = process_state.modules();

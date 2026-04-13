@@ -4,9 +4,9 @@
 #include <cstdint>
 #include <string>
 
+#include "gtest/gtest.h"
 #include "tombstone/minidump_reader.h"
 #include "tombstone/tombstone_formatter.h"
-#include "gtest/gtest.h"
 
 namespace crashomon {
 namespace {
@@ -34,8 +34,8 @@ constexpr uint64_t kThread2Frame0Offset = 0x10000ULL;
 // Build a minimal MinidumpInfo for testing.
 MinidumpInfo MakeInfo() {
   MinidumpInfo
-      info;  // NOLINT(misc-include-cleaner) — MinidumpInfo comes via tombstone/minidump_reader.h which
-             // is included; false positive from include-cleaner.
+      info;  // NOLINT(misc-include-cleaner) — MinidumpInfo comes via tombstone/minidump_reader.h
+             // which is included; false positive from include-cleaner.
   info.pid = kTestPid;
   info.crashing_tid = kTestTid;
   info.process_name = "my_service";

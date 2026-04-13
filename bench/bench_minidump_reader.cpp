@@ -29,14 +29,13 @@ std::string FindFixture() {
   }
   // Fall back to the CMake build tree location set by gen_synthetic_fixtures.
   const std::filesystem::path build_fixture =
-      std::filesystem::path(__FILE__).parent_path().parent_path() /
-      "build" / "test" / "fixtures" / "segfault.dmp";
+      std::filesystem::path(__FILE__).parent_path().parent_path() / "build" / "test" / "fixtures" /
+      "segfault.dmp";
   if (std::filesystem::exists(build_fixture)) {
     return build_fixture.string();
   }
   // Last resort: relative path from repo root.
-  std::filesystem::path repo_fixture =
-      std::filesystem::path("test") / "fixtures" / "segfault.dmp";
+  std::filesystem::path repo_fixture = std::filesystem::path("test") / "fixtures" / "segfault.dmp";
   if (std::filesystem::exists(repo_fixture)) {
     return repo_fixture.string();
   }

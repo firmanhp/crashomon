@@ -14,8 +14,8 @@
 #include <filesystem>
 #include <string>
 
-#include "tombstone/minidump_reader.h"
 #include "gtest/gtest.h"
+#include "tombstone/minidump_reader.h"
 
 namespace crashomon {
 namespace {

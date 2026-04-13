@@ -8,14 +8,13 @@
 // register it via set_simple_annotations().  TearDown() removes the registration
 // so tests are fully isolated.
 
-#include "lib/crashomon.h"
-
 #include <memory>
 #include <string>
 
 #include "client/crashpad_info.h"
 #include "client/simple_string_dictionary.h"
 #include "gtest/gtest.h"
+#include "lib/crashomon.h"
 
 namespace {
 
@@ -55,7 +54,8 @@ TEST_F(TagsTest, MultipleDistinctKeys) {
 
 TEST_F(TagsTest, NullKeyIsNoOp) {
   // key/value are easily-swappable-parameters; using distinct string literals
-  // makes the intent clear.  NOLINTNEXTLINE(cppcoreguidelines-pro-type-vararg) — first arg is intentionally null.
+  // makes the intent clear.  NOLINTNEXTLINE(cppcoreguidelines-pro-type-vararg) — first arg is
+  // intentionally null.
   crashomon_set_tag(nullptr, "value");
   EXPECT_EQ(dict_->GetCount(), 0u);
 }

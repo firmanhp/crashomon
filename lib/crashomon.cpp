@@ -53,8 +53,8 @@ int ReceiveSharedSocket(int conn_fd, pid_t* out_pid) {
   // CMSG macros use pointer casts internally; no standard-compliant alternative.
   // NOLINTNEXTLINE(cppcoreguidelines-pro-type-reinterpret-cast)
   struct cmsghdr* cmsg = CMSG_FIRSTHDR(&msg);
-  if (cmsg == nullptr || cmsg->cmsg_level != SOL_SOCKET ||
-      cmsg->cmsg_type != SCM_RIGHTS || cmsg->cmsg_len != CMSG_LEN(sizeof(int))) {
+  if (cmsg == nullptr || cmsg->cmsg_level != SOL_SOCKET || cmsg->cmsg_type != SCM_RIGHTS ||
+      cmsg->cmsg_len != CMSG_LEN(sizeof(int))) {
     return -1;
   }
 

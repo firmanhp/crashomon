@@ -57,10 +57,10 @@
 #include "base/files/scoped_file.h"
 #include "client/crash_report_database.h"
 #include "daemon/disk_manager.h"
-#include "tombstone/minidump_reader.h"
-#include "tombstone/tombstone_formatter.h"
 #include "handler/linux/crash_report_exception_handler.h"
 #include "handler/linux/exception_handler_server.h"
+#include "tombstone/minidump_reader.h"
+#include "tombstone/tombstone_formatter.h"
 
 namespace {
 
@@ -196,10 +196,9 @@ void ProcessNewMinidump(const std::string& path, WorkerState& state,
   // Build the key using to_chars (non-variadic, no printf dependency).
   std::array<char, kFaultAddrHexBufSize> fault_hex{};
   // NOLINTNEXTLINE(cppcoreguidelines-pro-bounds-pointer-arithmetic)
-  std::to_chars(fault_hex.data(), fault_hex.data() + fault_hex.size() - 1,
-                info.fault_addr, kHexBase);
-  const std::string key =
-      info.process_name + ":" + info.signal_info + ":" + fault_hex.data();
+  std::to_chars(fault_hex.data(), fault_hex.data() + fault_hex.size() - 1, info.fault_addr,
+                kHexBase);
+  const std::string key = info.process_name + ":" + info.signal_info + ":" + fault_hex.data();
 
   const auto now = std::chrono::steady_clock::now();
   const auto rate_it = state.rate_limit_map.find(key);
@@ -207,8 +206,7 @@ void ProcessNewMinidump(const std::string& path, WorkerState& state,
     Log(std::string{"crashomon-watcherd: suppressed duplicate crash ("} + key + ")");
     // Still prune — the minidump file was already written to disk.
     if (const auto prune_status = crashomon::PruneMinidumps(prune_cfg); !prune_status.ok()) {
-      Log(std::string{"crashomon-watcherd: prune failed: "} +
-          std::string(prune_status.message()));
+      Log(std::string{"crashomon-watcherd: prune failed: "} + std::string(prune_status.message()));
     }
     return;
   }
@@ -216,8 +214,7 @@ void ProcessNewMinidump(const std::string& path, WorkerState& state,
 
   Log(crashomon::FormatTombstone(info));
   if (const auto prune_status = crashomon::PruneMinidumps(prune_cfg); !prune_status.ok()) {
-    Log(std::string{"crashomon-watcherd: prune failed: "} +
-        std::string(prune_status.message()));
+    Log(std::string{"crashomon-watcherd: prune failed: "} + std::string(prune_status.message()));
   }
 }
 
@@ -230,9 +227,7 @@ void RunWorker(WorkerState& state, const crashomon::DiskManagerConfig& prune_cfg
     std::string path;
     {
       std::unique_lock<std::mutex> lock(state.mu);
-      state.cv.wait(lock, [&state] {
-        return state.stop || !state.pending.empty();
-      });
+      state.cv.wait(lock, [&state] { return state.stop || !state.pending.empty(); });
       if (state.stop && state.pending.empty()) {
         return;
       }
@@ -267,8 +262,8 @@ int CreateListenSocket(const std::string& socket_path) {
   {
     base::ScopedFD probe(socket(AF_UNIX, SOCK_SEQPACKET | SOCK_CLOEXEC, 0));
     if (probe.is_valid()) {
-      // POSIX connect requires casting sockaddr_un* to sockaddr*; no standard-compliant alternative.
-      // NOLINTNEXTLINE(cppcoreguidelines-pro-type-reinterpret-cast)
+      // POSIX connect requires casting sockaddr_un* to sockaddr*; no standard-compliant
+      // alternative. NOLINTNEXTLINE(cppcoreguidelines-pro-type-reinterpret-cast)
       if (connect(probe.get(), reinterpret_cast<const struct sockaddr*>(&addr), sizeof(addr)) ==
           0) {
         Log(std::string{"crashomon-watcherd: socket "} + socket_path +
@@ -384,8 +379,7 @@ void EnqueueInotifyEvents(std::string_view pending_dir, WorkerState& worker_stat
       continue;
     }
 
-    const std::string path =
-        std::string(pending_dir) + "/" + std::string(name, name_len);
+    const std::string path = std::string(pending_dir) + "/" + std::string(name, name_len);
     {
       std::lock_guard<std::mutex> lock(worker_state.mu);
       worker_state.pending.push(path);

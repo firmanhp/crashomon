@@ -26,9 +26,9 @@
 
 // Processor headers pull in minidump_format.h → breakpad_types.h (defines
 // uint128_struct). Include them BEFORE minidump_cpu_amd64.h which uses that type.
-#include "google_breakpad/processor/minidump.h"
 #include "google_breakpad/common/minidump_cpu_amd64.h"
 #include "google_breakpad/common/minidump_format.h"
+#include "google_breakpad/processor/minidump.h"
 #include "processor/synth_minidump.h"
 
 using google_breakpad::SynthMinidump::Context;
@@ -44,13 +44,13 @@ using google_breakpad::test_assembler::kLittleEndian;
 // ── Constants ─────────────────────────────────────────────────────────────────
 
 // A realistic-looking RIP value inside our fake module (base 0x400000, size 64K).
-static constexpr uint64_t kFakeRip  = 0x401234ULL;
+static constexpr uint64_t kFakeRip = 0x401234ULL;
 static constexpr uint64_t kFakeRsp1 = 0x7fff00001000ULL;
 static constexpr uint64_t kFakeRsp2 = 0x7ffe00001000ULL;
 static constexpr uint64_t kFakeRsp3 = 0x7ffd00001000ULL;
-static constexpr uint64_t kModBase  = 0x400000ULL;
-static constexpr uint32_t kModSize  = 0x10000U;
-static constexpr size_t   kStackLen = 256;
+static constexpr uint64_t kModBase = 0x400000ULL;
+static constexpr uint32_t kModSize = 0x10000U;
+static constexpr size_t kStackLen = 256;
 
 // Stable non-epoch timestamp: 2025-01-01T00:00:00Z.
 static constexpr uint32_t kTimestamp = 1735689600U;
@@ -91,8 +91,7 @@ static Stream MakeLinuxAMD64SystemInfo(const Dump& dump) {
 // ── Fixture generators ────────────────────────────────────────────────────────
 
 // A single-thread Linux/AMD64 minidump that crashes with the given signal.
-static bool WriteOneThreadFixture(const std::string& path,
-                                  uint32_t signal_code,
+static bool WriteOneThreadFixture(const std::string& path, uint32_t signal_code,
                                   const char* module_path) {
   Dump dump(MD_NORMAL, kLittleEndian, MD_HEADER_VERSION, kTimestamp);
 
@@ -197,11 +196,9 @@ int main(int argc, char** argv) {
 
   bool ok = true;
   ok &= WriteOneThreadFixture(dir + "/segfault.dmp",
-                               /*signal=*/11,
-                               "/usr/bin/crashomon_test_segfault");
+                              /*signal=*/11, "/usr/bin/crashomon_test_segfault");
   ok &= WriteOneThreadFixture(dir + "/abort.dmp",
-                               /*signal=*/6,
-                               "/usr/bin/crashomon_test_abort");
+                              /*signal=*/6, "/usr/bin/crashomon_test_abort");
   ok &= WriteMultithreadFixture(dir + "/multithread.dmp");
 
   if (!ok) {

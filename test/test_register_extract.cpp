@@ -5,11 +5,11 @@
 
 // Processor headers pull in minidump_format.h → breakpad_types.h (defines
 // uint128_struct). Include them BEFORE the CPU-specific headers.
-#include "google_breakpad/processor/minidump.h"  // IWYU pragma: keep
 #include "google_breakpad/common/minidump_cpu_amd64.h"
 #include "google_breakpad/common/minidump_cpu_arm64.h"
-#include "tombstone/register_extract.h"
+#include "google_breakpad/processor/minidump.h"  // IWYU pragma: keep
 #include "gtest/gtest.h"
+#include "tombstone/register_extract.h"
 
 namespace crashomon {
 namespace {
@@ -31,8 +31,8 @@ TEST(RegisterExtractTest, AMD64_CorrectNames) {
   auto regs = ExtractAMD64Regs(ctx);
   ASSERT_GE(regs.size(), 17U);
   // Spot-check names in display order.
-  EXPECT_EQ(regs[0].first,  "rax");
-  EXPECT_EQ(regs[7].first,  "rsp");
+  EXPECT_EQ(regs[0].first, "rax");
+  EXPECT_EQ(regs[7].first, "rsp");
   EXPECT_EQ(regs[16].first, "rip");
 }
 
@@ -46,9 +46,15 @@ TEST(RegisterExtractTest, AMD64_CorrectValues) {
   ASSERT_GE(regs.size(), 17U);
 
   for (const auto& [name, val] : regs) {
-    if (name == "rax") { EXPECT_EQ(val, kAmd64Rax); }
-    if (name == "rsp") { EXPECT_EQ(val, kAmd64Rsp); }
-    if (name == "rip") { EXPECT_EQ(val, kAmd64Rip); }
+    if (name == "rax") {
+      EXPECT_EQ(val, kAmd64Rax);
+    }
+    if (name == "rsp") {
+      EXPECT_EQ(val, kAmd64Rsp);
+    }
+    if (name == "rip") {
+      EXPECT_EQ(val, kAmd64Rip);
+    }
   }
 }
 
@@ -70,7 +76,7 @@ TEST(RegisterExtractTest, ARM64_CorrectNames) {
   auto regs = ExtractARM64Regs(ctx);
   ASSERT_EQ(regs.size(), 33U);
   // x0-x28 are the first 29 entries.
-  EXPECT_EQ(regs[0].first,  "x0");
+  EXPECT_EQ(regs[0].first, "x0");
   EXPECT_EQ(regs[28].first, "x28");
   // Named registers follow in order.
   EXPECT_EQ(regs[29].first, "fp");
@@ -81,7 +87,7 @@ TEST(RegisterExtractTest, ARM64_CorrectNames) {
 
 TEST(RegisterExtractTest, ARM64_CorrectValues) {
   MDRawContextARM64 ctx{};
-  ctx.iregs[0]                       = kArm64X0;
+  ctx.iregs[0] = kArm64X0;
   ctx.iregs[MD_CONTEXT_ARM64_REG_FP] = kArm64Fp;
   ctx.iregs[MD_CONTEXT_ARM64_REG_SP] = kArm64Sp;
   ctx.iregs[MD_CONTEXT_ARM64_REG_PC] = kArm64Pc;
@@ -90,10 +96,18 @@ TEST(RegisterExtractTest, ARM64_CorrectValues) {
   ASSERT_EQ(regs.size(), 33U);
 
   for (const auto& [name, val] : regs) {
-    if (name == "x0") { EXPECT_EQ(val, kArm64X0); }
-    if (name == "fp") { EXPECT_EQ(val, kArm64Fp); }
-    if (name == "sp") { EXPECT_EQ(val, kArm64Sp); }
-    if (name == "pc") { EXPECT_EQ(val, kArm64Pc); }
+    if (name == "x0") {
+      EXPECT_EQ(val, kArm64X0);
+    }
+    if (name == "fp") {
+      EXPECT_EQ(val, kArm64Fp);
+    }
+    if (name == "sp") {
+      EXPECT_EQ(val, kArm64Sp);
+    }
+    if (name == "pc") {
+      EXPECT_EQ(val, kArm64Pc);
+    }
   }
 }
 

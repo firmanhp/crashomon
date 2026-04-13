@@ -30,10 +30,9 @@ ThreadInfo MakeCrashingThread(int num_frames) {
   t.is_crashing = true;
   // NOLINTBEGIN(cppcoreguidelines-avoid-magic-numbers) — sequential register values
   t.registers = {
-      {"rax", 0x0}, {"rbx", 0x1}, {"rcx", 0x2}, {"rdx", 0x3}, {"rsi", 0x4},
-      {"rdi", 0x5}, {"rbp", 0x6}, {"rsp", 0x7}, {"r8",  0x8}, {"r9",  0x9},
-      {"r10", 0xa}, {"r11", 0xb}, {"r12", 0xc}, {"r13", 0xd}, {"r14", 0xe},
-      {"r15", 0xf}, {"rip", 0x10},
+      {"rax", 0x0}, {"rbx", 0x1}, {"rcx", 0x2}, {"rdx", 0x3}, {"rsi", 0x4},  {"rdi", 0x5},
+      {"rbp", 0x6}, {"rsp", 0x7}, {"r8", 0x8},  {"r9", 0x9},  {"r10", 0xa},  {"r11", 0xb},
+      {"r12", 0xc}, {"r13", 0xd}, {"r14", 0xe}, {"r15", 0xf}, {"rip", 0x10},
   };
   // NOLINTEND(cppcoreguidelines-avoid-magic-numbers)
   for (int i = 0; i < num_frames; ++i) {
