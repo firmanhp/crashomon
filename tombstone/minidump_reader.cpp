@@ -58,7 +58,7 @@ void CollectModules(const google_breakpad::ProcessState& process_state, Minidump
     info.modules.push_back({.path = mod->code_file(),
                             .base_address = mod->base_address(),
                             .size = mod->size(),
-                            .build_id = mod->debug_identifier()});
+                            .build_id = mod->code_identifier()});
   }
 }
 

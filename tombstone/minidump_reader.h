@@ -39,7 +39,7 @@ struct ModuleInfo {
   std::string path;  // full path to the ELF binary
   uint64_t base_address = 0;
   uint64_t size = 0;
-  std::string build_id;  // Breakpad debug identifier (for symbol lookup)
+  std::string build_id;  // Breakpad code identifier — lowercase hex ELF build ID
 };
 
 struct MinidumpInfo {

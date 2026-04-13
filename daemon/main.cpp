@@ -11,6 +11,7 @@
 // Usage:
 //   crashomon-watcherd [--db-path=PATH] [--socket-path=PATH]
 //                      [--max-size=SIZE] [--max-age=AGE]
+//                      [--export-dir=PATH]
 //
 //   --db-path      Directory to watch / write minidumps to.
 //                  Default: $CRASHOMON_DB_PATH or /var/crashomon.
@@ -20,6 +21,9 @@
 //                  0 or omitted = unlimited.
 //   --max-age      Maximum age per file (e.g. 7d, 24h, 3600s).
 //                  0 or omitted = unlimited.
+//   --export-dir   Directory to copy each new minidump into on arrival.
+//                  Files are named: {process}_{build_id8}_{YYYYMMDDHHmmss}.crashdump
+//                  Default: $CRASHOMON_EXPORT_DIR or disabled.
 
 #include <linux/limits.h>
 #include <poll.h>
@@ -35,6 +39,7 @@
 #endif
 
 #include <array>
+#include <cctype>
 #include <cerrno>
 #include <charconv>
 #include <chrono>
@@ -44,6 +49,8 @@
 #include <cstdio>
 #include <cstdlib>
 #include <cstring>
+#include <ctime>
+#include <filesystem>
 #include <map>
 #include <mutex>
 #include <queue>
@@ -185,10 +192,49 @@ struct WorkerState {
   std::unordered_map<std::string, std::chrono::steady_clock::time_point> rate_limit_map;
 };
 
+// Copy src_path into export_dir as {process}_{build_id8}_{YYYYMMDDHHmmss}.crashdump.
+// Logs and continues on failure — export is best-effort.
+void ExportMinidump(const std::string& src_path, std::string_view export_dir,
+                    const crashomon::MinidumpInfo& info) {
+  std::string name;
+  for (char c : info.process_name) {
+    name += (std::isalnum(static_cast<unsigned char>(c)) || c == '-') ? c : '_';
+  }
+
+  const std::string_view raw_id = info.modules.empty() ? "" : info.modules[0].build_id;
+  std::string bid;
+  for (char c : raw_id) {
+    if (std::isxdigit(static_cast<unsigned char>(c))) {
+      bid += static_cast<char>(std::tolower(static_cast<unsigned char>(c)));
+    }
+    if (bid.size() == 8) {
+      break;
+    }
+  }
+  if (bid.size() < 8) {
+    bid.resize(8, '0');
+  }
+
+  std::time_t now = std::time(nullptr);
+  std::tm tm_buf{};
+  gmtime_r(&now, &tm_buf);
+  std::array<char, 15> ts{};
+  std::strftime(ts.data(), ts.size(), "%Y%m%d%H%M%S", &tm_buf);
+
+  const std::filesystem::path dst =
+      std::filesystem::path(std::string(export_dir)) / (name + "_" + bid + "_" + ts.data() + ".crashdump");
+  std::error_code ec;
+  std::filesystem::copy_file(src_path, dst, std::filesystem::copy_options::overwrite_existing, ec);
+  if (ec) {
+    Log(std::string{"crashomon-watcherd: export failed → "} + dst.string() + ": " + ec.message());
+  }
+}
+
 // ── Minidump processing ───────────────────────────────────────────────────────
 
 void ProcessNewMinidump(const std::string& path, WorkerState& state,
-                        const crashomon::DiskManagerConfig& prune_cfg) {
+                        const crashomon::DiskManagerConfig& prune_cfg,
+                        std::string_view export_dir) {
   auto info_or = crashomon::ReadMinidump(path);
   if (!info_or.ok()) {
     Log(std::string{"crashomon-watcherd: failed to read minidump '"} + path +
@@ -221,6 +267,9 @@ void ProcessNewMinidump(const std::string& path, WorkerState& state,
   state.rate_limit_map[key] = now;
 
   LogTombstone(crashomon::FormatTombstone(info));
+  if (!export_dir.empty()) {
+    ExportMinidump(path, export_dir, info);
+  }
   if (const auto prune_status = crashomon::PruneMinidumps(prune_cfg); !prune_status.ok()) {
     Log(std::string{"crashomon-watcherd: prune failed: "} + std::string(prune_status.message()));
   }
@@ -230,7 +279,8 @@ void ProcessNewMinidump(const std::string& path, WorkerState& state,
 
 // Dequeues and processes minidumps until signalled to stop.  Drains the queue
 // before returning so that minidumps written before shutdown are not lost.
-void RunWorker(WorkerState& state, const crashomon::DiskManagerConfig& prune_cfg) {
+void RunWorker(WorkerState& state, const crashomon::DiskManagerConfig& prune_cfg,
+               std::string_view export_dir) {
   while (true) {
     std::string path;
     {
@@ -243,7 +293,7 @@ void RunWorker(WorkerState& state, const crashomon::DiskManagerConfig& prune_cfg
       state.pending.pop();
     }
     // No lock held during processing — allows the poll loop to keep enqueuing.
-    ProcessNewMinidump(path, state, prune_cfg);
+    ProcessNewMinidump(path, state, prune_cfg, export_dir);
   }
 }
 
@@ -403,7 +453,8 @@ void EnqueueInotifyEvents(std::string_view pending_dir, WorkerState& worker_stat
 // shutdown in one place.
 // NOLINTNEXTLINE(readability-function-cognitive-complexity)
 int RunWatcher(const std::string& db_path, const std::string& socket_path,
-               const crashomon::DiskManagerConfig& prune_cfg) {
+               const crashomon::DiskManagerConfig& prune_cfg,
+               const std::string& export_dir) {
   // ── Crashpad handler setup ────────────────────────────────────────────────
 
   // Crashpad database lifecycle: writes to new/, then renames to pending/.
@@ -511,7 +562,8 @@ int RunWatcher(const std::string& db_path, const std::string& socket_path,
   // holders have closed their copies.
 
   WorkerState worker_state;
-  std::thread worker_thread(RunWorker, std::ref(worker_state), std::cref(prune_cfg));
+  std::thread worker_thread(RunWorker, std::ref(worker_state), std::cref(prune_cfg),
+                            std::string_view{export_dir});
 
   // Buffer sized for kInotifyEventBufferCount events with maximum-length names.
   constexpr size_t buf_size = sizeof(struct inotify_event) + NAME_MAX + 1;
@@ -610,6 +662,9 @@ int main(int argc, char* argv[]) {
   std::string socket_path =
       (socket_path_env != nullptr) ? socket_path_env : "/run/crashomon/handler.sock";
 
+  const char* export_dir_env = getenv("CRASHOMON_EXPORT_DIR");
+  std::string export_dir = (export_dir_env != nullptr) ? export_dir_env : "";
+
   uint64_t max_bytes = 0;
   uint32_t max_age_sec = 0;
 
@@ -628,6 +683,8 @@ int main(int argc, char* argv[]) {
       max_bytes = ParseSize(arg_val);
     } else if (arg_val = GetArgValue(arg, "--max-age"); arg_val != nullptr) {
       max_age_sec = ParseAge(arg_val);
+    } else if (arg_val = GetArgValue(arg, "--export-dir"); arg_val != nullptr) {
+      export_dir = arg_val;
     } else {
       Log(std::string{"crashomon-watcherd: unknown argument: "} + arg);
       return 1;
@@ -645,5 +702,5 @@ int main(int argc, char* argv[]) {
   prune_cfg.max_bytes = max_bytes;
   prune_cfg.max_age_seconds = max_age_sec;
 
-  return RunWatcher(db_path, socket_path, prune_cfg);
+  return RunWatcher(db_path, socket_path, prune_cfg, export_dir);
 }

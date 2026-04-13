@@ -179,7 +179,68 @@ else
   echo "  SKIP: crashomon-analyze not found"
 fi
 
-# ── Section 4: crashomon-syms basic invocation ──────────────────────────────
+# ── Section 4: --export-dir ─────────────────────────────────────────────────
+
+echo ""
+echo "-- export-dir --"
+
+EXPORT_DIR="${WORK_DIR}/exports"
+mkdir -p "${EXPORT_DIR}"
+
+if [[ -f "${LIBCRASHOMON}" && -f "${WATCHERD}" ]]; then
+  EXPORT_DB_DIR="${WORK_DIR}/exportdb"
+  EXPORT_SOCK="${WORK_DIR}/export.sock"
+  mkdir -p "${EXPORT_DB_DIR}"
+
+  "${WATCHERD}" \
+    --db-path="${EXPORT_DB_DIR}" \
+    --socket-path="${EXPORT_SOCK}" \
+    --export-dir="${EXPORT_DIR}" \
+    >"${WORK_DIR}/export_watcherd.log" 2>&1 &
+  EXPORT_WATCHERD_PID=$!
+
+  for _ in 1 2 3 4 5; do
+    [[ -S "${EXPORT_SOCK}" ]] && break
+    sleep 0.5
+  done
+
+  if [[ -S "${EXPORT_SOCK}" ]]; then
+    LD_PRELOAD="${LIBCRASHOMON}" \
+      CRASHOMON_SOCKET_PATH="${EXPORT_SOCK}" \
+      "${EXAMPLES_BIN}/crashomon-example-segfault" 2>/dev/null || true
+
+    # Wait for the .dmp to land in pending/ first (same as capture_crash),
+    # then wait for the worker to process and export it.
+    for _ in 1 2 3 4 5; do
+      [[ -n "$(find "${EXPORT_DB_DIR}/pending" -name '*.dmp' -type f 2>/dev/null)" ]] && break
+      sleep 1
+    done
+
+    exported=""
+    for _ in 1 2 3 4 5; do
+      exported="$(find "${EXPORT_DIR}" -name '*.crashdump' -type f | head -1 2>/dev/null || true)"
+      [[ -n "${exported}" ]] && break
+      sleep 1
+    done
+
+    if [[ -n "${exported}" ]]; then
+      log_pass "export-dir: .crashdump file created ($(wc -c < "${exported}") bytes)"
+    else
+      log_fail "export-dir: no .crashdump file found in ${EXPORT_DIR}"
+      echo "  watcherd log:" >&2
+      sed 's/^/    /' "${WORK_DIR}/export_watcherd.log" >&2
+    fi
+  else
+    log_fail "export-dir: watcherd did not start"
+  fi
+
+  kill "${EXPORT_WATCHERD_PID}" 2>/dev/null || true
+  wait "${EXPORT_WATCHERD_PID}" 2>/dev/null || true
+else
+  echo "  SKIP: libcrashomon or watcherd not found"
+fi
+
+# ── Section 5: crashomon-syms basic invocation ──────────────────────────────
 
 echo ""
 echo "-- crashomon-syms --"
