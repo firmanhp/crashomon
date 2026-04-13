@@ -133,5 +133,17 @@ add_library(breakpad_synth_minidump STATIC
 target_compile_options(breakpad_synth_minidump PRIVATE -w)
 target_include_directories(breakpad_synth_minidump PUBLIC "${BREAKPAD_SRC}")
 
+# ── Build ordering: zlibstatic must exist before Breakpad targets link ─────────
+# ZLIB::ZLIB is an IMPORTED target whose IMPORTED_LOCATION points to
+# ${zlib_dep_BINARY_DIR}/libz.a. CMake does not automatically infer a build
+# dependency from an IMPORTED_LOCATION path, so without an explicit
+# add_dependencies the linker invocation for each target can run before
+# zlibstatic has been compiled, producing "No rule to make target libz.a".
+foreach(_bp_tgt IN ITEMS breakpad_processor minidump_stackwalk breakpad_dump_syms)
+  if(TARGET ${_bp_tgt} AND TARGET zlibstatic)
+    add_dependencies(${_bp_tgt} zlibstatic)
+  endif()
+endforeach()
+
 # ── Thread support (required by Threads::Threads) ──────────────────────────────
 find_package(Threads REQUIRED)
