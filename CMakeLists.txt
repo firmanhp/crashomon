@@ -240,6 +240,19 @@ FetchContent_Declare(breakpad
 FetchContent_GetProperties(breakpad)
 if(NOT breakpad_POPULATED)
   FetchContent_Populate(breakpad)
+  # Downgrade caller_fp/caller_lr log severity from ERROR to INFO so they are
+  # filtered by BPLOG_MINIMUM_SEVERITY=SEVERITY_ERROR (set in breakpad.cmake).
+  # These fire on every scan-recovered frame when the target binary was compiled
+  # without frame pointers (-fomit-frame-pointer, the -O2/-O3 default): the FP
+  # unwind strategy fails, scan succeeds, but the stale x29 is never updated, so
+  # the same FP address is retried — and fails — for each scanned frame.  The
+  # behaviour is expected and harmless; the noise level scales with frame count.
+  execute_process(
+    COMMAND sed -i
+      -e "s|BPLOG(ERROR) << \"Unable to read caller_fp|BPLOG(INFO) << \"Unable to read caller_fp|g"
+      -e "s|BPLOG(ERROR) << \"Unable to read caller_lr|BPLOG(INFO) << \"Unable to read caller_lr|g"
+      "${breakpad_SOURCE_DIR}/src/processor/stackwalker_arm64.cc"
+  )
 endif()
 
 # LSS header needed by dump_syms (file_id.cc: #include "third_party/lss/linux_syscall_support.h")
