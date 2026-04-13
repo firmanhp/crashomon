@@ -48,6 +48,7 @@ endif()
 # ── clang-tidy (opt-in) ────────────────────────────────────────────────────────
 # Applied per-target (not globally) so FetchContent dependencies are never linted.
 # Use: set_target_properties(<target> PROPERTIES CXX_CLANG_TIDY "${CRASHOMON_CLANG_TIDY}")
+option(ENABLE_TESTS      "Build tests, examples, and benchmarks" OFF)
 option(ENABLE_CLANG_TIDY "Enable clang-tidy static analysis" OFF)
 if(ENABLE_CLANG_TIDY)
   find_program(CLANG_TIDY_EXE NAMES "clang-tidy" REQUIRED)
@@ -172,14 +173,16 @@ if(TARGET crashpad_handler)
   add_dependencies(crashpad_handler zlibstatic)
 endif()
 
-# GoogleTest for unit tests
-FetchContent_Declare(googletest
-  GIT_REPOSITORY https://github.com/google/googletest.git
-  GIT_TAG        v1.14.0
-)
-# Prevent GoogleTest from overriding our compiler/linker settings
-set(gtest_force_shared_crt ON CACHE BOOL "" FORCE)
-FetchContent_MakeAvailable(googletest)
+# GoogleTest for unit tests (only when ENABLE_TESTS=ON)
+if(ENABLE_TESTS)
+  FetchContent_Declare(googletest
+    GIT_REPOSITORY https://github.com/google/googletest.git
+    GIT_TAG        v1.14.0
+  )
+  # Prevent GoogleTest from overriding our compiler/linker settings
+  set(gtest_force_shared_crt ON CACHE BOOL "" FORCE)
+  FetchContent_MakeAvailable(googletest)
+endif()
 
 # Abseil — internal error handling (absl::Status, absl::StatusOr).
 # Internal only: absl types must NOT appear in public/cross-library interfaces.
@@ -252,56 +255,56 @@ file(CREATE_LINK
 
 include(cmake/breakpad.cmake)
 
-# Google Benchmark (opt-in)
-option(ENABLE_BENCHMARKS "Build microbenchmarks" OFF)
-FetchContent_Declare(benchmark
-  GIT_REPOSITORY https://github.com/google/benchmark.git
-  GIT_TAG        v1.9.1
-)
-set(BENCHMARK_ENABLE_TESTING    OFF CACHE BOOL "" FORCE)
-set(BENCHMARK_ENABLE_GTEST_TESTS OFF CACHE BOOL "" FORCE)
-set(BENCHMARK_ENABLE_INSTALL    OFF CACHE BOOL "" FORCE)
-FetchContent_MakeAvailable(benchmark)
+# Google Benchmark (only when ENABLE_TESTS=ON)
+if(ENABLE_TESTS)
+  FetchContent_Declare(benchmark
+    GIT_REPOSITORY https://github.com/google/benchmark.git
+    GIT_TAG        v1.9.1
+  )
+  set(BENCHMARK_ENABLE_TESTING    OFF CACHE BOOL "" FORCE)
+  set(BENCHMARK_ENABLE_GTEST_TESTS OFF CACHE BOOL "" FORCE)
+  set(BENCHMARK_ENABLE_INSTALL    OFF CACHE BOOL "" FORCE)
+  FetchContent_MakeAvailable(benchmark)
+endif()
 
 # ── Subdirectories ─────────────────────────────────────────────────────────────
 add_subdirectory(lib)
 add_subdirectory(tombstone)
 add_subdirectory(daemon)
-add_subdirectory(examples)
 
-enable_testing()
-add_subdirectory(test)
+if(ENABLE_TESTS)
+  add_subdirectory(examples)
+  enable_testing()
+  add_subdirectory(test)
 
-# Python tests via pytest — wired into ctest so `ctest` covers the full suite.
-# Prefer the project's .venv interpreter (populated by uv), then fall back to
-# whatever Python3 CMake finds.  Gate on interpreter having pytest installed.
-find_program(VENV_PYTHON NAMES python python3
-  PATHS "${CMAKE_SOURCE_DIR}/.venv/bin"
-  NO_DEFAULT_PATH
-)
-if(NOT VENV_PYTHON)
-  find_package(Python3 COMPONENTS Interpreter QUIET)
-  set(VENV_PYTHON "${Python3_EXECUTABLE}")
-endif()
-if(VENV_PYTHON)
-  execute_process(
-    COMMAND ${VENV_PYTHON} -c "import pytest"
-    RESULT_VARIABLE _pytest_found
-    OUTPUT_QUIET ERROR_QUIET
+  # Python tests via pytest — wired into ctest so `ctest` covers the full suite.
+  # Prefer the project's .venv interpreter (populated by uv), then fall back to
+  # whatever Python3 CMake finds.  Gate on interpreter having pytest installed.
+  find_program(VENV_PYTHON NAMES python python3
+    PATHS "${CMAKE_SOURCE_DIR}/.venv/bin"
+    NO_DEFAULT_PATH
   )
-  if(_pytest_found EQUAL 0)
-    add_test(NAME python_tests
-      COMMAND ${VENV_PYTHON} -m pytest --tb=short -q
-      WORKING_DIRECTORY ${CMAKE_SOURCE_DIR}
-    )
-    set_tests_properties(python_tests PROPERTIES
-      ENVIRONMENT "PYTHONPATH=${CMAKE_SOURCE_DIR}"
-      LABELS "python"
-    )
+  if(NOT VENV_PYTHON)
+    find_package(Python3 COMPONENTS Interpreter QUIET)
+    set(VENV_PYTHON "${Python3_EXECUTABLE}")
   endif()
-endif()
-
-if(ENABLE_BENCHMARKS)
+  if(VENV_PYTHON)
+    execute_process(
+      COMMAND ${VENV_PYTHON} -c "import pytest"
+      RESULT_VARIABLE _pytest_found
+      OUTPUT_QUIET ERROR_QUIET
+    )
+    if(_pytest_found EQUAL 0)
+      add_test(NAME python_tests
+        COMMAND ${VENV_PYTHON} -m pytest --tb=short -q
+        WORKING_DIRECTORY ${CMAKE_SOURCE_DIR}
+      )
+      set_tests_properties(python_tests PROPERTIES
+        ENVIRONMENT "PYTHONPATH=${CMAKE_SOURCE_DIR}"
+        LABELS "python"
+      )
+    endif()
+  endif()
   add_subdirectory(bench)
 endif()
 

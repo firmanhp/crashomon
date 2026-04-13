@@ -18,8 +18,8 @@ namespace {
 
 FrameInfo MakeFrame(int idx) {
   return {
-      .pc = 0x5555'0000'0000ULL + static_cast<uint64_t>(idx) * 0x100ULL,
-      .module_offset = static_cast<uint64_t>(idx) * 0x100ULL,
+      .pc = static_cast<uint64_t>(0x5555'0000'0000ULL) + static_cast<uint64_t>(idx) * uint64_t{0x100},
+      .module_offset = static_cast<uint64_t>(idx) * uint64_t{0x100},
       .module_path = "/usr/bin/bench_binary",
   };
 }
