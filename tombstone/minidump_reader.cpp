@@ -12,6 +12,7 @@
 
 #include "absl/status/status.h"
 #include "absl/status/statusor.h"
+#include "absl/strings/str_cat.h"
 #include "google_breakpad/common/minidump_format.h"
 #include "google_breakpad/processor/call_stack.h"
 #include "google_breakpad/processor/code_module.h"
@@ -159,8 +160,9 @@ absl::StatusOr<MinidumpInfo> ReadMinidump(const std::string& path) {
   const google_breakpad::ProcessResult result = processor.Process(path, &process_state);
 
   if (result != google_breakpad::PROCESS_OK) {
-    return absl::InternalError(std::string("MinidumpProcessor failed for '") + path +
-                               "' (result=" + std::to_string(static_cast<int>(result)) + ")");
+    return absl::InternalError(
+        absl::StrCat("MinidumpProcessor failed for '", path,
+                     "' (result=", static_cast<int>(result), ")"));
   }
 
   MinidumpInfo info;
@@ -178,7 +180,7 @@ absl::StatusOr<MinidumpInfo> ReadMinidump(const std::string& path) {
   // We open a second Minidump instance rather than mutating the processor's.
   google_breakpad::Minidump raw(path);
   if (!raw.Read()) {
-    return absl::InternalError(std::string("Failed to re-read minidump: ") + path);
+    return absl::InternalError(absl::StrCat("Failed to re-read minidump: ", path));
   }
 
   auto* misc = raw.GetMiscInfo();
@@ -196,7 +198,7 @@ absl::StatusOr<MinidumpInfo> ReadMinidump(const std::string& path) {
   }
 
   if (process_state.threads() == nullptr) {
-    return absl::InternalError(std::string("No thread list in minidump: ") + path);
+    return absl::InternalError(absl::StrCat("No thread list in minidump: ", path));
   }
 
   CollectThreads(process_state, info);

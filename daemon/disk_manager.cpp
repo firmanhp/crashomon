@@ -15,6 +15,7 @@
 
 #include "absl/status/status.h"
 #include "absl/status/statusor.h"
+#include "absl/strings/str_cat.h"
 
 namespace crashomon {
 namespace {
@@ -31,7 +32,7 @@ absl::StatusOr<std::vector<DmpFile>> ListFilesByExtension(const std::string& dir
                                                           std::string_view ext) {
   std::error_code err;
   if (!std::filesystem::is_directory(dir, err) || err) {
-    return absl::NotFoundError(std::string("Not a directory: ") + dir);
+    return absl::NotFoundError(absl::StrCat("Not a directory: ", dir));
   }
 
   std::vector<DmpFile> files;
@@ -57,8 +58,7 @@ absl::StatusOr<std::vector<DmpFile>> ListFilesByExtension(const std::string& dir
   }
 
   if (err) {
-    return absl::InternalError(std::string("directory_iterator error for ") + dir + ": " +
-                               err.message());
+    return absl::InternalError(absl::StrCat("directory_iterator error for ", dir, ": ", err.message()));
   }
 
   std::ranges::sort(files, {}, &DmpFile::mtime);
@@ -97,8 +97,7 @@ absl::Status PruneDirectory(const std::string& dir, std::string_view ext, uint64
 
     std::error_code err;
     if (!std::filesystem::remove(file.path, err) || err) {
-      return absl::InternalError(std::string("Failed to remove ") + file.path.string() + ": " +
-                                 err.message());
+      return absl::InternalError(absl::StrCat("Failed to remove ", file.path.string(), ": ", err.message()));
     }
     total_bytes -= file.size;
   }
