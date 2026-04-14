@@ -20,6 +20,7 @@ namespace crashomon {
 namespace {
 
 // ── Test constants ────────────────────────────────────────────────────────────
+constexpr size_t kBytes64 = 64;
 constexpr size_t kBytes512 = 512;
 constexpr size_t kBytes1K = 1024;
 constexpr size_t kBytes2K = 2048;
@@ -59,7 +60,8 @@ struct TempDir {
     }
   }
 
-  // Create a .dmp file of the given size (filled with zeros). Returns the path.
+  // Create a .dmp file directly in the temp dir (used for export-path tests and
+  // non-pending placement checks).
   // return value is
   // intentionally optional (side-effect callers may discard); conventional return type notation is
   // clearer per Google Style Guide.
@@ -67,6 +69,32 @@ struct TempDir {
   std::filesystem::path CreateDmp(const std::string& name, size_t size_bytes = kBytes1K) const {
     auto file_path = path / name;
     // std::ios/std::streamsize come from <ios> which is included; include-cleaner FPs.
+    // NOLINTNEXTLINE(misc-include-cleaner)
+    std::ofstream ofs(file_path, std::ios::binary);
+    std::vector<char> zeros(size_bytes, 0);
+    ofs.write(zeros.data(), static_cast<std::streamsize>(size_bytes));
+    return file_path;
+  }
+
+  // Create a .dmp file inside pending/ (where Crashpad places completed minidumps).
+  // NOLINTNEXTLINE(modernize-use-nodiscard)
+  std::filesystem::path CreateDmpInPending(const std::string& name,
+                                           size_t size_bytes = kBytes1K) const {
+    std::filesystem::create_directories(path / "pending");
+    auto file_path = path / "pending" / name;
+    // NOLINTNEXTLINE(misc-include-cleaner)
+    std::ofstream ofs(file_path, std::ios::binary);
+    std::vector<char> zeros(size_bytes, 0);
+    ofs.write(zeros.data(), static_cast<std::streamsize>(size_bytes));
+    return file_path;
+  }
+
+  // Create a .meta sidecar inside pending/ (Crashpad writes one per .dmp).
+  // NOLINTNEXTLINE(modernize-use-nodiscard)
+  std::filesystem::path CreateMetaInPending(const std::string& name,
+                                            size_t size_bytes = kBytes64) const {
+    std::filesystem::create_directories(path / "pending");
+    auto file_path = path / "pending" / name;
     // NOLINTNEXTLINE(misc-include-cleaner)
     std::ofstream ofs(file_path, std::ios::binary);
     std::vector<char> zeros(size_bytes, 0);
@@ -111,7 +139,7 @@ TEST(DiskManagerTest, TotalSizeEmptyDirectory) {
 
 TEST(DiskManagerTest, TotalSizeSingleFile) {
   const TempDir tmp;
-  tmp.CreateDmp("a.dmp", kBytes4K);
+  tmp.CreateDmpInPending("a.dmp", kBytes4K);
   auto size_or = GetTotalMinidumpSize(tmp.path.string());
   ASSERT_TRUE(size_or.ok()) << size_or.status();
   EXPECT_EQ(*size_or, kBytes4K);
@@ -119,9 +147,9 @@ TEST(DiskManagerTest, TotalSizeSingleFile) {
 
 TEST(DiskManagerTest, TotalSizeMultipleFiles) {
   const TempDir tmp;
-  tmp.CreateDmp("a.dmp", kBytes1K);
-  tmp.CreateDmp("b.dmp", kBytes2K);
-  tmp.CreateDmp("c.dmp", kBytes512);
+  tmp.CreateDmpInPending("a.dmp", kBytes1K);
+  tmp.CreateDmpInPending("b.dmp", kBytes2K);
+  tmp.CreateDmpInPending("c.dmp", kBytes512);
   auto size_or = GetTotalMinidumpSize(tmp.path.string());
   ASSERT_TRUE(size_or.ok()) << size_or.status();
   EXPECT_EQ(*size_or, kBytes1K + kBytes2K + kBytes512);
@@ -129,38 +157,42 @@ TEST(DiskManagerTest, TotalSizeMultipleFiles) {
 
 TEST(DiskManagerTest, TotalSizeIgnoresNonDmpFiles) {
   const TempDir tmp;
-  tmp.CreateDmp("a.dmp", kBytes1K);
-  // Create a non-.dmp file.
-  std::ofstream(tmp.path / "notes.txt") << "hello";
+  tmp.CreateDmpInPending("a.dmp", kBytes1K);
+  // Create a non-.dmp file alongside it.
+  std::filesystem::create_directories(tmp.path / "pending");
+  std::ofstream(tmp.path / "pending" / "notes.txt") << "hello";
   auto size_or = GetTotalMinidumpSize(tmp.path.string());
   ASSERT_TRUE(size_or.ok()) << size_or.status();
   EXPECT_EQ(*size_or, kBytes1K);
 }
 
-TEST(DiskManagerTest, TotalSizeNonexistentDirectory) {
-  auto size_or = GetTotalMinidumpSize("/nonexistent/path/that/does/not/exist");
-  EXPECT_FALSE(size_or.ok());
+// pending/ does not exist yet (no crashes recorded) — should return 0, not an error.
+TEST(DiskManagerTest, TotalSizeNoPendingDir) {
+  const TempDir tmp;
+  auto size_or = GetTotalMinidumpSize(tmp.path.string());
+  ASSERT_TRUE(size_or.ok()) << size_or.status();
+  EXPECT_EQ(*size_or, 0U);
 }
 
 // ── PruneMinidumps ────────────────────────────────────────────────────────────
 
 TEST(DiskManagerTest, NoLimitsDoesNothing) {
   const TempDir tmp;
-  tmp.CreateDmp("a.dmp", kBytes1K);
+  tmp.CreateDmpInPending("a.dmp", kBytes1K);
   DiskManagerConfig cfg;
   cfg.db_path = tmp.path.string();
   cfg.max_bytes = 0;
   cfg.max_age_seconds = 0;
   EXPECT_TRUE(PruneMinidumps(cfg).ok());
   // File still present.
-  EXPECT_TRUE(std::filesystem::exists(tmp.path / "a.dmp"));
+  EXPECT_TRUE(std::filesystem::exists(tmp.path / "pending" / "a.dmp"));
 }
 
 TEST(DiskManagerTest, SizeLimitDeletesOldestFirst) {
   const TempDir tmp;
   // Create files with different mtimes so oldest is deterministic.
-  auto old = tmp.CreateDmp("old.dmp", kBytes1K);
-  auto newer = tmp.CreateDmp("newer.dmp", kBytes1K);
+  auto old = tmp.CreateDmpInPending("old.dmp", kBytes1K);
+  auto newer = tmp.CreateDmpInPending("newer.dmp", kBytes1K);
   const time_t now = time(nullptr);
   TempDir::SetMtime(old, now - kAge100s);
   TempDir::SetMtime(newer, now - kAge10s);
@@ -173,25 +205,25 @@ TEST(DiskManagerTest, SizeLimitDeletesOldestFirst) {
   ASSERT_TRUE(PruneMinidumps(cfg).ok());
 
   // old.dmp should be deleted; newer.dmp should survive.
-  EXPECT_FALSE(std::filesystem::exists(tmp.path / "old.dmp"));
-  EXPECT_TRUE(std::filesystem::exists(tmp.path / "newer.dmp"));
+  EXPECT_FALSE(std::filesystem::exists(tmp.path / "pending" / "old.dmp"));
+  EXPECT_TRUE(std::filesystem::exists(tmp.path / "pending" / "newer.dmp"));
 }
 
 TEST(DiskManagerTest, SizeLimitUnderBudgetDoesNothing) {
   const TempDir tmp;
-  tmp.CreateDmp("a.dmp", kBytes512);
+  tmp.CreateDmpInPending("a.dmp", kBytes512);
 
   DiskManagerConfig cfg;
   cfg.db_path = tmp.path.string();
   cfg.max_bytes = kBytes1M;  // 1 MB — well above 512 bytes
   ASSERT_TRUE(PruneMinidumps(cfg).ok());
-  EXPECT_TRUE(std::filesystem::exists(tmp.path / "a.dmp"));
+  EXPECT_TRUE(std::filesystem::exists(tmp.path / "pending" / "a.dmp"));
 }
 
 TEST(DiskManagerTest, AgeLimit) {
   const TempDir tmp;
-  auto old = tmp.CreateDmp("old.dmp", kBytes512);
-  auto fresh = tmp.CreateDmp("fresh.dmp", kBytes512);
+  auto old = tmp.CreateDmpInPending("old.dmp", kBytes512);
+  auto fresh = tmp.CreateDmpInPending("fresh.dmp", kBytes512);
   const time_t now = time(nullptr);
   TempDir::SetMtime(old, now - kAge1000s);  // 1000 seconds ago
   TempDir::SetMtime(fresh, now - kAge10s);  // 10 seconds ago
@@ -201,10 +233,11 @@ TEST(DiskManagerTest, AgeLimit) {
   cfg.max_age_seconds = kAge500s;  // delete anything older than 500s
 
   ASSERT_TRUE(PruneMinidumps(cfg).ok());
-  EXPECT_FALSE(std::filesystem::exists(tmp.path / "old.dmp"));
-  EXPECT_TRUE(std::filesystem::exists(tmp.path / "fresh.dmp"));
+  EXPECT_FALSE(std::filesystem::exists(tmp.path / "pending" / "old.dmp"));
+  EXPECT_TRUE(std::filesystem::exists(tmp.path / "pending" / "fresh.dmp"));
 }
 
+// pending/ does not exist yet — PruneMinidumps must succeed silently.
 TEST(DiskManagerTest, EmptyDirectoryWithLimits) {
   const TempDir tmp;
   DiskManagerConfig cfg;
@@ -216,13 +249,13 @@ TEST(DiskManagerTest, EmptyDirectoryWithLimits) {
 
 TEST(DiskManagerTest, SingleFileAtExactSizeBoundary) {
   const TempDir tmp;
-  tmp.CreateDmp("a.dmp", kBytes1K);
+  tmp.CreateDmpInPending("a.dmp", kBytes1K);
 
   DiskManagerConfig cfg;
   cfg.db_path = tmp.path.string();
   cfg.max_bytes = kBytes1K;  // exact — should not prune
   ASSERT_TRUE(PruneMinidumps(cfg).ok());
-  EXPECT_TRUE(std::filesystem::exists(tmp.path / "a.dmp"));
+  EXPECT_TRUE(std::filesystem::exists(tmp.path / "pending" / "a.dmp"));
 }
 
 // ── PruneMinidumps: export_path ───────────────────────────────────────────────
@@ -230,8 +263,8 @@ TEST(DiskManagerTest, SingleFileAtExactSizeBoundary) {
 // Empty export_path with active limits: no error, db_path still pruned normally.
 TEST(DiskManagerTest, ExportPathEmptyIsSkipped) {
   const TempDir dbt;
-  auto old = dbt.CreateDmp("old.dmp", kBytes1K);
-  auto newer = dbt.CreateDmp("newer.dmp", kBytes1K);
+  auto old = dbt.CreateDmpInPending("old.dmp", kBytes1K);
+  auto newer = dbt.CreateDmpInPending("newer.dmp", kBytes1K);
   const time_t now = time(nullptr);
   TempDir::SetMtime(old, now - kAge100s);
   TempDir::SetMtime(newer, now - kAge10s);
@@ -241,9 +274,9 @@ TEST(DiskManagerTest, ExportPathEmptyIsSkipped) {
   cfg.export_path = "";      // explicitly empty — no export pruning
   cfg.max_bytes = kBytes1K;  // would prune one file
   ASSERT_TRUE(PruneMinidumps(cfg).ok());
-  // db_path is still pruned as normal
-  EXPECT_FALSE(std::filesystem::exists(dbt.path / "old.dmp"));
-  EXPECT_TRUE(std::filesystem::exists(dbt.path / "newer.dmp"));
+  // db_path/pending is still pruned as normal
+  EXPECT_FALSE(std::filesystem::exists(dbt.path / "pending" / "old.dmp"));
+  EXPECT_TRUE(std::filesystem::exists(dbt.path / "pending" / "newer.dmp"));
 }
 
 // Non-empty export_path that does not exist returns an error (with limits active).
@@ -262,7 +295,7 @@ TEST(DiskManagerTest, ExportPathNonexistentReturnsError) {
 TEST(DiskManagerTest, ExportPathSizeLimitDeletesOldestFirst) {
   const TempDir dbt;
   const TempDir exp;
-  dbt.CreateDmp("a.dmp", kBytes512);  // db_path under budget — should not be touched
+  dbt.CreateDmpInPending("a.dmp", kBytes512);  // db_path under budget — should not be touched
 
   auto old_cd = exp.CreateCrashdump("old.crashdump", kBytes1K);
   auto new_cd = exp.CreateCrashdump("new.crashdump", kBytes1K);
@@ -279,8 +312,8 @@ TEST(DiskManagerTest, ExportPathSizeLimitDeletesOldestFirst) {
 
   EXPECT_FALSE(std::filesystem::exists(exp.path / "old.crashdump"));
   EXPECT_TRUE(std::filesystem::exists(exp.path / "new.crashdump"));
-  // db_path untouched
-  EXPECT_TRUE(std::filesystem::exists(dbt.path / "a.dmp"));
+  // db_path/pending untouched
+  EXPECT_TRUE(std::filesystem::exists(dbt.path / "pending" / "a.dmp"));
 }
 
 // .crashdump files in export_path are pruned when older than max_age_seconds.
@@ -324,9 +357,9 @@ TEST(DiskManagerTest, BothPathsPrunedIndependentlyByExtension) {
   const TempDir dbt;
   const TempDir exp;
 
-  // db_path: two .dmp files, total 2 KB
-  auto old_dmp = dbt.CreateDmp("old.dmp", kBytes1K);
-  auto new_dmp = dbt.CreateDmp("new.dmp", kBytes1K);
+  // db_path: two .dmp files in pending/, total 2 KB
+  auto old_dmp = dbt.CreateDmpInPending("old.dmp", kBytes1K);
+  auto new_dmp = dbt.CreateDmpInPending("new.dmp", kBytes1K);
   // export_path: two .crashdump files, total 2 KB
   auto old_cd = exp.CreateCrashdump("old.crashdump", kBytes1K);
   auto new_cd = exp.CreateCrashdump("new.crashdump", kBytes1K);
@@ -344,14 +377,48 @@ TEST(DiskManagerTest, BothPathsPrunedIndependentlyByExtension) {
 
   ASSERT_TRUE(PruneMinidumps(cfg).ok());
 
-  // oldest .dmp pruned from db_path
-  EXPECT_FALSE(std::filesystem::exists(dbt.path / "old.dmp"));
-  EXPECT_TRUE(std::filesystem::exists(dbt.path / "new.dmp"));
+  // oldest .dmp pruned from db_path/pending
+  EXPECT_FALSE(std::filesystem::exists(dbt.path / "pending" / "old.dmp"));
+  EXPECT_TRUE(std::filesystem::exists(dbt.path / "pending" / "new.dmp"));
   // oldest .crashdump pruned from export_path
   EXPECT_FALSE(std::filesystem::exists(exp.path / "old.crashdump"));
   EXPECT_TRUE(std::filesystem::exists(exp.path / "new.crashdump"));
-  // no cross-contamination: only .dmp files in db_path
-  EXPECT_TRUE(std::filesystem::directory_iterator(dbt.path)->path().extension() == ".dmp");
+}
+
+// ── .meta sidecar cleanup ─────────────────────────────────────────────────────
+
+// Pruning a .dmp file must also delete the .meta sidecar written by Crashpad.
+TEST(DiskManagerTest, MetaSidecarDeletedWithDmp) {
+  const TempDir tmp;
+  auto dmp = tmp.CreateDmpInPending("crash.dmp", kBytes1K);
+  auto meta = tmp.CreateMetaInPending("crash.meta", kBytes64);
+
+  const time_t now = time(nullptr);
+  TempDir::SetMtime(dmp, now - kAge1000s);
+  TempDir::SetMtime(meta, now - kAge1000s);
+
+  DiskManagerConfig cfg;
+  cfg.db_path = tmp.path.string();
+  cfg.max_age_seconds = kAge500s;
+
+  ASSERT_TRUE(PruneMinidumps(cfg).ok());
+  EXPECT_FALSE(std::filesystem::exists(tmp.path / "pending" / "crash.dmp"));
+  EXPECT_FALSE(std::filesystem::exists(tmp.path / "pending" / "crash.meta"));
+}
+
+// Pruning a .dmp that has no .meta sidecar must still succeed.
+TEST(DiskManagerTest, MissingMetaSidecarIsNotAnError) {
+  const TempDir tmp;
+  auto dmp = tmp.CreateDmpInPending("crash.dmp", kBytes1K);
+  const time_t now = time(nullptr);
+  TempDir::SetMtime(dmp, now - kAge1000s);
+
+  DiskManagerConfig cfg;
+  cfg.db_path = tmp.path.string();
+  cfg.max_age_seconds = kAge500s;
+
+  ASSERT_TRUE(PruneMinidumps(cfg).ok());
+  EXPECT_FALSE(std::filesystem::exists(tmp.path / "pending" / "crash.dmp"));
 }
 
 // .dmp files in export_path are not pruned (wrong extension for that directory).

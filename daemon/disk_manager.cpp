@@ -100,6 +100,15 @@ absl::Status PruneDirectory(const std::string& dir, std::string_view ext, uint64
       return absl::InternalError(absl::StrCat("Failed to remove ", file.path.string(), ": ", err.message()));
     }
     total_bytes -= file.size;
+
+    // Remove the .meta sidecar written by Crashpad's CrashReportDatabase
+    // alongside every .dmp.  Best-effort: ignore errors (file may not exist).
+    if (ext == ".dmp") {
+      auto meta_path = file.path;
+      meta_path.replace_extension(".meta");
+      std::error_code meta_err;
+      std::filesystem::remove(meta_path, meta_err);
+    }
   }
 
   return absl::OkStatus();
@@ -108,9 +117,12 @@ absl::Status PruneDirectory(const std::string& dir, std::string_view ext, uint64
 }  // namespace
 
 absl::StatusOr<uint64_t> GetTotalMinidumpSize(const std::string& db_path) {
-  auto files_or = ListFilesByExtension(db_path, ".dmp");
+  // Crashpad writes minidumps to db_path/pending/ after the write is complete.
+  const std::string pending_dir = db_path + "/pending";
+  auto files_or = ListFilesByExtension(pending_dir, ".dmp");
   if (!files_or.ok()) {
-    return files_or.status();
+    // pending/ may not exist yet if no crashes have been recorded — treat as 0.
+    return static_cast<uint64_t>(0);
   }
 
   uint64_t total = 0;
@@ -121,10 +133,15 @@ absl::StatusOr<uint64_t> GetTotalMinidumpSize(const std::string& db_path) {
 }
 
 absl::Status PruneMinidumps(const DiskManagerConfig& config) {
-  if (auto status = PruneDirectory(config.db_path, ".dmp", config.max_bytes,
-                                    config.max_age_seconds);
+  // Crashpad writes completed minidumps into db_path/pending/; prune there.
+  const std::string pending_dir = config.db_path + "/pending";
+  if (auto status =
+          PruneDirectory(pending_dir, ".dmp", config.max_bytes, config.max_age_seconds);
       !status.ok()) {
-    return status;
+    // pending/ may not exist yet (no crashes recorded) — not an error.
+    if (status.code() != absl::StatusCode::kNotFound) {
+      return status;
+    }
   }
   if (!config.export_path.empty()) {
     if (auto status = PruneDirectory(config.export_path, ".crashdump", config.max_bytes,

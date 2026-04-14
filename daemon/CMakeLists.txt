@@ -18,7 +18,10 @@ target_link_libraries(crashomon_watcherd
     Threads::Threads
 )
 
-# spdlog uses try/catch internally; disable exception paths to match -fno-exceptions.
+# SPDLOG_NO_EXCEPTIONS is set globally via SPDLOG_NO_EXCEPTIONS cache var in the
+# root CMakeLists.txt, so spdlog headers seen here already use abort paths.
+# The per-target definition below is kept as belt-and-suspenders for any direct
+# include of spdlog headers that may not pick up the interface compile definition.
 target_compile_definitions(crashomon_watcherd PRIVATE SPDLOG_NO_EXCEPTIONS=1)
 
 target_include_directories(crashomon_watcherd

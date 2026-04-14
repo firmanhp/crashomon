@@ -12,7 +12,7 @@
 
 #include <cstdlib>
 
-#include "spdlog/sinks/stderr_sinks.h"
+#include "spdlog/sinks/stdout_sinks.h"
 #include "spdlog/spdlog.h"
 
 namespace crashomon {

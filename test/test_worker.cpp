@@ -67,10 +67,12 @@ struct TempDir {
     }
   }
 
-  // Create a .dmp file of the given size (filled with zeros). Returns the path.
+  // Create a .dmp file in the pending/ subdirectory (where Crashpad places
+  // completed minidumps). Returns the path.
   // NOLINTNEXTLINE(modernize-use-nodiscard)
   std::filesystem::path CreateDmp(const std::string& name, size_t size_bytes = kBytes1K) const {
-    auto file_path = path / name;
+    std::filesystem::create_directories(path / "pending");
+    auto file_path = path / "pending" / name;
     // NOLINTNEXTLINE(misc-include-cleaner)
     std::ofstream ofs(file_path, std::ios::binary);
     std::vector<char> zeros(size_bytes, 0);
@@ -86,10 +88,14 @@ struct TempDir {
     EXPECT_EQ(::utimensat(AT_FDCWD, file_path.c_str(), times, 0), 0);
   }
 
-  // Count .dmp files in this directory.
+  // Count .dmp files in pending/ (the directory PruneMinidumps operates on).
   size_t CountDmpFiles() const {
+    const auto pending = path / "pending";
+    if (!std::filesystem::is_directory(pending)) {
+      return 0;
+    }
     size_t count = 0;
-    for (const auto& entry : std::filesystem::directory_iterator(path)) {
+    for (const auto& entry : std::filesystem::directory_iterator(pending)) {
       if (entry.path().extension() == ".dmp") {
         ++count;
       }
@@ -146,9 +152,9 @@ TEST(WorkerTest, PrunesEvenOnReadError) {
 
   // Pruning must have run: only the newest file should remain.
   EXPECT_EQ(dbt.CountDmpFiles(), 1U);
-  EXPECT_TRUE(std::filesystem::exists(dbt.path / "keep.dmp"));
-  EXPECT_FALSE(std::filesystem::exists(dbt.path / "old1.dmp"));
-  EXPECT_FALSE(std::filesystem::exists(dbt.path / "old2.dmp"));
+  EXPECT_TRUE(std::filesystem::exists(dbt.path / "pending" / "keep.dmp"));
+  EXPECT_FALSE(std::filesystem::exists(dbt.path / "pending" / "old1.dmp"));
+  EXPECT_FALSE(std::filesystem::exists(dbt.path / "pending" / "old2.dmp"));
 }
 
 // An empty db_path (no files to prune) must not error on the read-error path.
@@ -169,7 +175,7 @@ TEST(WorkerTest, ReadErrorOnEmptyDbIsOk) {
 // With no limits configured, a read error must still not crash or error.
 TEST(WorkerTest, ReadErrorWithNoLimitsIsOk) {
   const TempDir dbt;
-  dbt.CreateDmp("a.dmp");
+  dbt.CreateDmp("a.dmp");  // placed in pending/ by CreateDmp
 
   DiskManagerConfig cfg;
   cfg.db_path = dbt.path.string();
