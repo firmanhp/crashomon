@@ -34,13 +34,20 @@ def _parse_module_line(sym_text: str) -> tuple[str, str]:
     return parts[4], parts[3]  # module_name, build_id
 
 
-def _run_stackwalk(stackwalk: str, dmp: str, sym_paths: list[str]) -> str:
+def _run_stackwalk(
+    stackwalk: str, dmp: str, sym_paths: list[str], *, machine: bool = False
+) -> str:
     """Run minidump_stackwalk and return stdout.
 
+    Pass ``machine=True`` to add the ``-m`` flag for pipe-delimited output.
     Raises RuntimeError if the binary is not found, times out, or produces
     no output.
     """
-    cmd = [stackwalk, dmp] + sym_paths
+    cmd = [stackwalk]
+    if machine:
+        cmd.append("-m")
+    cmd.append(dmp)
+    cmd += sym_paths
     try:
         result = subprocess.run(cmd, capture_output=True, text=True, timeout=60)
     except FileNotFoundError as exc:
@@ -56,7 +63,9 @@ def _run_stackwalk(stackwalk: str, dmp: str, sym_paths: list[str]) -> str:
 
 def mode_minidump_store(store: str, dmp: str, stackwalk: str) -> str:
     """Mode 1: symbolicate a minidump against a symbol store."""
-    return _run_stackwalk(stackwalk, dmp, [store])
+    raw = _run_stackwalk(stackwalk, dmp, [store], machine=True)
+    tombstone, symbols = parse_stackwalk_machine(raw)
+    return format_symbolicated(tombstone, symbols)
 
 
 def mode_stdin_store(text: str, store: str, addr2line: str) -> str:
@@ -79,7 +88,9 @@ def mode_sym_file_minidump(sym_file: str, dmp: str, stackwalk: str) -> str:
         sym_dir = Path(tmp) / module_name / build_id
         sym_dir.mkdir(parents=True)
         shutil.copy2(sym_file, sym_dir / f"{module_name}.sym")
-        return _run_stackwalk(stackwalk, dmp, [tmp])
+        raw = _run_stackwalk(stackwalk, dmp, [tmp], machine=True)
+    tombstone, symbols = parse_stackwalk_machine(raw)
+    return format_symbolicated(tombstone, symbols)
 
 
 def mode_stdin_debug_dir(text: str, debug_dir: str, addr2line: str) -> str:
@@ -102,12 +113,6 @@ def mode_raw_tombstone(dmp: str, stackwalk: str) -> str:
     the output as an Android-style tombstone.  Register values are not shown
     (not present in -m output); the daemon still shows them via the C++ path.
     """
-    cmd = [stackwalk, "-m", dmp]
-    try:
-        result = subprocess.run(cmd, capture_output=True, text=True, timeout=60)
-    except FileNotFoundError as exc:
-        raise RuntimeError(f"minidump_stackwalk not found: {stackwalk!r}") from exc
-    except subprocess.TimeoutExpired as exc:
-        raise RuntimeError("minidump_stackwalk timed out") from exc
-    tombstone = parse_stackwalk_machine(result.stdout)
+    raw = _run_stackwalk(stackwalk, dmp, [], machine=True)
+    tombstone, _symbols = parse_stackwalk_machine(raw)
     return format_raw_tombstone(tombstone)

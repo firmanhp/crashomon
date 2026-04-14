@@ -117,41 +117,61 @@ def symbolize_with_addr2line(
 # ---------------------------------------------------------------------------
 
 
-def _emit_frames(
-    thread: ParsedThread, symbols: SymbolTable, out: list[str]
+def _frame_func(frame: ParsedFrame, sym: SymbolInfo | None) -> str:
+    """Return the best available function string for *frame*."""
+    if sym and sym.function not in ("??", ""):
+        return sym.function
+    if frame.trailing:
+        return frame.trailing
+    if frame.module_path:
+        return frame.module_path
+    return "??"
+
+
+def _emit_stack_trace_section(
+    thread: ParsedThread,
+    symbols: SymbolTable,
+    out: list[str],
+    addr_w: int,
 ) -> None:
+    """Emit one Android-style 'Stack Trace:' section for *thread*."""
+    rows: list[tuple[str, str, str]] = []
     for frame in thread.frames:
-        mod = frame.module_path or "???"
+        reladdr = f"{frame.module_offset:0{addr_w}x}"
+        func_str = _frame_func(frame, symbols.get((thread.tid, frame.index)))
         sym = symbols.get((thread.tid, frame.index))
-        if sym and sym.function != "??":
-            if sym.source_file and sym.source_line > 0:
-                out.append(
-                    f"    #{frame.index:02d} pc 0x{frame.module_offset:016x}"
-                    f"  {mod} ({sym.function}) [{sym.source_file}:{sym.source_line}]\n"
-                )
-            else:
-                out.append(
-                    f"    #{frame.index:02d} pc 0x{frame.module_offset:016x}"
-                    f"  {mod} ({sym.function})\n"
-                )
-        elif not frame.module_path:
-            out.append(
-                f"    #{frame.index:02d} pc 0x{frame.module_offset:016x}  ???\n"
-            )
-        elif frame.trailing:
-            out.append(
-                f"    #{frame.index:02d} pc 0x{frame.module_offset:016x}"
-                f"  {frame.module_path} {frame.trailing}\n"
-            )
+        file_line = ""
+        if sym and sym.source_file and sym.source_line > 0:
+            file_line = f"{sym.source_file}:{sym.source_line}"
+        rows.append((reladdr, func_str, file_line))
+
+    if not rows:
+        return
+
+    func_w = max(len(r[1]) for r in rows)
+    func_w = max(func_w, len("FUNCTION"))
+
+    out.append("Stack Trace:\n")
+    out.append(f"  {'RELADDR':<{addr_w}}  {'FUNCTION':<{func_w}}  FILE:LINE\n")
+    for reladdr, func_str, file_line in rows:
+        if file_line:
+            out.append(f"  {reladdr}  {func_str:<{func_w}}  {file_line}\n")
         else:
-            out.append(
-                f"    #{frame.index:02d} pc 0x{frame.module_offset:016x}"
-                f"  {frame.module_path}\n"
-            )
+            out.append(f"  {reladdr}  {func_str}\n")
+
+
+def _tombstone_addr_width(tombstone: ParsedTombstone) -> int:
+    """Return 16 if any frame offset exceeds 32 bits, else 8."""
+    for thread in tombstone.threads:
+        for frame in thread.frames:
+            if frame.module_offset > 0xFFFFFFFF:
+                return 16
+    return 8
 
 
 def format_symbolicated(tombstone: ParsedTombstone, symbols: SymbolTable) -> str:
     """Format a ParsedTombstone with resolved symbols into tombstone text."""
+    addr_w = _tombstone_addr_width(tombstone)
     out: list[str] = []
     out.append(_SEP + "\n")
     out.append(
@@ -166,27 +186,27 @@ def format_symbolicated(tombstone: ParsedTombstone, symbols: SymbolTable) -> str
         out.append(
             f"signal {tombstone.signal_number} ({sig_name}),"
             f" code {tombstone.signal_code} ({code_name}),"
-            f" fault addr 0x{tombstone.fault_addr:016x}\n"
+            f" fault addr 0x{tombstone.fault_addr:x}\n"
         )
     else:
         out.append(
             f"signal {tombstone.signal_number} ({tombstone.signal_info}),"
-            f" fault addr 0x{tombstone.fault_addr:016x}\n"
+            f" fault addr 0x{tombstone.fault_addr:x}\n"
         )
 
     if tombstone.timestamp:
         out.append(f"timestamp: {tombstone.timestamp}\n")
 
     if tombstone.threads and tombstone.threads[0].is_crashing:
-        out.append("\nbacktrace:\n")
-        _emit_frames(tombstone.threads[0], symbols, out)
+        out.append("\n")
+        _emit_stack_trace_section(tombstone.threads[0], symbols, out, addr_w)
 
     for thread in tombstone.threads[1:]:
         if thread.name:
             out.append(f"\n--- --- --- thread {thread.tid} ({thread.name}) --- --- ---\n")
         else:
             out.append(f"\n--- --- --- thread {thread.tid} --- --- ---\n")
-        _emit_frames(thread, symbols, out)
+        _emit_stack_trace_section(thread, symbols, out, addr_w)
 
     if tombstone.minidump_path:
         out.append(f"\nminidump saved to: {tombstone.minidump_path}\n")
@@ -200,7 +220,7 @@ def format_symbolicated(tombstone: ParsedTombstone, symbols: SymbolTable) -> str
 # ---------------------------------------------------------------------------
 
 
-def parse_stackwalk_machine(text: str) -> ParsedTombstone:
+def parse_stackwalk_machine(text: str) -> tuple[ParsedTombstone, SymbolTable]:
     """Parse minidump_stackwalk -m pipe-delimited output into a ParsedTombstone.
 
     minidump_stackwalk -m produces lines like:
@@ -210,10 +230,11 @@ def parse_stackwalk_machine(text: str) -> ParsedTombstone:
       Module|name|ver|debug_file|debug_id|base|max|main
       thread_num|frame_num|module|func|file|line|offset
 
-    Raises ValueError if no crash line is found.
+    Returns (tombstone, symbols).  Raises ValueError if no frame lines are found.
     """
     result = ParsedTombstone()
     threads: dict[int, ParsedThread] = {}
+    table: SymbolTable = {}
     crashing_thread_idx = 0
 
     for line in text.splitlines():
@@ -244,6 +265,9 @@ def parse_stackwalk_machine(text: str) -> ParsedTombstone:
             thread_num = int(parts[0])
             frame_num = int(parts[1])
             module = parts[2]
+            func = parts[3]
+            src_file = parts[4]
+            src_line_str = parts[5]
             try:
                 offset = int(parts[6], 16)
             except ValueError:
@@ -262,6 +286,16 @@ def parse_stackwalk_machine(text: str) -> ParsedTombstone:
                 )
             )
 
+            if func:
+                sym = SymbolInfo(function=func)
+                if src_file and src_file != "??":
+                    sym.source_file = src_file
+                    try:
+                        sym.source_line = int(src_line_str)
+                    except ValueError:
+                        pass
+                table[(thread_num, frame_num)] = sym
+
     if not threads:
         raise ValueError("No thread frames found in minidump_stackwalk -m output")
 
@@ -272,7 +306,7 @@ def parse_stackwalk_machine(text: str) -> ParsedTombstone:
         ordered.insert(0, crashing_thread_idx)
 
     result.threads = [threads[n] for n in ordered]
-    return result
+    return result, table
 
 
 def format_raw_tombstone(tombstone: ParsedTombstone) -> str:
