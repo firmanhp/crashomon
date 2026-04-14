@@ -385,3 +385,47 @@ if(CRASHOMON_ENABLE_INSTALL)
       COMPONENT analyze)
   endif()
 endif()
+
+# ── Developer shortcut: run_analyze ───────────────────────────────────────────
+# Builds minidump_stackwalk then runs crashomon-analyze, auto-injecting
+# --stackwalk-binary so the freshly built binary is used automatically.
+# Additional flags are forwarded via the ANALYZE_ARGS cache variable.
+#
+# Quick start:
+#   cmake -B build -DANALYZE_ARGS="--minidump=crash.dmp --store=./syms"
+#   cmake --build build --target run_analyze
+#
+# Only defined when crashomon is the top-level project (not in FetchContent).
+if(CMAKE_SOURCE_DIR STREQUAL PROJECT_SOURCE_DIR AND TARGET minidump_stackwalk)
+  set(ANALYZE_ARGS "" CACHE STRING
+    "Arguments forwarded to crashomon-analyze by the run_analyze target \
+(e.g. \"--minidump=crash.dmp --store=./syms\")")
+
+  # Prefer the project's .venv interpreter (populated by uv), then fall back
+  # to whatever Python3 CMake finds — same search order as the test block.
+  find_program(_run_analyze_python NAMES python python3
+    PATHS "${PROJECT_SOURCE_DIR}/.venv/bin"
+    NO_DEFAULT_PATH
+  )
+  if(NOT _run_analyze_python)
+    find_package(Python3 COMPONENTS Interpreter QUIET)
+    set(_run_analyze_python "${Python3_EXECUTABLE}")
+  endif()
+
+  separate_arguments(_run_analyze_args NATIVE_COMMAND "${ANALYZE_ARGS}")
+
+  add_custom_target(run_analyze
+    COMMAND
+      ${CMAKE_COMMAND} -E env "PYTHONPATH=${PROJECT_SOURCE_DIR}"
+      "${_run_analyze_python}"
+      "${PROJECT_SOURCE_DIR}/tools/analyze/crashomon-analyze"
+      "--stackwalk-binary=$<TARGET_FILE:minidump_stackwalk>"
+      ${_run_analyze_args}
+    DEPENDS minidump_stackwalk
+    USES_TERMINAL
+    COMMENT "crashomon-analyze (ANALYZE_ARGS=${ANALYZE_ARGS})"
+  )
+
+  unset(_run_analyze_python)
+  unset(_run_analyze_args)
+endif()
