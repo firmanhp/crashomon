@@ -2,6 +2,8 @@
 
 Provides:
   - symbolize_with_addr2line: resolve frame addresses via eu-addr2line
+  - build_build_id_index: index ELF debug binaries by GNU build ID (pure Python)
+  - symbolize_with_build_id_index: resolve frames via build-ID-indexed ELFs
   - format_symbolicated: format a ParsedTombstone with symbol information
   - parse_stackwalk_machine: parse minidump_stackwalk -m output
   - format_raw_tombstone: format a ParsedTombstone without symbols (Mode 4)
@@ -9,7 +11,9 @@ Provides:
 
 from __future__ import annotations
 
+import struct
 import subprocess
+import sys
 from dataclasses import dataclass
 from pathlib import Path
 
@@ -274,3 +278,148 @@ def parse_stackwalk_machine(text: str) -> ParsedTombstone:
 def format_raw_tombstone(tombstone: ParsedTombstone) -> str:
     """Format a ParsedTombstone without symbol information."""
     return format_symbolicated(tombstone, {})
+
+
+# ---------------------------------------------------------------------------
+# Build-ID–based symbolization (Mode 5 — --debug-dir)
+# ---------------------------------------------------------------------------
+
+_PT_NOTE = 4
+_NT_GNU_BUILD_ID = 3
+_GNU_NOTE_NAME = b"GNU\x00"
+
+
+def _extract_build_id(data: bytes) -> str:
+    """Extract the GNU build ID from raw ELF bytes.
+
+    Parses PT_NOTE program headers (or falls back to nothing) looking for a
+    note with name "GNU\\0" and type NT_GNU_BUILD_ID (3).  Returns the
+    descriptor bytes as a lowercase hex string, or "" if not found.
+    """
+    if len(data) < 16 or data[:4] != b"\x7fELF":
+        return ""
+
+    ei_class = data[4]  # 1 = 32-bit, 2 = 64-bit
+    ei_data = data[5]   # 1 = LE, 2 = BE
+    endian = "<" if ei_data == 1 else ">"
+
+    try:
+        if ei_class == 2:  # 64-bit ELF
+            if len(data) < 64:
+                return ""
+            (ph_off,) = struct.unpack_from(f"{endian}Q", data, 32)
+            ph_ent_size, ph_num = struct.unpack_from(f"{endian}HH", data, 54)
+        elif ei_class == 1:  # 32-bit ELF
+            if len(data) < 52:
+                return ""
+            (ph_off,) = struct.unpack_from(f"{endian}I", data, 28)
+            ph_ent_size, ph_num = struct.unpack_from(f"{endian}HH", data, 42)
+        else:
+            return ""
+
+        for i in range(ph_num):
+            ph_start = ph_off + i * ph_ent_size
+            if ph_start + ph_ent_size > len(data):
+                break
+
+            if ei_class == 2:
+                (p_type,) = struct.unpack_from(f"{endian}I", data, ph_start)
+                if p_type != _PT_NOTE:
+                    continue
+                p_offset, p_filesz = struct.unpack_from(f"{endian}QQ", data, ph_start + 8)
+            else:
+                p_type, p_offset, _vaddr, _paddr, p_filesz = struct.unpack_from(
+                    f"{endian}IIIII", data, ph_start
+                )
+                if p_type != _PT_NOTE:
+                    continue
+
+            # Walk notes in this PT_NOTE segment.
+            note_pos = p_offset
+            note_end = p_offset + p_filesz
+            while note_pos + 12 <= note_end and note_pos + 12 <= len(data):
+                namesz, descsz, n_type = struct.unpack_from(f"{endian}III", data, note_pos)
+                note_pos += 12
+                name_padded = (namesz + 3) & ~3
+                desc_padded = (descsz + 3) & ~3
+                if note_pos + name_padded + desc_padded > len(data):
+                    break
+                name = data[note_pos : note_pos + namesz]
+                note_pos += name_padded
+                desc = data[note_pos : note_pos + descsz]
+                note_pos += desc_padded
+                if n_type == _NT_GNU_BUILD_ID and name == _GNU_NOTE_NAME:
+                    return desc.hex()
+    except struct.error:
+        return ""
+
+    return ""
+
+
+def build_build_id_index(debug_dir: Path) -> dict[str, Path]:
+    """Walk *debug_dir* recursively and index ELF files by GNU build ID.
+
+    Returns ``{build_id_hex_lower: elf_path}``.  On duplicate build IDs the
+    first path wins and a warning is printed to stderr.  Non-ELF files and
+    files that cannot be read are silently skipped.
+    """
+    index: dict[str, Path] = {}
+    for path in debug_dir.rglob("*"):
+        if not path.is_file():
+            continue
+        try:
+            with path.open("rb") as fobj:
+                magic = fobj.read(4)
+                if magic != b"\x7fELF":
+                    continue
+                fobj.seek(0)
+                data = fobj.read()
+        except OSError:
+            continue
+        build_id = _extract_build_id(data)
+        if not build_id:
+            continue
+        if build_id in index:
+            print(
+                f"warning: duplicate build ID {build_id}: {index[build_id]} and {path}",
+                file=sys.stderr,
+            )
+            continue
+        index[build_id] = path
+    return index
+
+
+def symbolize_with_build_id_index(
+    tombstone: ParsedTombstone,
+    index: dict[str, Path],
+    addr2line: str = "eu-addr2line",
+) -> SymbolTable:
+    """Resolve frame addresses using a build-ID index of host-side debug ELFs.
+
+    Frames whose ``build_id`` is empty or not found in *index* map to
+    ``SymbolInfo(function="??")`` — the formatter renders these as unsymbolicated.
+    Never raises; missing binaries or addr2line errors result in unknown symbols.
+    """
+    # Group frames by the resolved local ELF path.
+    by_elf: dict[Path, list[tuple[int, int, int]]] = {}
+    for thread in tombstone.threads:
+        for frame in thread.frames:
+            if not frame.build_id:
+                continue
+            elf_path = index.get(frame.build_id)
+            if elf_path is None:
+                continue
+            by_elf.setdefault(elf_path, []).append(
+                (thread.tid, frame.index, frame.module_offset)
+            )
+
+    table: SymbolTable = {}
+    for elf_path, refs in by_elf.items():
+        lines = _query_addr2line(str(elf_path), addr2line, refs)
+        for i, (tid, idx, _) in enumerate(refs):
+            base = i * 2
+            func = lines[base] if base < len(lines) else "??"
+            loc = lines[base + 1] if base + 1 < len(lines) else ""
+            table[(tid, idx)] = _parse_addr2line_output(func, loc)
+
+    return table

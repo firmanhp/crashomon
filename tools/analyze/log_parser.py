@@ -16,6 +16,7 @@ class ParsedFrame:
     module_offset: int = 0
     module_path: str = ""
     trailing: str = ""  # already-symbolicated text preserved verbatim
+    build_id: str = ""  # GNU build ID hex (lowercase), from (BuildId: ...) suffix
 
 
 @dataclass
@@ -70,8 +71,38 @@ _FRAME_RE = re.compile(
     r"^\s{2,}#(\d+)\s+pc\s+(0x[0-9a-fA-F]+)\s+(\S+)(?:\s+(.+))?$"
 )
 
+# "(BuildId: <hex>)" — detected in the trailing group to extract build IDs.
+_BUILD_ID_TRAILING_RE = re.compile(r"^\(BuildId:\s*([0-9a-fA-F]+)\)$")
+
 # "minidump saved to: /var/crashomon/xxx.dmp"
 _MINIDUMP_PATH_RE = re.compile(r"minidump saved to:\s*(\S+)")
+
+# Tombstone-specific token anchors used by _strip_log_prefix.  The first match
+# position in a line determines where the tombstone content starts, allowing
+# arbitrary log prefixes (journalctl, syslog, ISO-8601) to be stripped.
+_LOG_PREFIX_TOKENS = re.compile(
+    r"\*\*\* \*\*\* \*\*\*"
+    r"|pid:"
+    r"|signal "
+    r"|timestamp:"
+    r"|backtrace:"
+    r"|--- --- ---"
+    r"|\s*#\d+\s+pc "
+    r"|minidump saved to:"
+)
+
+
+def _strip_log_prefix(line: str) -> str:
+    """Strip any leading log prefix (journalctl, syslog, ISO-8601) from *line*.
+
+    Scans for the first occurrence of a known tombstone token and returns the
+    line starting at that position.  If no token is found, returns *line*
+    unchanged so that blank lines and register-state noise pass through as-is.
+    """
+    m = _LOG_PREFIX_TOKENS.search(line)
+    if m is None:
+        return line
+    return line[m.start():]
 
 
 # ---------------------------------------------------------------------------
@@ -92,7 +123,9 @@ def parse_tombstone(text: str) -> ParsedTombstone:
     in_backtrace = False
     in_other_thread = False
 
-    for line in text.splitlines():
+    for raw_line in text.splitlines():
+        line = _strip_log_prefix(raw_line)
+
         # Header
         m = _HEADER_RE.search(line)
         if m:
@@ -156,12 +189,20 @@ def parse_tombstone(text: str) -> ParsedTombstone:
         m = _FRAME_RE.search(line)
         if m:
             mod = m.group(3)
+            trailing = m.group(4) or ""
+            build_id = ""
+            if trailing:
+                bm = _BUILD_ID_TRAILING_RE.match(trailing)
+                if bm:
+                    build_id = bm.group(1).lower()
+                    trailing = ""
             working.frames.append(
                 ParsedFrame(
                     index=int(m.group(1)),
                     module_offset=int(m.group(2), 16),
                     module_path="" if mod == "???" else mod,
-                    trailing=m.group(4) or "",
+                    trailing=trailing,
+                    build_id=build_id,
                 )
             )
 

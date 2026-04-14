@@ -30,6 +30,8 @@ constexpr uint64_t kFrame2Pc = 0x7f0000023b09ULL;
 constexpr uint64_t kFrame2Offset = 0x23b09ULL;
 constexpr uint64_t kThread2Frame0Pc = 0x7f0000010000ULL;
 constexpr uint64_t kThread2Frame0Offset = 0x10000ULL;
+constexpr uint64_t kUnknownModPc = 0x7f0000001000ULL;
+constexpr uint64_t kUnknownModOffset = 0x1000ULL;
 
 // Build a minimal MinidumpInfo for testing.
 MinidumpInfo MakeInfo() {
@@ -65,6 +67,18 @@ MinidumpInfo MakeInfo() {
       {kFrame2Pc, kFrame2Offset, "/usr/lib/libc.so.6"},
   };
   info.threads.push_back(crashing);
+
+  // Populate module list so the formatter can emit (BuildId: ...).
+  ModuleInfo  // NOLINT(misc-include-cleaner) — false positive from include-cleaner
+      svc_mod;
+  svc_mod.path = "/usr/bin/my_service";
+  svc_mod.build_id = "9c1e3ae2f0aabb00";
+  info.modules.push_back(svc_mod);
+
+  ModuleInfo libc_mod;
+  libc_mod.path = "/usr/lib/libc.so.6";
+  libc_mod.build_id = "7a4f0b11d3ccdd00";
+  info.modules.push_back(libc_mod);
 
   return info;
 }
@@ -185,6 +199,54 @@ TEST(TombstoneFormatterTest, FaultAddrZero) {
   info.fault_addr = 0;
   auto tomb = FormatTombstone(info);
   EXPECT_NE(tomb.find("0000000000000000"), std::string::npos);
+}
+
+// ── BuildId emission ─────────────────────────────────────────────────────────
+
+TEST(TombstoneFormatterTest, MappedFramesCarryBuildId) {
+  auto tomb = FormatTombstone(MakeInfo());
+  // /usr/bin/my_service frames should include the build ID.
+  EXPECT_NE(tomb.find("(BuildId: 9c1e3ae2f0aabb00)"), std::string::npos);
+  // /usr/lib/libc.so.6 frame should also carry its build ID.
+  EXPECT_NE(tomb.find("(BuildId: 7a4f0b11d3ccdd00)"), std::string::npos);
+}
+
+TEST(TombstoneFormatterTest, UnmappedFrameHasNoBuildId) {
+  MinidumpInfo info = MakeInfo();
+  info.threads[0].frames = {{kTestUnmappedPc, 0, ""}};
+  auto tomb = FormatTombstone(info);
+  EXPECT_NE(tomb.find("???"), std::string::npos);
+  EXPECT_EQ(tomb.find("BuildId"), std::string::npos);
+}
+
+TEST(TombstoneFormatterTest, EmptyBuildIdNotEmitted) {
+  MinidumpInfo info = MakeInfo();
+  // Clear all build IDs — formatter must not emit "(BuildId: )".
+  for (auto& mod : info.modules) {
+    mod.build_id.clear();
+  }
+  auto tomb = FormatTombstone(info);
+  EXPECT_EQ(tomb.find("BuildId"), std::string::npos);
+}
+
+TEST(TombstoneFormatterTest, FrameWithNoModuleEntryHasNoBuildId) {
+  MinidumpInfo info = MakeInfo();
+  // Add a frame whose module_path has no matching ModuleInfo entry.
+  info.threads[0].frames.push_back({kUnknownModPc, kUnknownModOffset, "/usr/lib/libunknown.so"});
+  auto tomb = FormatTombstone(info);
+  // The extra frame appears but without a BuildId suffix.
+  EXPECT_NE(tomb.find("/usr/lib/libunknown.so"), std::string::npos);
+  // Only the two known build IDs should appear.
+  EXPECT_NE(tomb.find("(BuildId: 9c1e3ae2f0aabb00)"), std::string::npos);
+  EXPECT_NE(tomb.find("(BuildId: 7a4f0b11d3ccdd00)"), std::string::npos);
+  // libunknown.so has no BuildId entry.
+  const size_t libunknown_pos = tomb.find("/usr/lib/libunknown.so");
+  const size_t build_id_after = tomb.find("BuildId", libunknown_pos);
+  // If BuildId appears after libunknown.so, it must be on a later line (not on the same line).
+  if (build_id_after != std::string::npos) {
+    EXPECT_NE(tomb.find('\n', libunknown_pos), std::string::npos);
+    EXPECT_GT(build_id_after, tomb.find('\n', libunknown_pos));
+  }
 }
 
 }  // namespace

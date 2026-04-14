@@ -13,10 +13,12 @@ from pathlib import Path
 
 from .log_parser import parse_tombstone
 from .symbolizer import (
+    build_build_id_index,
     format_raw_tombstone,
     format_symbolicated,
     parse_stackwalk_machine,
     symbolize_with_addr2line,
+    symbolize_with_build_id_index,
 )
 
 
@@ -78,6 +80,19 @@ def mode_sym_file_minidump(sym_file: str, dmp: str, stackwalk: str) -> str:
         sym_dir.mkdir(parents=True)
         shutil.copy2(sym_file, sym_dir / f"{module_name}.sym")
         return _run_stackwalk(stackwalk, dmp, [tmp])
+
+
+def mode_stdin_debug_dir(text: str, debug_dir: str, addr2line: str) -> str:
+    """Mode 5: parse tombstone from stdin, symbolicate using host-side debug ELFs.
+
+    Builds a build-ID index by walking *debug_dir* for ELF files, then
+    resolves each frame whose build ID matches a found ELF via eu-addr2line.
+    Works even when target paths are inaccessible on the host.
+    """
+    tombstone = parse_tombstone(text)
+    index = build_build_id_index(Path(debug_dir))
+    symbols = symbolize_with_build_id_index(tombstone, index, addr2line)
+    return format_symbolicated(tombstone, symbols)
 
 
 def mode_raw_tombstone(dmp: str, stackwalk: str) -> str:

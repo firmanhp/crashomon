@@ -257,3 +257,124 @@ def test_thread_with_no_frames_not_saved():
     # Thread 6 has no frames — at minimum the crashing thread must be present.
     assert len(result.threads) >= 1
     assert result.threads[0].is_crashing
+
+
+# ---------------------------------------------------------------------------
+# Log-prefix stripping (journalctl / syslog)
+# ---------------------------------------------------------------------------
+
+# A journalctl-prefixed tombstone — every line has a leading timestamp + unit tag.
+_JOURNALCTL_PREFIX = "Apr 14 10:15:30 host crashomon-watcherd[1234]: "
+
+JOURNALCTL_TOMBSTONE = "".join(
+    _JOURNALCTL_PREFIX + line + "\n"
+    for line in MINIMAL_TOMBSTONE.rstrip("\n").splitlines()
+)
+
+SYSLOG_ISO_TOMBSTONE = "".join(
+    "2026-04-14T10:15:30.000Z host crashomon-watcherd[1234]: " + line + "\n"
+    for line in MINIMAL_TOMBSTONE.rstrip("\n").splitlines()
+)
+
+
+def test_journalctl_prefix_stripped_pid():
+    result = parse_tombstone(JOURNALCTL_TOMBSTONE)
+    assert result.pid == 1234
+
+
+def test_journalctl_prefix_stripped_signal():
+    result = parse_tombstone(JOURNALCTL_TOMBSTONE)
+    assert result.signal_number == 11
+
+
+def test_journalctl_prefix_stripped_frame():
+    result = parse_tombstone(JOURNALCTL_TOMBSTONE)
+    assert len(result.threads[0].frames) == 1
+    assert result.threads[0].frames[0].module_path == "/usr/bin/my_service"
+
+
+def test_journalctl_prefix_same_result_as_unprefixed():
+    plain = parse_tombstone(MINIMAL_TOMBSTONE)
+    prefixed = parse_tombstone(JOURNALCTL_TOMBSTONE)
+    assert prefixed.pid == plain.pid
+    assert prefixed.signal_number == plain.signal_number
+    assert prefixed.threads[0].frames[0].module_offset == plain.threads[0].frames[0].module_offset
+
+
+def test_syslog_iso_prefix_stripped():
+    result = parse_tombstone(SYSLOG_ISO_TOMBSTONE)
+    assert result.pid == 1234
+    assert result.threads[0].frames[0].module_path == "/usr/bin/my_service"
+
+
+# ---------------------------------------------------------------------------
+# BuildId capture in frame lines
+# ---------------------------------------------------------------------------
+
+
+def test_build_id_captured_from_frame():
+    text = (
+        "pid: 1, tid: 1, name: svc  >>> svc <<<\n"
+        "signal 11 (SIGSEGV), fault addr 0x0\n"
+        "\n"
+        "backtrace:\n"
+        "    #00 pc 0x0000000000001abc  /usr/bin/svc (BuildId: 9c1e3ae2f0aabb00)\n"
+        "*** *** *** *** *** *** *** *** *** *** *** *** *** *** *** ***\n"
+    )
+    result = parse_tombstone(text)
+    frame = result.threads[0].frames[0]
+    assert frame.build_id == "9c1e3ae2f0aabb00"
+    assert frame.trailing == ""  # BuildId is not trailing symbolicated text
+
+
+def test_build_id_lowercase():
+    text = (
+        "pid: 1, tid: 1, name: svc  >>> svc <<<\n"
+        "signal 11 (SIGSEGV), fault addr 0x0\n"
+        "\n"
+        "backtrace:\n"
+        "    #00 pc 0x0000000000001abc  /usr/bin/svc (BuildId: 9C1E3AE2F0AABB00)\n"
+        "*** *** *** *** *** *** *** *** *** *** *** *** *** *** *** ***\n"
+    )
+    result = parse_tombstone(text)
+    assert result.threads[0].frames[0].build_id == "9c1e3ae2f0aabb00"
+
+
+def test_frame_without_build_id_has_empty_build_id():
+    result = parse_tombstone(MINIMAL_TOMBSTONE)
+    assert result.threads[0].frames[0].build_id == ""
+
+
+def test_symbolicated_trailing_not_treated_as_build_id():
+    text = (
+        "pid: 1, tid: 1, name: foo  >>> foo <<<\n"
+        "signal 6 (SIGABRT), fault addr 0x0\n"
+        "\n"
+        "backtrace:\n"
+        "    #00 pc 0x0000000000001abc  /usr/bin/foo (bar_func) [bar.cpp:42]\n"
+        "*** *** *** *** *** *** *** *** *** *** *** *** *** *** *** ***\n"
+    )
+    result = parse_tombstone(text)
+    frame = result.threads[0].frames[0]
+    assert frame.build_id == ""
+    assert frame.trailing == "(bar_func) [bar.cpp:42]"
+
+
+def test_mixed_frames_build_id_and_without():
+    text = (
+        "pid: 1, tid: 1, name: svc  >>> svc <<<\n"
+        "signal 11 (SIGSEGV), fault addr 0x0\n"
+        "\n"
+        "backtrace:\n"
+        "    #00 pc 0x0000000000001abc  /usr/bin/svc (BuildId: aabbccdd)\n"
+        "    #01 pc 0x0000000000002000  /usr/lib/libc.so.6\n"
+        "    #02 pc 0x00000000badf00d0  ???\n"
+        "*** *** *** *** *** *** *** *** *** *** *** *** *** *** *** ***\n"
+    )
+    result = parse_tombstone(text)
+    frames = result.threads[0].frames
+    assert len(frames) == 3
+    assert frames[0].build_id == "aabbccdd"
+    assert frames[1].build_id == ""
+    assert frames[2].build_id == ""
+    assert frames[2].module_path == ""  # ??? → empty path
