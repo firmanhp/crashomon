@@ -296,6 +296,29 @@ file(CREATE_LINK
 
 include(cmake/breakpad.cmake)
 
+# spdlog — structured logging for crashomon-watcherd.
+# Header-only mode: no compiled sources, no separate library step.
+# SPDLOG_NO_EXCEPTIONS is set per-target in daemon/CMakeLists.txt to match -fno-exceptions.
+FetchContent_Declare(spdlog
+  GIT_REPOSITORY https://github.com/gabime/spdlog.git
+  GIT_TAG        v1.14.1
+)
+set(SPDLOG_BUILD_EXAMPLE  OFF CACHE BOOL "" FORCE)
+set(SPDLOG_BUILD_TESTS    OFF CACHE BOOL "" FORCE)
+set(SPDLOG_INSTALL        OFF CACHE BOOL "" FORCE)
+FetchContent_MakeAvailable(spdlog)
+
+# spdlog headers contain GCC extensions (e.g. pragmas) that fire under -Wpedantic.
+# Mark as SYSTEM so our -Werror flags do not fire on spdlog headers.
+if(TARGET spdlog::spdlog_header_only)
+  get_target_property(_spdlog_inc spdlog::spdlog_header_only INTERFACE_INCLUDE_DIRECTORIES)
+  if(_spdlog_inc)
+    set_property(TARGET spdlog::spdlog_header_only APPEND PROPERTY
+      INTERFACE_SYSTEM_INCLUDE_DIRECTORIES "${_spdlog_inc}")
+  endif()
+  unset(_spdlog_inc)
+endif()
+
 # Google Benchmark (only when ENABLE_TESTS=ON)
 if(ENABLE_TESTS)
   FetchContent_Declare(benchmark

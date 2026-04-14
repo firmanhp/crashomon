@@ -14,6 +14,7 @@
 #include <string_view>
 
 #include "daemon/disk_manager.h"
+#include "spdlog/spdlog.h"
 #include "tombstone/minidump_reader.h"
 #include "tombstone/tombstone_formatter.h"
 
@@ -25,12 +26,6 @@ constexpr std::chrono::seconds kRateLimitWindow{30};
 constexpr size_t kFaultAddrHexBufSize = 17;
 // Radix for fault address formatting.
 constexpr int kHexBase = 16;
-
-void Log(std::string_view msg) {
-  std::fwrite(msg.data(), 1, msg.size(), stderr);
-  std::fputc('\n', stderr);
-  std::fflush(stderr);
-}
 
 void LogTombstone(std::string_view msg) {
   std::fwrite(msg.data(), 1, msg.size(), stdout);
@@ -76,8 +71,8 @@ void ExportMinidump(const std::string& src_path, std::string_view export_path,
   std::error_code err;
   std::filesystem::copy_file(src_path, dst, std::filesystem::copy_options::overwrite_existing, err);
   if (err) {
-    Log(std::string{"crashomon-watcherd: export failed \xe2\x86\x92 "} + dst.string() + ": " +
-        err.message());
+    spdlog::warn("crashomon-watcherd: export failed \xe2\x86\x92 {}: {}", dst.string(),
+                 err.message());
   }
 }
 
@@ -90,8 +85,8 @@ void ProcessNewMinidump(const std::string& path, WorkerState& state,
                         std::string_view export_path) {
   auto info_or = ReadMinidump(path);
   if (!info_or.ok()) {
-    Log(std::string{"crashomon-watcherd: failed to read minidump '"} + path +
-        "': " + std::string(info_or.status().message()));
+    spdlog::error("crashomon-watcherd: failed to read minidump '{}': {}", path,
+                  info_or.status().message());
   } else {
     const auto& info = *info_or;
 
@@ -106,7 +101,7 @@ void ProcessNewMinidump(const std::string& path, WorkerState& state,
     const auto now = std::chrono::steady_clock::now();
     const auto rate_it = state.rate_limit_map.find(key);
     if (rate_it != state.rate_limit_map.end() && (now - rate_it->second) < kRateLimitWindow) {
-      Log(std::string{"crashomon-watcherd: suppressed duplicate crash ("} + key + ")");
+      spdlog::info("crashomon-watcherd: suppressed duplicate crash ({})", key);
     } else {
       state.rate_limit_map[key] = now;
       LogTombstone(FormatTombstone(info));
@@ -117,7 +112,7 @@ void ProcessNewMinidump(const std::string& path, WorkerState& state,
   }
 
   if (const auto prune_status = PruneMinidumps(prune_cfg); !prune_status.ok()) {
-    Log(std::string{"crashomon-watcherd: prune failed: "} + std::string(prune_status.message()));
+    spdlog::warn("crashomon-watcherd: prune failed: {}", prune_status.message());
   }
 }
 

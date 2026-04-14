@@ -14,8 +14,12 @@ target_link_libraries(crashomon_watcherd
     crashpad_handler_lib
     crashpad_tools
     crashpad_client
+    spdlog::spdlog_header_only
     Threads::Threads
 )
+
+# spdlog uses try/catch internally; disable exception paths to match -fno-exceptions.
+target_compile_definitions(crashomon_watcherd PRIVATE SPDLOG_NO_EXCEPTIONS=1)
 
 target_include_directories(crashomon_watcherd
   PRIVATE

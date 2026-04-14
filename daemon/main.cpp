@@ -61,9 +61,11 @@
 #include "base/files/scoped_file.h"
 #include "client/crash_report_database.h"
 #include "daemon/disk_manager.h"
+#include "daemon/log.h"
 #include "daemon/worker.h"
 #include "handler/linux/crash_report_exception_handler.h"
 #include "handler/linux/exception_handler_server.h"
+#include "spdlog/spdlog.h"
 
 namespace {
 
@@ -87,14 +89,6 @@ constexpr std::chrono::seconds kWatchdogKickInterval{5};
 volatile sig_atomic_t g_stop = 0;
 
 void HandleSignal(int /*sig*/) { g_stop = 1; }
-
-// ── Logging ───────────────────────────────────────────────────────────────────
-
-void Log(std::string_view msg) {
-  std::fwrite(msg.data(), 1, msg.size(), stderr);
-  std::fputc('\n', stderr);
-  std::fflush(stderr);
-}
 
 // ── Argument parsing ──────────────────────────────────────────────────────────
 
@@ -189,8 +183,8 @@ int CreateListenSocket(const std::string& socket_path) {
       // alternative. NOLINTNEXTLINE(cppcoreguidelines-pro-type-reinterpret-cast)
       if (connect(probe.get(), reinterpret_cast<const struct sockaddr*>(&addr), sizeof(addr)) ==
           0) {
-        Log(std::string{"crashomon-watcherd: socket "} + socket_path +
-            " is held by a live daemon — refusing to start");
+        spdlog::error("crashomon-watcherd: socket {} is held by a live daemon — refusing to start",
+                      socket_path);
         return -1;
       }
       // ENOENT / ECONNREFUSED / ENOTSOCK → stale socket, safe to unlink.
@@ -329,7 +323,7 @@ int RunWatcher(const std::string& db_path, const std::string& socket_path,
   {
     struct stat stat_buf {};
     if (::stat(db_path.c_str(), &stat_buf) != 0 || !S_ISDIR(stat_buf.st_mode)) {
-      Log(std::string{"crashomon-watcherd: db-path is not a directory: "} + db_path);
+      spdlog::error("crashomon-watcherd: db-path is not a directory: {}", db_path);
       return 1;
     }
     // mkdir is best-effort; dirs may already exist after CrashReportDatabase::Initialize().
@@ -339,7 +333,7 @@ int RunWatcher(const std::string& db_path, const std::string& socket_path,
 
   auto database = crashpad::CrashReportDatabase::Initialize(base::FilePath(db_path));
   if (database == nullptr) {
-    Log(std::string{"crashomon-watcherd: failed to initialize crash database at "} + db_path);
+    spdlog::error("crashomon-watcherd: failed to initialize crash database at {}", db_path);
     return 1;
   }
 
@@ -358,7 +352,7 @@ int RunWatcher(const std::string& db_path, const std::string& socket_path,
   if (!listen_fd_scoped.is_valid()) {
     return 1;
   }
-  Log(std::string{"crashomon-watcherd: listening on "} + socket_path);
+  spdlog::info("crashomon-watcherd: listening on {}", socket_path);
 
   // ── Shared Crashpad socket ────────────────────────────────────────────────
   //
@@ -403,7 +397,7 @@ int RunWatcher(const std::string& db_path, const std::string& socket_path,
     return 1;
   }
 
-  Log(std::string{"crashomon-watcherd: watching "} + pending_dir);
+  spdlog::info("crashomon-watcherd: watching {}", pending_dir);
 
   // All setup complete — notify systemd that we are ready.
 #ifdef HAVE_LIBSYSTEMD
@@ -519,6 +513,8 @@ int RunWatcher(const std::string& db_path, const std::string& socket_path,
 }  // namespace
 
 int main(int argc, char* argv[]) {
+  crashomon::InitLogging();
+
   const char* db_path_env = getenv("CRASHOMON_DB_PATH");
   std::string db_path = (db_path_env != nullptr) ? db_path_env : "/var/crashomon";
 
@@ -550,7 +546,7 @@ int main(int argc, char* argv[]) {
     } else if (arg_val = GetArgValue(arg, "--export-path"); arg_val != nullptr) {
       export_path = arg_val;
     } else {
-      Log(std::string{"crashomon-watcherd: unknown argument: "} + arg);
+      spdlog::error("crashomon-watcherd: unknown argument: {}", arg);
       return 1;
     }
   }
