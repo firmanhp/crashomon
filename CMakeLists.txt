@@ -307,15 +307,22 @@ include(cmake/crashomon_symbols.cmake)
 FetchContent_Declare(spdlog
   GIT_REPOSITORY https://github.com/gabime/spdlog.git
   GIT_TAG        v1.14.1
-  OVERRIDE_FIND_PACKAGE  # redirect any find_package(spdlog) to FetchContent targets,
-                         # preventing ALIAS-target set_property errors from installed configs
+  # No OVERRIDE_FIND_PACKAGE: crashomon is a library, not a top-level app.
+  # OVERRIDE_FIND_PACKAGE hijacks find_package(spdlog) for the entire consumer
+  # build, breaking consumers that rely on their own spdlog (e.g. Conan-provided)
+  # for transitive deps like fmt. Instead, we guard the populate below.
 )
-set(SPDLOG_BUILD_EXAMPLE  OFF CACHE BOOL "" FORCE)
-set(SPDLOG_BUILD_TESTS    OFF CACHE BOOL "" FORCE)
-set(SPDLOG_INSTALL        OFF CACHE BOOL "" FORCE)
-set(SPDLOG_SYSTEM_INCLUDES ON  CACHE BOOL "" FORCE)
-set(SPDLOG_NO_EXCEPTIONS   ON  CACHE BOOL "" FORCE)
-FetchContent_MakeAvailable(spdlog)
+# Only populate if no caller has already provided spdlog targets (e.g. via Conan,
+# vcpkg, or their own FetchContent_MakeAvailable). This avoids the ALIAS-target
+# set_property error without stealing find_package(spdlog) from the consumer.
+if(NOT TARGET spdlog::spdlog_header_only)
+  set(SPDLOG_BUILD_EXAMPLE  OFF CACHE BOOL "" FORCE)
+  set(SPDLOG_BUILD_TESTS    OFF CACHE BOOL "" FORCE)
+  set(SPDLOG_INSTALL        OFF CACHE BOOL "" FORCE)
+  set(SPDLOG_SYSTEM_INCLUDES ON  CACHE BOOL "" FORCE)
+  set(SPDLOG_NO_EXCEPTIONS   ON  CACHE BOOL "" FORCE)
+  FetchContent_MakeAvailable(spdlog)
+endif()
 
 # Google Benchmark (only when ENABLE_TESTS=ON)
 if(ENABLE_TESTS)
