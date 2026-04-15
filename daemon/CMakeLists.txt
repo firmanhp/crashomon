@@ -3,7 +3,9 @@
 
 add_executable(crashomon_watcherd
   main.cpp
+  crash_socket.cpp
   disk_manager.cpp
+  watcher.cpp
   worker.cpp
 )
 
