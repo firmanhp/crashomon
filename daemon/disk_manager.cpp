@@ -16,6 +16,7 @@
 #include "absl/status/status.h"
 #include "absl/status/statusor.h"
 #include "absl/strings/str_cat.h"
+#include "spdlog/spdlog.h"
 
 namespace crashomon {
 namespace {
@@ -100,6 +101,10 @@ absl::Status PruneDirectory(const std::string& dir, std::string_view ext, uint64
       return absl::InternalError(absl::StrCat("Failed to remove ", file.path.string(), ": ", err.message()));
     }
     total_bytes -= file.size;
+
+    const char* reason = over_age ? "age" : "size";
+    spdlog::info("crashomon-watcherd: pruned {} ({} bytes, reason: {})", file.path.string(),
+                 file.size, reason);
 
     // Remove the .meta sidecar written by Crashpad's CrashReportDatabase
     // alongside every .dmp.  Best-effort: ignore errors (file may not exist).
