@@ -1,4 +1,4 @@
-cmake_minimum_required(VERSION 3.21)
+cmake_minimum_required(VERSION 3.24)
 project(crashomon VERSION 0.1.0 LANGUAGES C CXX)
 
 # ── Language standards ─────────────────────────────────────────────────────────
@@ -103,21 +103,21 @@ include(FetchContent)
 # Must be configured BEFORE Crashpad so its find_package(ZLIB REQUIRED) succeeds.
 # We create a ZLIB::ZLIB alias and set FindZLIB cache vars so downstream find_package
 # calls short-circuit and use our built-from-source version.
-FetchContent_Declare(zlib_dep
+FetchContent_Declare(crashomon_zlib
   GIT_REPOSITORY https://github.com/madler/zlib.git
   GIT_TAG        v1.3.1
 )
-FetchContent_GetProperties(zlib_dep)
-if(NOT zlib_dep_POPULATED)
-  FetchContent_Populate(zlib_dep)
+FetchContent_GetProperties(crashomon_zlib)
+if(NOT crashomon_zlib_POPULATED)
+  FetchContent_Populate(crashomon_zlib)
   set(ZLIB_BUILD_EXAMPLES OFF CACHE BOOL "" FORCE)
-  add_subdirectory("${zlib_dep_SOURCE_DIR}" "${zlib_dep_BINARY_DIR}" EXCLUDE_FROM_ALL)
+  add_subdirectory("${crashomon_zlib_SOURCE_DIR}" "${crashomon_zlib_BINARY_DIR}" EXCLUDE_FROM_ALL)
   target_compile_options(zlibstatic PRIVATE -w)
   # Pin zlibstatic's output to its own build dir regardless of any
   # CMAKE_ARCHIVE_OUTPUT_DIRECTORY set by a parent project. ZLIB::ZLIB's
   # IMPORTED_LOCATION hardcodes this path and must match the actual output.
   set_target_properties(zlibstatic PROPERTIES
-    ARCHIVE_OUTPUT_DIRECTORY "${zlib_dep_BINARY_DIR}"
+    ARCHIVE_OUTPUT_DIRECTORY "${crashomon_zlib_BINARY_DIR}"
   )
 endif()
 # Create ZLIB::ZLIB as an IMPORTED target (not ALIAS) so it is valid in CMake export sets.
@@ -128,14 +128,14 @@ endif()
 if(NOT TARGET ZLIB::ZLIB)
   add_library(ZLIB::ZLIB IMPORTED STATIC GLOBAL)
   set_target_properties(ZLIB::ZLIB PROPERTIES
-    IMPORTED_LOCATION "${zlib_dep_BINARY_DIR}/libz.a"
-    INTERFACE_INCLUDE_DIRECTORIES "${zlib_dep_SOURCE_DIR};${zlib_dep_BINARY_DIR}"
+    IMPORTED_LOCATION "${crashomon_zlib_BINARY_DIR}/libz.a"
+    INTERFACE_INCLUDE_DIRECTORIES "${crashomon_zlib_SOURCE_DIR};${crashomon_zlib_BINARY_DIR}"
   )
 endif()
 set(ZLIB_FOUND       TRUE          CACHE BOOL   "zlib found (FetchContent)" FORCE)
-set(ZLIB_INCLUDE_DIR "${zlib_dep_SOURCE_DIR};${zlib_dep_BINARY_DIR}" CACHE PATH "" FORCE)
-set(ZLIB_LIBRARY     "${zlib_dep_BINARY_DIR}/libz.a" CACHE FILEPATH "" FORCE)
-set(ZLIB_LIBRARIES   "${zlib_dep_BINARY_DIR}/libz.a" CACHE STRING   "" FORCE)
+set(ZLIB_INCLUDE_DIR "${crashomon_zlib_SOURCE_DIR};${crashomon_zlib_BINARY_DIR}" CACHE PATH "" FORCE)
+set(ZLIB_LIBRARY     "${crashomon_zlib_BINARY_DIR}/libz.a" CACHE FILEPATH "" FORCE)
+set(ZLIB_LIBRARIES   "${crashomon_zlib_BINARY_DIR}/libz.a" CACHE STRING   "" FORCE)
 set(ZLIB_VERSION_STRING "1.3.1"   CACHE STRING  "" FORCE)
 
 # CURL stub — Crashpad's util unconditionally compiles http_transport_libcurl.cc on Linux,
@@ -147,13 +147,13 @@ include(cmake/libcurl_stub.cmake)
 # sentry-native's repo vendors a complete CMake build of Crashpad at external/crashpad/.
 # We fetch the sentry-native source but add_subdirectory only the Crashpad subtree,
 # bypassing the sentry wrapper entirely. No sentry targets are built or linked.
-FetchContent_Declare(crashpad_src
+FetchContent_Declare(crashomon_crashpad
   GIT_REPOSITORY https://github.com/getsentry/sentry-native.git
   GIT_TAG        0.7.17
 )
-FetchContent_GetProperties(crashpad_src)
-if(NOT crashpad_src_POPULATED)
-  FetchContent_Populate(crashpad_src)
+FetchContent_GetProperties(crashomon_crashpad)
+if(NOT crashomon_crashpad_POPULATED)
+  FetchContent_Populate(crashomon_crashpad)
 endif()
 
 # Crashpad's CMakeLists.txt sets CMAKE_CXX_STANDARD 20 in its own directory scope —
@@ -164,7 +164,7 @@ set(CRASHPAD_ENABLE_INSTALL_DEV OFF CACHE BOOL "" FORCE)
 # Scoped before add_subdirectory: all targets created in that subdirectory inherit this.
 set(CMAKE_POSITION_INDEPENDENT_CODE ON)
 add_subdirectory(
-  "${crashpad_src_SOURCE_DIR}/external/crashpad"
+  "${crashomon_crashpad_SOURCE_DIR}/external/crashpad"
   "${CMAKE_BINARY_DIR}/crashpad_build"
   EXCLUDE_FROM_ALL  # suppress Crashpad's own install() rules; we install only what we need
 )
@@ -203,43 +203,45 @@ endif()
 
 # GoogleTest for unit tests (only when ENABLE_TESTS=ON)
 if(ENABLE_TESTS)
-  FetchContent_Declare(googletest
+  FetchContent_Declare(GTest
     GIT_REPOSITORY https://github.com/google/googletest.git
     GIT_TAG        v1.14.0
+    OVERRIDE_FIND_PACKAGE  # intercept find_package(GTest) to avoid config-file ALIAS errors
   )
   # Prevent GoogleTest from overriding our compiler/linker settings
   set(gtest_force_shared_crt ON CACHE BOOL "" FORCE)
-  FetchContent_MakeAvailable(googletest)
+  FetchContent_MakeAvailable(GTest)
 endif()
 
 # Abseil — internal error handling (absl::Status, absl::StatusOr).
 # Internal only: absl types must NOT appear in public/cross-library interfaces.
 # Only link the specific targets used per component to avoid binary bloat.
-FetchContent_Declare(abseil
+FetchContent_Declare(absl
   GIT_REPOSITORY https://github.com/abseil/abseil-cpp.git
   GIT_TAG        20240722.0
+  OVERRIDE_FIND_PACKAGE  # intercept find_package(absl) to avoid config-file ALIAS errors
 )
 set(ABSL_PROPAGATE_CXX_STD ON CACHE BOOL "" FORCE)
 set(ABSL_BUILD_TESTING      OFF CACHE BOOL "" FORCE)
 set(BUILD_TESTING            OFF CACHE BOOL "" FORCE)
-FetchContent_MakeAvailable(abseil)
+FetchContent_MakeAvailable(absl)
 
 # Abseil headers use __int128 (a GCC extension) and have internal sign-conversion
 # issues. FetchContent before CMake 3.25 does not mark fetched deps as SYSTEM
 # includes, so our -Wpedantic/-Wsign-conversion would fire on Abseil headers when
 # our own code includes them.
 #
-# Fix: propagate abseil_SOURCE_DIR as INTERFACE_SYSTEM_INCLUDE_DIRECTORIES on all
+# Fix: propagate absl_SOURCE_DIR as INTERFACE_SYSTEM_INCLUDE_DIRECTORIES on all
 # absl targets so any downstream target that links absl gets SYSTEM includes.
 # This suppresses warnings only from Abseil headers — not from our own code.
-if(abseil_SOURCE_DIR)
-  get_property(_absl_targets DIRECTORY "${abseil_SOURCE_DIR}" PROPERTY BUILDSYSTEM_TARGETS)
+if(absl_SOURCE_DIR)
+  get_property(_absl_targets DIRECTORY "${absl_SOURCE_DIR}" PROPERTY BUILDSYSTEM_TARGETS)
   foreach(_tgt IN LISTS _absl_targets)
     if(TARGET ${_tgt})
       get_target_property(_type ${_tgt} TYPE)
       if(NOT _type STREQUAL "INTERFACE_LIBRARY")
         set_property(TARGET ${_tgt} APPEND PROPERTY
-          INTERFACE_SYSTEM_INCLUDE_DIRECTORIES "${abseil_SOURCE_DIR}")
+          INTERFACE_SYSTEM_INCLUDE_DIRECTORIES "${absl_SOURCE_DIR}")
       else()
         # INTERFACE targets may have their own include dirs — mark those too.
         get_target_property(_inc ${_tgt} INTERFACE_INCLUDE_DIRECTORIES)
@@ -255,13 +257,13 @@ endif()
 # Breakpad — minidump-processor library + dump_syms + minidump_stackwalk tools.
 # Breakpad uses GN/autotools; we define our own CMake targets (vcpkg-style).
 
-FetchContent_Declare(breakpad
+FetchContent_Declare(crashomon_breakpad
   GIT_REPOSITORY https://github.com/google/breakpad.git
   GIT_TAG        v2024.02.16
 )
-FetchContent_GetProperties(breakpad)
-if(NOT breakpad_POPULATED)
-  FetchContent_Populate(breakpad)
+FetchContent_GetProperties(crashomon_breakpad)
+if(NOT crashomon_breakpad_POPULATED)
+  FetchContent_Populate(crashomon_breakpad)
   # Downgrade caller_fp/caller_lr log severity from ERROR to INFO so they are
   # filtered by BPLOG_MINIMUM_SEVERITY=SEVERITY_ERROR (set in breakpad.cmake).
   # These fire on every scan-recovered frame when the target binary was compiled
@@ -273,24 +275,24 @@ if(NOT breakpad_POPULATED)
     COMMAND sed -i
       -e "s|BPLOG(ERROR) << \"Unable to read caller_fp|BPLOG(INFO) << \"Unable to read caller_fp|g"
       -e "s|BPLOG(ERROR) << \"Unable to read caller_lr|BPLOG(INFO) << \"Unable to read caller_lr|g"
-      "${breakpad_SOURCE_DIR}/src/processor/stackwalker_arm64.cc"
+      "${crashomon_breakpad_SOURCE_DIR}/src/processor/stackwalker_arm64.cc"
   )
 endif()
 
 # LSS header needed by dump_syms (file_id.cc: #include "third_party/lss/linux_syscall_support.h")
-FetchContent_Declare(breakpad_lss
+FetchContent_Declare(crashomon_breakpad_lss
   GIT_REPOSITORY https://chromium.googlesource.com/linux-syscall-support.git
   GIT_TAG        v2024.02.01
 )
-FetchContent_GetProperties(breakpad_lss)
-if(NOT breakpad_lss_POPULATED)
-  FetchContent_Populate(breakpad_lss)
+FetchContent_GetProperties(crashomon_breakpad_lss)
+if(NOT crashomon_breakpad_lss_POPULATED)
+  FetchContent_Populate(crashomon_breakpad_lss)
 endif()
 # Create the directory and symlink where Breakpad expects the LSS header
-file(MAKE_DIRECTORY "${breakpad_SOURCE_DIR}/src/third_party/lss")
+file(MAKE_DIRECTORY "${crashomon_breakpad_SOURCE_DIR}/src/third_party/lss")
 file(CREATE_LINK
-  "${breakpad_lss_SOURCE_DIR}/linux_syscall_support.h"
-  "${breakpad_SOURCE_DIR}/src/third_party/lss/linux_syscall_support.h"
+  "${crashomon_breakpad_lss_SOURCE_DIR}/linux_syscall_support.h"
+  "${crashomon_breakpad_SOURCE_DIR}/src/third_party/lss/linux_syscall_support.h"
   SYMBOLIC
 )
 
@@ -305,6 +307,8 @@ include(cmake/crashomon_symbols.cmake)
 FetchContent_Declare(spdlog
   GIT_REPOSITORY https://github.com/gabime/spdlog.git
   GIT_TAG        v1.14.1
+  OVERRIDE_FIND_PACKAGE  # redirect any find_package(spdlog) to FetchContent targets,
+                         # preventing ALIAS-target set_property errors from installed configs
 )
 set(SPDLOG_BUILD_EXAMPLE  OFF CACHE BOOL "" FORCE)
 set(SPDLOG_BUILD_TESTS    OFF CACHE BOOL "" FORCE)
@@ -318,6 +322,7 @@ if(ENABLE_TESTS)
   FetchContent_Declare(benchmark
     GIT_REPOSITORY https://github.com/google/benchmark.git
     GIT_TAG        v1.9.1
+    OVERRIDE_FIND_PACKAGE  # intercept find_package(benchmark) to avoid config-file ALIAS errors
   )
   set(BENCHMARK_ENABLE_TESTING    OFF CACHE BOOL "" FORCE)
   set(BENCHMARK_ENABLE_GTEST_TESTS OFF CACHE BOOL "" FORCE)

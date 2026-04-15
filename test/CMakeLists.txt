@@ -42,11 +42,11 @@ target_include_directories(crashomon_daemon_tests
     ${CMAKE_CURRENT_SOURCE_DIR}
 )
 
-if(abseil_SOURCE_DIR)
-  target_include_directories(crashomon_daemon_tests SYSTEM PRIVATE "${abseil_SOURCE_DIR}")
+if(absl_SOURCE_DIR)
+  target_include_directories(crashomon_daemon_tests SYSTEM PRIVATE "${absl_SOURCE_DIR}")
 endif()
-if(breakpad_SOURCE_DIR)
-  target_include_directories(crashomon_daemon_tests SYSTEM PRIVATE "${breakpad_SOURCE_DIR}/src")
+if(crashomon_breakpad_SOURCE_DIR)
+  target_include_directories(crashomon_daemon_tests SYSTEM PRIVATE "${crashomon_breakpad_SOURCE_DIR}/src")
 endif()
 
 set_target_properties(crashomon_daemon_tests PROPERTIES CXX_CLANG_TIDY "${CRASHOMON_CLANG_TIDY}")
@@ -89,8 +89,8 @@ target_include_directories(crashomon_client_tests
     ${CMAKE_CURRENT_SOURCE_DIR}
 )
 
-if(abseil_SOURCE_DIR)
-  target_include_directories(crashomon_client_tests SYSTEM PRIVATE "${abseil_SOURCE_DIR}")
+if(absl_SOURCE_DIR)
+  target_include_directories(crashomon_client_tests SYSTEM PRIVATE "${absl_SOURCE_DIR}")
 endif()
 # lib/crashomon.cpp and test_tags.cpp include Crashpad headers directly.
 # Mark Crashpad's directories as SYSTEM so -Werror does not fire on third-party
@@ -114,9 +114,9 @@ target_link_libraries(gen_synthetic_fixtures
     breakpad_synth_minidump
     breakpad_processor
 )
-if(breakpad_SOURCE_DIR)
+if(crashomon_breakpad_SOURCE_DIR)
   target_include_directories(gen_synthetic_fixtures SYSTEM PRIVATE
-    "${breakpad_SOURCE_DIR}/src")
+    "${crashomon_breakpad_SOURCE_DIR}/src")
 endif()
 
 # Run the generator at build time; outputs land in build/test/fixtures/.

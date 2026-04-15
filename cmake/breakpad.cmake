@@ -16,7 +16,7 @@
 
 # ── Shared include directories ─────────────────────────────────────────────────
 
-set(BREAKPAD_SRC "${breakpad_SOURCE_DIR}/src")
+set(BREAKPAD_SRC "${crashomon_breakpad_SOURCE_DIR}/src")
 
 # ── breakpad_libdisasm ─────────────────────────────────────────────────────────
 # Vendored x86 disassembler used by the stack scanner in the processor library.
@@ -140,7 +140,7 @@ target_include_directories(breakpad_synth_minidump PUBLIC "${BREAKPAD_SRC}")
 
 # ── Build ordering: zlibstatic must exist before Breakpad targets link ─────────
 # ZLIB::ZLIB is an IMPORTED target whose IMPORTED_LOCATION points to
-# ${zlib_dep_BINARY_DIR}/libz.a. CMake does not automatically infer a build
+# ${crashomon_zlib_BINARY_DIR}/libz.a. CMake does not automatically infer a build
 # dependency from an IMPORTED_LOCATION path, so without an explicit
 # add_dependencies the linker invocation for each target can run before
 # zlibstatic has been compiled, producing "No rule to make target libz.a".

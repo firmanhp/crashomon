@@ -23,9 +23,9 @@ target_include_directories(crashomon_bench
     ${CMAKE_CURRENT_SOURCE_DIR}
 )
 
-if(abseil_SOURCE_DIR)
-  target_include_directories(crashomon_bench SYSTEM PRIVATE "${abseil_SOURCE_DIR}")
+if(absl_SOURCE_DIR)
+  target_include_directories(crashomon_bench SYSTEM PRIVATE "${absl_SOURCE_DIR}")
 endif()
-if(breakpad_SOURCE_DIR)
-  target_include_directories(crashomon_bench SYSTEM PRIVATE "${breakpad_SOURCE_DIR}/src")
+if(crashomon_breakpad_SOURCE_DIR)
+  target_include_directories(crashomon_bench SYSTEM PRIVATE "${crashomon_breakpad_SOURCE_DIR}/src")
 endif()
