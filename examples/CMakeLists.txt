@@ -46,3 +46,12 @@ target_compile_options(example_multithread PRIVATE
 set_target_properties(example_multithread PROPERTIES
   OUTPUT_NAME crashomon-example-multithread
 )
+
+# Store debug symbols for the segfault example at build time so the integration
+# test can exercise the full cmake-build → crashomon-analyze pipeline without a
+# manual crashomon-syms add step.
+# Guard with COMMAND check: this file is also reachable when crashomon is embedded
+# as a subproject that has not included crashomon_symbols.cmake.
+if(COMMAND crashomon_store_symbols)
+  crashomon_store_symbols(example_segfault)
+endif()

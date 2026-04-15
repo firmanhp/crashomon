@@ -295,6 +295,7 @@ file(CREATE_LINK
 )
 
 include(cmake/breakpad.cmake)
+include(cmake/crashomon_symbols.cmake)
 
 # spdlog — structured logging for crashomon-watcherd.
 # SPDLOG_SYSTEM_INCLUDES: spdlog marks its own headers as -isystem, suppressing

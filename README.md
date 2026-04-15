@@ -221,17 +221,86 @@ crashomon-watcherd [OPTIONS]
 
 ---
 
-## Symbol Store: crashomon-syms
+## Symbol Store
 
 The symbol store holds Breakpad `.sym` files extracted from debug binaries. It must be populated before symbolication can produce function names and line numbers.
+
+Store layout (Breakpad-standard, content-addressed by build ID):
+
+```
+/var/crashomon/symbols/
+  my_binary/
+    A1B2C3D4E5F60000/        ← build ID — different builds never collide
+      my_binary.sym
+      my_binary              ← unstripped ELF (optional; enables --debug-dir mode)
+  libfoo.so/
+    7B3C1A9D.../
+      libfoo.so.sym
+```
+
+Two tools populate the store — the right one depends on context:
+
+| Tool | Best for |
+|---|---|
+| `crashomon_store_symbols()` | CMake targets you build yourself — fires automatically at build time |
+| `crashomon-syms` | Everything else: third-party libs, non-CMake builds, store inspection, pruning, web UI |
+
+### cmake integration — crashomon_store_symbols()
+
+If your project uses CMake, add one call per target. Symbols are stored automatically every time the binary is linked — no separate script step:
+
+```cmake
+include(FetchContent)
+FetchContent_Declare(crashomon
+    GIT_REPOSITORY https://github.com/firmanhp/crashomon.git
+    GIT_TAG        main
+)
+FetchContent_MakeAvailable(crashomon)
+
+add_executable(my_daemon src/main.cpp)
+target_link_libraries(my_daemon PRIVATE crashomon_client)
+
+# Store .sym automatically on every build:
+crashomon_store_symbols(my_daemon)
+
+# Also copy the unstripped binary (enables crashomon-analyze --debug-dir --stdin):
+# crashomon_store_symbols(my_daemon WITH_BINARY)
+```
+
+`CRASHOMON_SYMBOL_STORE` controls the output directory (default: `<build>/symbols/`). Override at configure time for CI/CD:
+
+```bash
+cmake -B build -DCRASOMON_SYMBOL_STORE=/srv/crashomon/symbols
+cmake --build build
+
+# Merge multiple build machines into a shared store — safe because
+# each build ID subdirectory is unique and never overwrites another:
+rsync -a build/symbols/ deploy-host:/srv/crashomon/symbols/
+```
+
+Then point `crashomon-analyze` at the same directory:
+
+```bash
+crashomon-analyze --store /srv/crashomon/symbols --minidump crash.dmp
+```
+
+### crashomon-syms — manual and CLI management
+
+Use `crashomon-syms` for everything outside the CMake graph:
+
+- **Third-party and OS libraries** — `libc.so`, vendor SDKs, firmware blobs you did not build. `--recursive` ingests a whole sysroot at once.
+- **Non-CMake build systems** — Makefiles, Bazel, Meson, Autotools. Works from any shell script.
+- **Retroactive ingestion** — binary was shipped before you added the cmake call, or came from production.
+- **Store inspection and pruning** — `list` shows what is stored; `prune` evicts old build-ID entries to reclaim disk space. The cmake function does neither.
+- **Web UI backend** — `crashomon-web` invokes `crashomon-syms` when symbols are uploaded through the browser.
 
 ```bash
 # Ingest a single debug binary
 crashomon-syms add --store /var/crashomon/symbols \
-    --dump-syms build/breakpad-src/src/tools/linux/dump_syms/dump_syms \
+    --dump-syms build/.../breakpad_dump_syms \
     ./my_binary
 
-# Ingest all ELF binaries recursively (e.g. after a full build)
+# Ingest all ELF binaries under a directory (sysroot, build output, etc.)
 crashomon-syms add --store /var/crashomon/symbols --recursive ./build/
 
 # List what is stored
@@ -241,26 +310,17 @@ crashomon-syms list --store /var/crashomon/symbols
 crashomon-syms prune --store /var/crashomon/symbols --keep 3
 ```
 
-Store layout (Breakpad-standard, auto-resolved from minidump build ID):
-
-```
-/var/crashomon/symbols/
-  my_binary/
-    A1B2C3D4E5F60000/   ← build ID
-      my_binary.sym
-  libfoo.so/
-    ...
-```
-
 ### CI/CD symbol upload
 
-After each build, upload symbols so crash reports are always symbolicated:
-
 ```bash
-# Via CLI tool (from build machine)
-crashomon-syms add --store /symbols --recursive ./build/
+# Via cmake (preferred when you control the build):
+cmake -B build -DCRASOMON_SYMBOL_STORE=/srv/symbols && cmake --build build
+# → symbols land in /srv/symbols/ automatically on every build
 
-# Via REST API (from CI runner, targeting a remote crashomon-web)
+# Via CLI (third-party libs, non-CMake projects, post-deployment):
+crashomon-syms add --store /srv/symbols --recursive ./build/
+
+# Via REST API (CI runner uploading to a remote crashomon-web):
 curl -F binary=@./build/my_binary http://crashomon-web:5000/api/symbols/upload
 ```
 
@@ -268,13 +328,28 @@ curl -F binary=@./build/my_binary http://crashomon-web:5000/api/symbols/upload
 
 ## Offline Analysis: crashomon-analyze
 
-Symbolicate a minidump or annotate a pasted tombstone from the developer machine:
+Symbolicate a minidump or annotate a pasted tombstone from the developer machine.
+
+| Mode | When to use |
+|---|---|
+| `--store --minidump` | You have a `.dmp` file and a symbol store |
+| `--debug-dir --stdin` | You have tombstone text from journalctl and unstripped binaries |
+| `--store --stdin` | Tombstone text; binary is accessible at its original path on the host |
+| `--symbols --minidump` | Single `.sym` file, no full store |
+| `--minidump` only | Raw unsymbolicated tombstone — no symbols needed |
 
 ```bash
 # Symbolicate a minidump against a symbol store (auto-matches by build ID)
 crashomon-analyze --store=/var/crashomon/symbols --minidump=crash.dmp
 
-# Annotate a tombstone piped from stdin
+# Symbolicate tombstone text copied from journalctl using host-side debug binaries.
+# --debug-dir walks the directory recursively, indexing ELFs by GNU build ID —
+# target paths do not need to exist on the host.  If you used crashomon_store_symbols()
+# WITH_BINARY, the build directory works as-is for both modes:
+journalctl -u crashomon-watcherd --since "10 minutes ago" | \
+    crashomon-analyze --debug-dir=/srv/crashomon/symbols --stdin
+
+# Annotate tombstone text when the original binary paths exist on the host
 crashomon-analyze --store=/var/crashomon/symbols --stdin < tombstone.txt
 
 # Use a single explicit .sym file
@@ -346,7 +421,7 @@ tools/
   syms/         crashomon-syms — symbol store management (Python)
 web/            crashomon-web — Flask UI + REST API (Python, imports tools.analyze)
   tests/        pytest tests for the web layer and analyze tool
-cmake/          CMake helper modules (cmake/breakpad.cmake)
+cmake/          CMake helper modules: breakpad.cmake, crashomon_symbols.cmake (crashomon_store_symbols())
 bench/          Microbenchmarks (Google Benchmark, opt-in)
 test/           C/C++ unit tests (GoogleTest) + integration scripts
 examples/       Example crasher programs (segfault, abort, multithread)
@@ -412,12 +487,16 @@ test/gen_fixtures.sh build
 ctest --test-dir build -R MinidumpReader
 ```
 
-### Integration test
-
-End-to-end test of the full pipeline: capture → analyze → syms:
+### Integration tests
 
 ```bash
+# Full pipeline: watcherd capture → analyze → syms
 test/integration_test.sh build
+
+# cmake symbol store: build → store layout → crashomon-analyze with cmake-generated store
+# Validates that crashomon_store_symbols() produces a store that fully symbolicates a
+# live crash — no manual crashomon-syms add step.
+test/test_symbol_store.sh build
 ```
 
 ### Sanitizer builds
@@ -660,6 +739,14 @@ FetchContent_MakeAvailable(crashomon)
 
 # Link the client library into your target
 target_link_libraries(my_app PRIVATE crashomon_client)
+
+# Automatically store debug symbols at build time (optional but recommended).
+# Symbols land in CRASHOMON_SYMBOL_STORE (default: <build>/symbols/).
+# Override at configure time: cmake -B build -DCRASOMON_SYMBOL_STORE=/srv/symbols
+crashomon_store_symbols(my_app)
+
+# Add WITH_BINARY to also enable crashomon-analyze --debug-dir --stdin:
+# crashomon_store_symbols(my_app WITH_BINARY)
 ```
 
 Pass your toolchain file at configure time and CMake will cross-compile crashomon and all its dependencies automatically:
@@ -667,6 +754,7 @@ Pass your toolchain file at configure time and CMake will cross-compile crashomo
 ```bash
 cmake -B build \
     -DCMAKE_TOOLCHAIN_FILE=/path/to/toolchain-aarch64.cmake \
+    -DCRASOMON_SYMBOL_STORE=/srv/crashomon/symbols \
     -DFETCHCONTENT_QUIET=OFF
 cmake --build build -j$(nproc)
 ```
