@@ -182,7 +182,6 @@ Store layout (Breakpad-standard, content-addressed by build ID):
   my_binary/
     A1B2C3D4E5F60000/        ← build ID — different builds never collide
       my_binary.sym
-      my_binary              ← unstripped ELF (optional; enables --debug-dir mode)
   libfoo.so/
     7B3C1A9D.../
       libfoo.so.sym
@@ -205,9 +204,6 @@ target_link_libraries(my_daemon PRIVATE crashomon_client)
 
 # Store .sym automatically on every build:
 crashomon_store_symbols(my_daemon)
-
-# Also copy the unstripped binary (enables --debug-dir --stdin mode in crashomon-analyze):
-# crashomon_store_symbols(my_daemon WITH_BINARY)
 ```
 
 `CRASHOMON_SYMBOL_STORE` controls the output directory (default: `<build>/symbols/`). Override at configure time for CI/CD:
@@ -268,8 +264,7 @@ Symbolicate a minidump or annotate a pasted tombstone from a developer machine.
 | Mode | When to use |
 |---|---|
 | `--store --minidump` | You have a `.dmp` file and a symbol store |
-| `--store --stdin` | Tombstone text from journalctl; binary paths must exist on this machine |
-| `--debug-dir --stdin` | Tombstone text; indexed by build ID from unstripped binaries |
+| `--store --stdin` | Tombstone text from journalctl; matched by build ID — no host binaries required |
 | `--symbols --minidump` | Single `.sym` file, no full store |
 | `--minidump` only | Raw unsymbolicated tombstone — no symbols needed |
 
@@ -277,13 +272,10 @@ Symbolicate a minidump or annotate a pasted tombstone from a developer machine.
 # Symbolicate a minidump against a symbol store (auto-matches by build ID)
 crashomon-analyze --store=/var/crashomon/symbols --minidump=crash.dmp
 
-# Annotate tombstone text copied from journalctl using host-side debug binaries.
-# --debug-dir indexes ELFs by GNU build ID — target paths need not exist on the host.
+# Annotate tombstone text copied from journalctl.
+# Frames are matched by GNU build ID — target paths need not exist on the host.
 journalctl -u crashomon-watcherd --since "10 minutes ago" | \
-    crashomon-analyze --debug-dir=/srv/crashomon/symbols --stdin
-
-# Annotate tombstone text when the original binary paths exist on the host
-crashomon-analyze --store=/var/crashomon/symbols --stdin < tombstone.txt
+    crashomon-analyze --store=/var/crashomon/symbols --stdin
 
 # Use a single explicit .sym file
 crashomon-analyze --symbols=my_service.sym --minidump=crash.dmp
@@ -291,10 +283,9 @@ crashomon-analyze --symbols=my_service.sym --minidump=crash.dmp
 # Raw unsymbolicated tombstone from a minidump (no symbol store needed)
 crashomon-analyze --minidump=crash.dmp
 
-# Override tool paths if not in PATH
+# Override tool path if not in PATH
 crashomon-analyze --store=... --minidump=... \
-    --stackwalk-binary=/path/to/minidump_stackwalk \
-    --addr2line-binary=/path/to/eu-addr2line
+    --stackwalk-binary=/path/to/minidump_stackwalk
 ```
 
 ---

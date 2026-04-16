@@ -1,9 +1,7 @@
 """Symbolization and tombstone formatting utilities.
 
 Provides:
-  - symbolize_with_addr2line: resolve frame addresses via eu-addr2line
-  - build_build_id_index: index ELF debug binaries by GNU build ID (pure Python)
-  - symbolize_with_build_id_index: resolve frames via build-ID-indexed ELFs
+  - symbolize_with_store: resolve frame addresses via a Breakpad symbol store
   - format_symbolicated: format a ParsedTombstone with symbol information
   - parse_stackwalk_machine: parse minidump_stackwalk -m output
   - format_raw_tombstone: format a ParsedTombstone without symbols (Mode 4)
@@ -11,10 +9,9 @@ Provides:
 
 from __future__ import annotations
 
-import struct
+import bisect
 import subprocess
-import sys
-from dataclasses import dataclass
+from dataclasses import dataclass, field as dc_field
 from pathlib import Path
 
 from .log_parser import ParsedFrame, ParsedThread, ParsedTombstone
@@ -36,7 +33,7 @@ _SIGNAL_NUMBERS: dict[str, int] = {
 
 
 # ---------------------------------------------------------------------------
-# eu-addr2line symbolization
+# Symbol store symbolization
 # ---------------------------------------------------------------------------
 
 
@@ -51,76 +48,136 @@ class SymbolInfo:
 SymbolTable = dict[tuple[int, int], SymbolInfo]
 
 
-def _query_addr2line(
-    module: str, addr2line: str, refs: list[tuple[int, int, int]]
-) -> list[str]:
-    """Call addr2line once for all (tid, index, offset) refs in one module.
+@dataclass
+class _FuncEntry:
+    """One FUNC record from a .sym file, with its associated LINE records."""
 
-    Returns raw output lines (2 lines per address: function, then file:line).
+    start: int
+    end: int  # exclusive (start + size)
+    name: str
+    # Parallel lists sorted by address, one entry per LINE record.
+    line_addrs: list[int] = dc_field(default_factory=list)
+    line_nums: list[int] = dc_field(default_factory=list)
+    line_files: list[int] = dc_field(default_factory=list)
+
+
+def _parse_sym_file(sym_path: Path) -> tuple[dict[int, str], list[_FuncEntry]]:
+    """Parse a Breakpad .sym file into (file_map, funcs sorted by start address).
+
+    Returns empty structures if the file cannot be read.
     """
-    cmd = [addr2line, "-e", module, "-f", "-s"]
-    cmd += [f"0x{offset:016x}" for _, _, offset in refs]
+    file_map: dict[int, str] = {}
+    funcs: list[_FuncEntry] = []
+    current: _FuncEntry | None = None
+
     try:
-        result = subprocess.run(
-            cmd,
-            capture_output=True,
-            text=True,
-            timeout=30,
-        )
-    except (FileNotFoundError, subprocess.TimeoutExpired):
-        return []
-    if result.returncode != 0:
-        return []
-    return result.stdout.splitlines()
+        text = sym_path.read_text(encoding="utf-8", errors="replace")
+    except OSError:
+        return {}, []
+
+    for line in text.splitlines():
+        if line.startswith("FILE "):
+            parts = line.split(" ", 2)
+            if len(parts) >= 3:
+                try:
+                    file_map[int(parts[1])] = parts[2]
+                except ValueError:
+                    pass
+        elif line.startswith("FUNC "):
+            # FUNC <addr> <size> <param_size> <name>
+            parts = line.split(" ", 4)
+            if len(parts) >= 5:
+                try:
+                    start = int(parts[1], 16)
+                    size = int(parts[2], 16)
+                    current = _FuncEntry(start=start, end=start + size, name=parts[4])
+                    funcs.append(current)
+                except ValueError:
+                    current = None
+        elif current is not None and line and line[0].isdigit():
+            # LINE record: <addr> <size> <line> <file_num>  (no keyword prefix)
+            parts = line.split()
+            if len(parts) >= 4:
+                try:
+                    current.line_addrs.append(int(parts[0], 16))
+                    current.line_nums.append(int(parts[2]))
+                    current.line_files.append(int(parts[3]))
+                except ValueError:
+                    pass
+
+    funcs.sort(key=lambda f: f.start)
+    return file_map, funcs
 
 
-def _parse_addr2line_output(func_line: str, loc_line: str) -> SymbolInfo:
-    """Parse one (function, file:line) pair from addr2line output."""
-    sym = SymbolInfo(function=func_line or "??")
-    # loc_line is "file.c:142" or "??:0"
-    colon = loc_line.rfind(":")
-    if colon != -1:
-        src = loc_line[:colon]
-        num = loc_line[colon + 1 :]
-        sym.source_file = "" if src == "??" else src
-        try:
-            sym.source_line = int(num)
-        except ValueError:
-            sym.source_line = 0
+def _lookup_offset(
+    file_map: dict[int, str],
+    funcs: list[_FuncEntry],
+    offset: int,
+) -> SymbolInfo:
+    """Binary-search parsed sym data for the FUNC+LINE containing offset."""
+    if not funcs:
+        return SymbolInfo()
+
+    idx = bisect.bisect_right([f.start for f in funcs], offset) - 1
+    if idx < 0:
+        return SymbolInfo()
+
+    func = funcs[idx]
+    if offset >= func.end:
+        return SymbolInfo()
+
+    sym = SymbolInfo(function=func.name)
+    if func.line_addrs:
+        li = bisect.bisect_right(func.line_addrs, offset) - 1
+        if li >= 0:
+            sym.source_file = file_map.get(func.line_files[li], "")
+            sym.source_line = func.line_nums[li]
+
     return sym
 
 
-def symbolize_with_addr2line(
-    tombstone: ParsedTombstone, addr2line_binary: str = "eu-addr2line"
-) -> SymbolTable:
-    """Resolve frame addresses via eu-addr2line; return a SymbolTable.
+def _build_store_index(store: Path) -> dict[str, Path]:
+    """Walk a Breakpad symbol store and return {raw_build_id: sym_file_path}.
 
-    Frames whose module binary is not present on this machine are mapped
-    to SymbolInfo with function="??".  Never raises — missing binaries
-    or addr2line errors result in unknown symbols.
+    The store directory name is the Breakpad debug ID (uppercase hex + trailing
+    "0" age suffix).  Stripping the trailing "0" and lowercasing recovers the
+    raw GNU build ID that appears in tombstone (BuildId:) annotations.
     """
-    # Group frames by module path.
-    by_module: dict[str, list[tuple[int, int, int]]] = {}
-    for thread in tombstone.threads:
-        for frame in thread.frames:
-            if frame.module_path:
-                by_module.setdefault(frame.module_path, []).append(
-                    (thread.tid, frame.index, frame.module_offset)
-                )
+    index: dict[str, Path] = {}
+    for sym_file in store.rglob("*.sym"):
+        store_id = sym_file.parent.name
+        raw_id = (store_id[:-1] if store_id.endswith("0") else store_id).lower()
+        index[raw_id] = sym_file
+    return index
+
+
+def symbolize_with_store(
+    tombstone: ParsedTombstone,
+    store: Path,
+) -> SymbolTable:
+    """Resolve frame addresses using build IDs matched against a Breakpad symbol store.
+
+    Frames whose build_id is absent or not found in the store map to
+    SymbolInfo(function="??").  Never raises — missing or unparseable .sym
+    files result in unknown symbols.
+    """
+    store_index = _build_store_index(store)
+    parsed_cache: dict[Path, tuple[dict[int, str], list[_FuncEntry]]] = {}
 
     table: SymbolTable = {}
-    for module, refs in by_module.items():
-        if not Path(module).is_file():
-            for tid, idx, _ in refs:
-                table[(tid, idx)] = SymbolInfo()
-            continue
-
-        lines = _query_addr2line(module, addr2line_binary, refs)
-        for i, (tid, idx, _) in enumerate(refs):
-            base = i * 2
-            func = lines[base] if base < len(lines) else "??"
-            loc = lines[base + 1] if base + 1 < len(lines) else ""
-            table[(tid, idx)] = _parse_addr2line_output(func, loc)
+    for thread in tombstone.threads:
+        for frame in thread.frames:
+            if not frame.build_id:
+                continue
+            sym_path = store_index.get(frame.build_id)
+            if sym_path is None:
+                continue
+            if sym_path not in parsed_cache:
+                parsed_cache[sym_path] = _parse_sym_file(sym_path)
+            file_map, funcs = parsed_cache[sym_path]
+            sym = _lookup_offset(file_map, funcs, frame.module_offset)
+            if sym.function not in ("??", ""):
+                table[(thread.tid, frame.index)] = sym
 
     return table
 
@@ -318,148 +375,3 @@ def parse_stackwalk_machine(text: str) -> tuple[ParsedTombstone, SymbolTable]:
 def format_raw_tombstone(tombstone: ParsedTombstone) -> str:
     """Format a ParsedTombstone without symbol information."""
     return format_symbolicated(tombstone, {})
-
-
-# ---------------------------------------------------------------------------
-# Build-ID–based symbolization (Mode 5 — --debug-dir)
-# ---------------------------------------------------------------------------
-
-_PT_NOTE = 4
-_NT_GNU_BUILD_ID = 3
-_GNU_NOTE_NAME = b"GNU\x00"
-
-
-def _extract_build_id(data: bytes) -> str:
-    """Extract the GNU build ID from raw ELF bytes.
-
-    Parses PT_NOTE program headers (or falls back to nothing) looking for a
-    note with name "GNU\\0" and type NT_GNU_BUILD_ID (3).  Returns the
-    descriptor bytes as a lowercase hex string, or "" if not found.
-    """
-    if len(data) < 16 or data[:4] != b"\x7fELF":
-        return ""
-
-    ei_class = data[4]  # 1 = 32-bit, 2 = 64-bit
-    ei_data = data[5]   # 1 = LE, 2 = BE
-    endian = "<" if ei_data == 1 else ">"
-
-    try:
-        if ei_class == 2:  # 64-bit ELF
-            if len(data) < 64:
-                return ""
-            (ph_off,) = struct.unpack_from(f"{endian}Q", data, 32)
-            ph_ent_size, ph_num = struct.unpack_from(f"{endian}HH", data, 54)
-        elif ei_class == 1:  # 32-bit ELF
-            if len(data) < 52:
-                return ""
-            (ph_off,) = struct.unpack_from(f"{endian}I", data, 28)
-            ph_ent_size, ph_num = struct.unpack_from(f"{endian}HH", data, 42)
-        else:
-            return ""
-
-        for i in range(ph_num):
-            ph_start = ph_off + i * ph_ent_size
-            if ph_start + ph_ent_size > len(data):
-                break
-
-            if ei_class == 2:
-                (p_type,) = struct.unpack_from(f"{endian}I", data, ph_start)
-                if p_type != _PT_NOTE:
-                    continue
-                p_offset, p_filesz = struct.unpack_from(f"{endian}QQ", data, ph_start + 8)
-            else:
-                p_type, p_offset, _vaddr, _paddr, p_filesz = struct.unpack_from(
-                    f"{endian}IIIII", data, ph_start
-                )
-                if p_type != _PT_NOTE:
-                    continue
-
-            # Walk notes in this PT_NOTE segment.
-            note_pos = p_offset
-            note_end = p_offset + p_filesz
-            while note_pos + 12 <= note_end and note_pos + 12 <= len(data):
-                namesz, descsz, n_type = struct.unpack_from(f"{endian}III", data, note_pos)
-                note_pos += 12
-                name_padded = (namesz + 3) & ~3
-                desc_padded = (descsz + 3) & ~3
-                if note_pos + name_padded + desc_padded > len(data):
-                    break
-                name = data[note_pos : note_pos + namesz]
-                note_pos += name_padded
-                desc = data[note_pos : note_pos + descsz]
-                note_pos += desc_padded
-                if n_type == _NT_GNU_BUILD_ID and name == _GNU_NOTE_NAME:
-                    return desc.hex()
-    except struct.error:
-        return ""
-
-    return ""
-
-
-def build_build_id_index(debug_dir: Path) -> dict[str, Path]:
-    """Walk *debug_dir* recursively and index ELF files by GNU build ID.
-
-    Returns ``{build_id_hex_lower: elf_path}``.  On duplicate build IDs the
-    first path wins and a warning is printed to stderr.  Non-ELF files and
-    files that cannot be read are silently skipped.
-    """
-    index: dict[str, Path] = {}
-    for path in debug_dir.rglob("*"):
-        if not path.is_file():
-            continue
-        try:
-            with path.open("rb") as fobj:
-                magic = fobj.read(4)
-                if magic != b"\x7fELF":
-                    continue
-                fobj.seek(0)
-                data = fobj.read()
-        except OSError:
-            continue
-        build_id = _extract_build_id(data)
-        if not build_id:
-            continue
-        if build_id in index:
-            print(
-                f"warning: duplicate build ID {build_id}: {index[build_id]} and {path}",
-                file=sys.stderr,
-            )
-            continue
-        index[build_id] = path
-    return index
-
-
-def symbolize_with_build_id_index(
-    tombstone: ParsedTombstone,
-    index: dict[str, Path],
-    addr2line: str = "eu-addr2line",
-) -> SymbolTable:
-    """Resolve frame addresses using a build-ID index of host-side debug ELFs.
-
-    Frames whose ``build_id`` is empty or not found in *index* map to
-    ``SymbolInfo(function="??")`` — the formatter renders these as unsymbolicated.
-    Never raises; missing binaries or addr2line errors result in unknown symbols.
-    """
-    # Group frames by the resolved local ELF path.
-    by_elf: dict[Path, list[tuple[int, int, int]]] = {}
-    for thread in tombstone.threads:
-        for frame in thread.frames:
-            if not frame.build_id:
-                continue
-            elf_path = index.get(frame.build_id)
-            if elf_path is None:
-                continue
-            by_elf.setdefault(elf_path, []).append(
-                (thread.tid, frame.index, frame.module_offset)
-            )
-
-    table: SymbolTable = {}
-    for elf_path, refs in by_elf.items():
-        lines = _query_addr2line(str(elf_path), addr2line, refs)
-        for i, (tid, idx, _) in enumerate(refs):
-            base = i * 2
-            func = lines[base] if base < len(lines) else "??"
-            loc = lines[base + 1] if base + 1 < len(lines) else ""
-            table[(tid, idx)] = _parse_addr2line_output(func, loc)
-
-    return table

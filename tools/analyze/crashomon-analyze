@@ -8,8 +8,9 @@ Modes:
       to .sym files in the store.
 
   crashomon-analyze --store=<dir> --stdin
-      Read a tombstone from stdin, symbolicate using eu-addr2line.
-      Module paths in the tombstone must be accessible on this machine.
+      Read a tombstone from stdin, symbolicate using the symbol store.
+      Frames are matched by GNU build ID from (BuildId: ...) annotations.
+      Works across cross-compiled targets — no host-side binaries required.
 
   crashomon-analyze --symbols=<file.sym> --minidump=<file.dmp>
       Symbolicate a minidump using a single explicit .sym file.
@@ -19,15 +20,8 @@ Modes:
   crashomon-analyze --minidump=<file.dmp>
       Print a raw (unsymbolicated) Android-style tombstone from a minidump.
 
-  crashomon-analyze --debug-dir=<dir> --stdin
-      Read a tombstone from stdin (journalctl paste accepted), symbolicate
-      using host-side unstripped ELF binaries found under <dir>.  ELFs are
-      indexed by GNU build ID, so target paths do not need to exist on the
-      host.  Takes precedence over --store --stdin when both are given.
-
 Options:
   --stackwalk-binary=<path>   Path to minidump_stackwalk (default: minidump_stackwalk)
-  --addr2line-binary=<path>   Path to eu-addr2line (default: eu-addr2line)
 """
 
 from __future__ import annotations
@@ -43,7 +37,6 @@ sys.path.insert(0, str(Path(__file__).resolve().parents[2]))
 from tools.analyze.analyze import (  # noqa: E402
     mode_minidump_store,
     mode_raw_tombstone,
-    mode_stdin_debug_dir,
     mode_stdin_store,
     mode_sym_file_minidump,
 )
@@ -59,12 +52,8 @@ def _build_parser() -> argparse.ArgumentParser:
     parser.add_argument("--minidump", metavar="FILE", default="")
     parser.add_argument("--symbols", metavar="FILE", default="")
     parser.add_argument("--stdin", dest="read_stdin", action="store_true")
-    parser.add_argument("--debug-dir", metavar="DIR", default="")
     parser.add_argument(
         "--stackwalk-binary", metavar="PATH", default="minidump_stackwalk"
-    )
-    parser.add_argument(
-        "--addr2line-binary", metavar="PATH", default="eu-addr2line"
     )
     return parser
 
@@ -85,12 +74,9 @@ def main() -> int:
     try:
         if args.store and args.minidump:
             output = mode_minidump_store(args.store, args.minidump, _resolve_binary(args.stackwalk_binary))
-        elif args.debug_dir and args.read_stdin:
-            text = sys.stdin.read()
-            output = mode_stdin_debug_dir(text, args.debug_dir, _resolve_binary(args.addr2line_binary))
         elif args.store and args.read_stdin:
             text = sys.stdin.read()
-            output = mode_stdin_store(text, args.store, _resolve_binary(args.addr2line_binary))
+            output = mode_stdin_store(text, args.store)
         elif args.symbols and args.minidump:
             output = mode_sym_file_minidump(args.symbols, args.minidump, _resolve_binary(args.stackwalk_binary))
         elif args.minidump:
