@@ -8,6 +8,7 @@ from __future__ import annotations
 
 import shutil
 import subprocess
+import sys
 import tempfile
 from pathlib import Path
 
@@ -135,3 +136,112 @@ def mode_raw_tombstone(dmp: str, stackwalk: str) -> str:
     tombstone, _symbols, module_bases = parse_stackwalk_machine(raw_m)
     _apply_minidump_metadata(tombstone, dmp, module_bases, raw_human)
     return format_raw_tombstone(tombstone)
+
+
+def _extract_sysroot_symbols(
+    modules: set[str],
+    sysroot: Path,
+    store: Path,
+    dump_syms: str,
+) -> None:
+    """Run dump_syms on sysroot libraries matching unresolved module names."""
+    search_dirs = [sysroot / "usr" / "lib"]
+
+    for module_name in sorted(modules):
+        # module_path from parse_stackwalk_machine is already a bare name
+        # (e.g. "libc.so.6"), never a full path — Path.name is a no-op here
+        # but makes the intent explicit when a full path slips through.
+        basename = Path(module_name).name
+        in_sysroot = False
+        for search_dir in search_dirs:
+            candidate = search_dir / basename
+            if not candidate.exists():
+                continue
+            in_sysroot = True
+
+            try:
+                result = subprocess.run(
+                    [dump_syms, str(candidate.resolve())],
+                    capture_output=True,
+                    text=True,
+                    timeout=120,
+                )
+            except (FileNotFoundError, subprocess.TimeoutExpired) as exc:
+                print(f"  sysroot: dump_syms failed for {basename}: {exc}", file=sys.stderr)
+                break
+
+            if result.returncode != 0 or not result.stdout:
+                print(
+                    f"  sysroot: dump_syms failed for {basename} (exit {result.returncode})",
+                    file=sys.stderr,
+                )
+                break
+
+            first_line = result.stdout.splitlines()[0]
+            parts = first_line.split()
+            if len(parts) < 5 or parts[0] != "MODULE":
+                print(f"  sysroot: unexpected MODULE line for {basename}", file=sys.stderr)
+                break
+
+            build_id = parts[3]
+            mod_name = parts[4]
+            dest_dir = store / mod_name / build_id
+            dest_dir.mkdir(parents=True, exist_ok=True)
+            sym_file = dest_dir / f"{mod_name}.sym"
+            sym_file.write_text(result.stdout, encoding="utf-8")
+            print(
+                f"  sysroot: extracted {mod_name}/{build_id}/{mod_name}.sym",
+                file=sys.stderr,
+            )
+            break
+
+        if not in_sysroot:
+            print(
+                f"  sysroot: {module_name} not found in sysroot",
+                file=sys.stderr,
+            )
+
+
+def mode_minidump_sysroot(
+    store: str, sysroot: str, dmp: str, stackwalk: str, dump_syms: str
+) -> str:
+    """Mode 5: symbolicate a minidump using both a symbol store and a sysroot.
+
+    Runs dump_syms lazily on sysroot libraries that are referenced by the
+    minidump but missing from the store.  Generated .sym files are written
+    to the store so subsequent runs skip the conversion.
+    """
+    store_path = Path(store)
+    sysroot_path = Path(sysroot)
+    store_path.mkdir(parents=True, exist_ok=True)
+
+    # First pass: run stackwalk to discover which modules are unresolved.
+    raw_m = _run_stackwalk(stackwalk, dmp, [store], machine=True)
+    tombstone, symbols, module_bases = parse_stackwalk_machine(raw_m)
+
+    # Identify modules with no symbol hits — candidates for sysroot extraction.
+    resolved_modules = {
+        frame.module_path
+        for thread in tombstone.threads
+        for frame in thread.frames
+        if (thread.tid, frame.index) in symbols
+    }
+
+    unresolved_modules = {
+        frame.module_path
+        for thread in tombstone.threads
+        for frame in thread.frames
+        if frame.module_path and frame.module_path not in resolved_modules
+    }
+
+    if unresolved_modules:
+        _extract_sysroot_symbols(
+            unresolved_modules, sysroot_path, store_path, dump_syms
+        )
+
+    # Second pass with enriched store.
+    raw_m = _run_stackwalk(stackwalk, dmp, [store], machine=True)
+    raw_human = _run_stackwalk(stackwalk, dmp, [store])
+    tombstone, symbols, module_bases = parse_stackwalk_machine(raw_m)
+    _apply_minidump_metadata(tombstone, dmp, module_bases, raw_human)
+    return format_symbolicated(tombstone, symbols)

@@ -2,12 +2,16 @@
 
 from __future__ import annotations
 
+import os
+import shutil
 import textwrap
+from pathlib import Path
 from unittest.mock import MagicMock, patch
 
 import pytest
 
 from tools.analyze.analyze import (
+    _extract_sysroot_symbols,
     mode_minidump_store,
     mode_raw_tombstone,
     mode_stdin_store,
@@ -235,3 +239,79 @@ def test_mode_raw_tombstone_missing_binary_raises():
         pytest.raises(RuntimeError, match="not found"),
     ):
         mode_raw_tombstone("crash.dmp", "no_such_binary")
+
+
+# ---------------------------------------------------------------------------
+# _extract_sysroot_symbols
+# ---------------------------------------------------------------------------
+
+
+def test_extract_sysroot_symbols_populates_store(tmp_path: Path) -> None:
+    """Verify _extract_sysroot_symbols finds a library and stores its .sym file."""
+    # This test requires dump_syms and a real ELF — skip if not available.
+    dump_syms = shutil.which("breakpad_dump_syms") or shutil.which("dump_syms")
+    if dump_syms is None:
+        pytest.skip("dump_syms not found")
+
+    # Use the test binary itself as a stand-in for a sysroot library.
+    # Create a mock sysroot layout: sysroot/usr/lib/<binary>
+    sysroot = tmp_path / "sysroot"
+    lib_dir = sysroot / "usr" / "lib"
+    lib_dir.mkdir(parents=True)
+
+    # Find any ELF with debug info in the build tree.
+    build_dir = Path(os.environ.get("BUILD_DIR", "build"))
+    candidates = list(build_dir.glob("examples/crashomon-example-segfault"))
+    if not candidates:
+        pytest.skip("No test ELF available")
+
+    shutil.copy2(candidates[0], lib_dir / "libfake.so.1")
+    store = tmp_path / "store"
+
+    _extract_sysroot_symbols(
+        {"/usr/lib/libfake.so.1"},
+        sysroot,
+        store,
+        dump_syms,
+    )
+
+    sym_files = list(store.rglob("*.sym"))
+    assert len(sym_files) == 1
+    assert sym_files[0].name == "libfake.so.1.sym"
+
+
+def test_extract_sysroot_symbols_missing_module_is_silent(tmp_path: Path) -> None:
+    """Modules not found in the sysroot print a message but do not raise."""
+    sysroot = tmp_path / "sysroot"
+    (sysroot / "usr" / "lib").mkdir(parents=True)
+    store = tmp_path / "store"
+
+    # Should complete without raising even though the module is absent.
+    _extract_sysroot_symbols(
+        {"/usr/lib/libnonexistent.so.1"},
+        sysroot,
+        store,
+        "dump_syms",
+    )
+
+    assert not list(store.rglob("*.sym")) if store.exists() else True
+
+
+def test_extract_sysroot_symbols_dump_syms_failure_is_silent(tmp_path: Path) -> None:
+    """When dump_syms fails for a library, extraction continues silently."""
+    sysroot = tmp_path / "sysroot"
+    lib_dir = sysroot / "usr" / "lib"
+    lib_dir.mkdir(parents=True)
+    (lib_dir / "libfake.so.1").write_bytes(b"\x7fELF" + b"\x00" * 60)
+    store = tmp_path / "store"
+
+    with patch("tools.analyze.analyze.subprocess.run") as mock_run:
+        mock_run.return_value = MagicMock(returncode=1, stdout="", stderr="")
+        _extract_sysroot_symbols(
+            {"/usr/lib/libfake.so.1"},
+            sysroot,
+            store,
+            "dump_syms",
+        )
+
+    assert not list(store.rglob("*.sym")) if store.exists() else True

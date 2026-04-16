@@ -99,6 +99,41 @@ def _iter_elfs(search_dir: Path) -> list[Path]:
     return sorted(results)
 
 
+_DEFAULT_SYSROOT_SEARCH = ("usr/lib",)
+
+
+def _iter_sysroot_elfs(sysroot: Path) -> list[Path]:
+    """Return deduplicated .so files from well-known sysroot library paths.
+
+    Resolves symlinks to handle merged-usr layouts (lib/ -> usr/lib)
+    where multiple directory entries point to the same physical file.
+    """
+    seen: set[Path] = set()
+    results: list[Path] = []
+
+    for rel in _DEFAULT_SYSROOT_SEARCH:
+        lib_dir = sysroot / rel
+        if not lib_dir.is_dir():
+            continue
+        for path in lib_dir.iterdir():
+            if not path.name.endswith(".so") and ".so." not in path.name:
+                continue
+            if not path.is_file():
+                continue
+            real = path.resolve()
+            if real in seen:
+                continue
+            seen.add(real)
+            try:
+                with open(real, "rb") as f:
+                    if f.read(4) == b"\x7fELF":
+                        results.append(real)
+            except OSError:
+                continue
+
+    return sorted(results)
+
+
 # ---------------------------------------------------------------------------
 # Commands
 # ---------------------------------------------------------------------------
@@ -110,7 +145,15 @@ def cmd_add(args: argparse.Namespace) -> int:
     dump_syms: str = args.dump_syms
 
     binaries: list[Path] = []
-    if args.recursive:
+    if args.sysroot:
+        binaries = _iter_sysroot_elfs(Path(args.sysroot))
+        if not binaries:
+            print(
+                f"crashomon-syms: no shared libraries found in sysroot {args.sysroot}",
+                file=sys.stderr,
+            )
+            return 1
+    elif args.recursive:
         binaries = _iter_elfs(Path(args.recursive))
         if not binaries:
             print(
@@ -219,6 +262,12 @@ def main() -> int:
         "--recursive",
         metavar="DIR",
         help="Recursively add all ELF binaries found under DIR",
+    )
+    p_add.add_argument(
+        "--sysroot",
+        metavar="DIR",
+        help="Scan a cross-compilation sysroot for shared libraries. "
+        "Resolves symlinks to avoid duplicates from merged-usr layouts.",
     )
     p_add.add_argument("binaries", nargs="*", metavar="BINARY")
     p_add.add_argument(

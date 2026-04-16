@@ -2,10 +2,16 @@
 #
 # Provides:
 #   crashomon_store_symbols(<target> [STORE <dir>] [WITH_BINARY])
+#       Attaches a POST_BUILD step to <target> that stores its .sym file.
 #
-# Attaches a POST_BUILD step to <target> that runs breakpad_dump_syms on the
-# freshly linked binary and stores the resulting .sym file in the Breakpad
-# symbol store layout:
+#   crashomon_store_sysroot_symbols([SYSROOT <dir>] [STORE <dir>] [SEARCH_PATHS <p..>])
+#       Creates 'crashomon_sysroot_symbols' target; scans a cross-compilation
+#       sysroot for shared libraries and populates the same symbol store.
+#       Run explicitly: cmake --build <dir> --target crashomon_sysroot_symbols
+#
+# crashomon_store_symbols() attaches a POST_BUILD step to <target> that runs
+# breakpad_dump_syms on the freshly linked binary and stores the resulting
+# .sym file in the Breakpad symbol store layout:
 #
 #   <store>/<module_name>/<build_id>/<module_name>.sym
 #
@@ -93,6 +99,75 @@ function(crashomon_store_symbols target)
       "-DWITH_BINARY=${_with_binary}"
       -P "${_CRASHOMON_STORE_SYM_IMPL}"
     COMMENT "Storing Breakpad symbols for ${target} → ${_store}"
+    VERBATIM
+  )
+endfunction()
+
+# ── Sysroot symbol extraction ────────────────────────────────────────────────
+# Path to the sysroot helper script, resolved once at include time.
+
+set(_CRASHOMON_STORE_SYSROOT_IMPL
+  "${CMAKE_CURRENT_LIST_DIR}/store_sysroot_impl.cmake"
+  CACHE INTERNAL "")
+
+# crashomon_store_sysroot_symbols([SYSROOT <dir>] [STORE <dir>] [SEARCH_PATHS <paths...>])
+#
+# Creates a custom target 'crashomon_sysroot_symbols' that scans a cross-
+# compilation sysroot for shared libraries, extracts Breakpad symbols via
+# dump_syms, and stores them in the symbol store.
+#
+# The target is NOT added to ALL — run it explicitly:
+#   cmake --build <build-dir> --target crashomon_sysroot_symbols
+#
+# Or make it a dependency of your app target:
+#   add_dependencies(myapp crashomon_sysroot_symbols)
+#
+# Options:
+#   SYSROOT <dir>       — sysroot root (default: CMAKE_SYSROOT)
+#   STORE <dir>         — symbol store root (default: CRASHOMON_SYMBOL_STORE)
+#   SEARCH_PATHS <p..>  — relative paths under SYSROOT to scan
+#                         (default: usr/lib)
+
+function(crashomon_store_sysroot_symbols)
+  cmake_parse_arguments(PARSE_ARGV 0 ARG "" "SYSROOT;STORE" "SEARCH_PATHS")
+
+  if(ARG_SYSROOT)
+    set(_sysroot "${ARG_SYSROOT}")
+  elseif(CMAKE_SYSROOT)
+    set(_sysroot "${CMAKE_SYSROOT}")
+  else()
+    message(FATAL_ERROR
+      "crashomon_store_sysroot_symbols: no sysroot specified and CMAKE_SYSROOT is not set.\n"
+      "Pass SYSROOT <dir> or set CMAKE_SYSROOT in your toolchain file.")
+  endif()
+
+  if(ARG_STORE)
+    set(_store "${ARG_STORE}")
+  else()
+    set(_store "${CRASHOMON_SYMBOL_STORE}")
+  endif()
+
+  if(ARG_SEARCH_PATHS)
+    # CMake lists use semicolons — pass through directly to the -P script.
+    set(_search "${ARG_SEARCH_PATHS}")
+  else()
+    set(_search "usr/lib")
+  endif()
+
+  if(NOT TARGET breakpad_dump_syms)
+    message(FATAL_ERROR
+      "crashomon_store_sysroot_symbols: dump_syms host binary not configured.\n"
+      "See crashomon_store_symbols() error message for build instructions.")
+  endif()
+
+  add_custom_target(crashomon_sysroot_symbols
+    COMMAND "${CMAKE_COMMAND}"
+      "-DDUMP_SYMS=$<TARGET_FILE:breakpad_dump_syms>"
+      "-DSYSROOT=${_sysroot}"
+      "-DSTORE=${_store}"
+      "-DSEARCH_PATHS=${_search}"
+      -P "${_CRASHOMON_STORE_SYSROOT_IMPL}"
+    COMMENT "Extracting sysroot symbols from ${_sysroot} → ${_store}"
     VERBATIM
   )
 endfunction()

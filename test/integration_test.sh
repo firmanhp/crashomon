@@ -281,6 +281,39 @@ else
   echo "  SKIP: crashomon-syms not found"
 fi
 
+# ── Section 6: Sysroot symbol extraction ────────────────────────────────────
+
+echo ""
+echo "-- sysroot symbols --"
+
+if [[ -n "${DUMP_SYMS}" && -f "${CRASHOMON_SYMS}" ]]; then
+  SYSROOT_STORE="${WORK_DIR}/sysroot_syms"
+  mkdir -p "${SYSROOT_STORE}"
+
+  # Use the examples binary dir as a fake "sysroot/usr/lib/" for testing.
+  FAKE_SYSROOT="${WORK_DIR}/fake_sysroot"
+  mkdir -p "${FAKE_SYSROOT}/usr/lib"
+  cp "${EXAMPLES_BIN}/crashomon-example-segfault" "${FAKE_SYSROOT}/usr/lib/libfake.so.1"
+
+  if "${CRASHOMON_SYMS}" add \
+       --store "${SYSROOT_STORE}" \
+       --dump-syms "${DUMP_SYMS}" \
+       --sysroot "${FAKE_SYSROOT}" &>/dev/null; then
+    log_pass "crashomon-syms add --sysroot"
+  else
+    log_fail "crashomon-syms add --sysroot returned non-zero"
+  fi
+
+  sym_count="$(find "${SYSROOT_STORE}" -name '*.sym' | wc -l)"
+  if [[ "${sym_count}" -ge 1 ]]; then
+    log_pass "sysroot store contains ${sym_count} .sym file(s)"
+  else
+    log_fail "sysroot store is empty after --sysroot add"
+  fi
+else
+  echo "  SKIP: dump_syms or crashomon-syms not found"
+fi
+
 # ── Summary ──────────────────────────────────────────────────────────────────
 
 echo ""
