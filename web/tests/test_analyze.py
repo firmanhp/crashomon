@@ -38,52 +38,52 @@ _MACHINE_OUTPUT = textwrap.dedent("""\
 
 
 def test_parse_machine_crash_signal():
-    t, _ = parse_stackwalk_machine(_MACHINE_OUTPUT)
+    t, _, _ = parse_stackwalk_machine(_MACHINE_OUTPUT)
     assert t.signal_info == "SIGSEGV"
 
 
 def test_parse_machine_signal_number_derived_from_name():
-    t, _ = parse_stackwalk_machine(_MACHINE_OUTPUT)
+    t, _, _ = parse_stackwalk_machine(_MACHINE_OUTPUT)
     assert t.signal_number == 11  # SIGSEGV = 11
 
 
 def test_parse_machine_signal_number_compound_crash_reason():
     # Breakpad formats crash_reason as "SIGSEGV /SEGV_MAPERR" (space-slash, no trailing space).
     output = _MACHINE_OUTPUT.replace("Crash|SIGSEGV|", "Crash|SIGSEGV /SEGV_MAPERR|")
-    t, _ = parse_stackwalk_machine(output)
+    t, _, _ = parse_stackwalk_machine(output)
     assert t.signal_number == 11
     assert t.signal_info == "SIGSEGV /SEGV_MAPERR"
 
 
 def test_parse_machine_fault_addr():
-    t, _ = parse_stackwalk_machine(_MACHINE_OUTPUT)
+    t, _, _ = parse_stackwalk_machine(_MACHINE_OUTPUT)
     assert t.fault_addr == 4
 
 
 def test_parse_machine_crashing_thread_first():
-    t, _ = parse_stackwalk_machine(_MACHINE_OUTPUT)
+    t, _, _ = parse_stackwalk_machine(_MACHINE_OUTPUT)
     assert t.threads[0].is_crashing
 
 
 def test_parse_machine_thread_count():
-    t, _ = parse_stackwalk_machine(_MACHINE_OUTPUT)
+    t, _, _ = parse_stackwalk_machine(_MACHINE_OUTPUT)
     assert len(t.threads) == 2
 
 
 def test_parse_machine_frame_count():
-    t, _ = parse_stackwalk_machine(_MACHINE_OUTPUT)
+    t, _, _ = parse_stackwalk_machine(_MACHINE_OUTPUT)
     assert len(t.threads[0].frames) == 2
     assert len(t.threads[1].frames) == 1
 
 
 def test_parse_machine_frame_module():
-    t, _ = parse_stackwalk_machine(_MACHINE_OUTPUT)
+    t, _, _ = parse_stackwalk_machine(_MACHINE_OUTPUT)
     assert t.threads[0].frames[0].module_path == "my_service"
     assert t.threads[0].frames[1].module_path == "libc.so"
 
 
 def test_parse_machine_frame_offset():
-    t, _ = parse_stackwalk_machine(_MACHINE_OUTPUT)
+    t, _, _ = parse_stackwalk_machine(_MACHINE_OUTPUT)
     assert t.threads[0].frames[0].module_offset == 0x1000
 
 
@@ -103,19 +103,19 @@ def test_parse_machine_no_frames_raises():
 
 
 def test_format_raw_tombstone_contains_sep():
-    t, _ = parse_stackwalk_machine(_MACHINE_OUTPUT)
+    t, _, _ = parse_stackwalk_machine(_MACHINE_OUTPUT)
     out = format_raw_tombstone(t)
     assert "*** *** ***" in out
 
 
 def test_format_raw_tombstone_contains_signal():
-    t, _ = parse_stackwalk_machine(_MACHINE_OUTPUT)
+    t, _, _ = parse_stackwalk_machine(_MACHINE_OUTPUT)
     out = format_raw_tombstone(t)
     assert "SIGSEGV" in out
 
 
 def test_format_raw_tombstone_contains_frame():
-    t, _ = parse_stackwalk_machine(_MACHINE_OUTPUT)
+    t, _, _ = parse_stackwalk_machine(_MACHINE_OUTPUT)
     out = format_raw_tombstone(t)
     assert "my_service" in out
 
@@ -129,7 +129,8 @@ def test_mode_minidump_store_passes_args():
     with patch("tools.analyze.analyze.subprocess.run") as mock_run:
         mock_run.return_value = MagicMock(stdout=_MACHINE_OUTPUT, returncode=0)
         result = mode_minidump_store("/sym/store", "crash.dmp", "minidump_stackwalk")
-    cmd = mock_run.call_args[0][0]
+    # First call is machine mode (-m), second is human mode (no -m).
+    cmd = mock_run.call_args_list[0][0][0]
     assert cmd == ["minidump_stackwalk", "-m", "crash.dmp", "/sym/store"]
     assert "*** *** ***" in result
 
@@ -164,15 +165,15 @@ _SIMPLE_TOMBSTONE = (
 
 
 def test_mode_stdin_store_returns_formatted():
-    # Module path /nonexistent/app won't exist so addr2line is skipped.
-    result = mode_stdin_store(_SIMPLE_TOMBSTONE, "/store", "eu-addr2line")
+    # Module path /nonexistent/app won't exist so symbolization is skipped.
+    result = mode_stdin_store(_SIMPLE_TOMBSTONE, "/store")
     assert "*** *** ***" in result
     assert "SIGSEGV" in result
 
 
 def test_mode_stdin_store_invalid_input_raises():
     with pytest.raises(ValueError):
-        mode_stdin_store("", "/store", "eu-addr2line")
+        mode_stdin_store("", "/store")
 
 
 # ---------------------------------------------------------------------------
@@ -196,7 +197,8 @@ def test_mode_sym_file_minidump_creates_temp_store(tmp_path):
         result = mode_sym_file_minidump(str(sym_file), "crash.dmp", "minidump_stackwalk")
 
     assert "*** *** ***" in result
-    cmd = mock_run.call_args[0][0]
+    # First call is machine mode (-m), second is human mode (no -m).
+    cmd = mock_run.call_args_list[0][0][0]
     assert cmd[0] == "minidump_stackwalk"
     assert cmd[1] == "-m"
     assert cmd[2] == "crash.dmp"
@@ -220,7 +222,8 @@ def test_mode_raw_tombstone_uses_machine_flag():
         mock_run.return_value = MagicMock(stdout=_MACHINE_OUTPUT, returncode=0)
         result = mode_raw_tombstone("crash.dmp", "minidump_stackwalk")
 
-    cmd = mock_run.call_args[0][0]
+    # First call is machine mode (-m), second is human mode (no -m).
+    cmd = mock_run.call_args_list[0][0][0]
     assert "-m" in cmd
     assert "crash.dmp" in cmd
     assert "*** *** ***" in result

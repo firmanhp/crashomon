@@ -26,8 +26,13 @@
 
 set(_tmp "${BUILD_DIR}/.crashomon_sym_${TARGET_NAME}.sym.tmp")
 
+# Pass the binary's directory as a second argument so dump_syms can follow
+# .gnu_debuglink to a split .debug file (produced by objcopy --only-keep-debug).
+# This allows dump_syms to read full DWARF info even when the binary itself
+# has been stripped after the debug symbols were extracted.
+cmake_path(GET BINARY PARENT_PATH _binary_dir)
 execute_process(
-  COMMAND "${DUMP_SYMS}" "${BINARY}"
+  COMMAND "${DUMP_SYMS}" "${BINARY}" "${_binary_dir}"
   OUTPUT_FILE "${_tmp}"
   RESULT_VARIABLE _rc
   ERROR_VARIABLE  _err

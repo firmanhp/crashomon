@@ -34,6 +34,6 @@ def analyze_tombstone_text(
     """
     store = str(store_path) if store_path is not None else "/tmp"  # noqa: S108
     try:
-        return mode_stdin_store(text, store, addr2line)
+        return mode_stdin_store(text, store)
     except (ValueError, RuntimeError):
         return text

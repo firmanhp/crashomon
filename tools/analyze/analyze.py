@@ -11,11 +11,15 @@ import subprocess
 import tempfile
 from pathlib import Path
 
-from .log_parser import parse_tombstone
+from .log_parser import ParsedTombstone, parse_tombstone
 from .symbolizer import (
+    fix_frame_module_offsets,
     format_raw_tombstone,
     format_symbolicated,
+    parse_human_frame_pcs,
     parse_stackwalk_machine,
+    read_minidump_process_info,
+    read_minidump_thread_names,
     symbolize_with_store,
 )
 
@@ -59,10 +63,31 @@ def _run_stackwalk(
     return result.stdout
 
 
+def _apply_minidump_metadata(
+    tombstone: ParsedTombstone,
+    dmp: str,
+    module_bases: dict[str, int],
+    raw_human: str,
+) -> None:
+    """Populate pid, crashing_tid, thread names, and correct module offsets."""
+    pid, crashing_tid = read_minidump_process_info(dmp)
+    tombstone.pid = pid
+    tombstone.crashing_tid = crashing_tid
+
+    frame_pcs = parse_human_frame_pcs(raw_human)
+    fix_frame_module_offsets(tombstone, module_bases, frame_pcs)
+
+    thread_names = read_minidump_thread_names(dmp)
+    for thread in tombstone.threads:
+        thread.name = thread_names.get(thread.tid, "")
+
+
 def mode_minidump_store(store: str, dmp: str, stackwalk: str) -> str:
     """Mode 1: symbolicate a minidump against a symbol store."""
-    raw = _run_stackwalk(stackwalk, dmp, [store], machine=True)
-    tombstone, symbols = parse_stackwalk_machine(raw)
+    raw_m = _run_stackwalk(stackwalk, dmp, [store], machine=True)
+    raw_human = _run_stackwalk(stackwalk, dmp, [store])
+    tombstone, symbols, module_bases = parse_stackwalk_machine(raw_m)
+    _apply_minidump_metadata(tombstone, dmp, module_bases, raw_human)
     return format_symbolicated(tombstone, symbols)
 
 
@@ -91,8 +116,10 @@ def mode_sym_file_minidump(sym_file: str, dmp: str, stackwalk: str) -> str:
         sym_dir = Path(tmp) / module_name / build_id
         sym_dir.mkdir(parents=True)
         shutil.copy2(sym_file, sym_dir / f"{module_name}.sym")
-        raw = _run_stackwalk(stackwalk, dmp, [tmp], machine=True)
-    tombstone, symbols = parse_stackwalk_machine(raw)
+        raw_m = _run_stackwalk(stackwalk, dmp, [tmp], machine=True)
+        raw_human = _run_stackwalk(stackwalk, dmp, [tmp])
+    tombstone, symbols, module_bases = parse_stackwalk_machine(raw_m)
+    _apply_minidump_metadata(tombstone, dmp, module_bases, raw_human)
     return format_symbolicated(tombstone, symbols)
 
 
@@ -103,6 +130,8 @@ def mode_raw_tombstone(dmp: str, stackwalk: str) -> str:
     the output as an Android-style tombstone.  Register values are not shown
     (not present in -m output); the daemon still shows them via the C++ path.
     """
-    raw = _run_stackwalk(stackwalk, dmp, [], machine=True)
-    tombstone, _symbols = parse_stackwalk_machine(raw)
+    raw_m = _run_stackwalk(stackwalk, dmp, [], machine=True)
+    raw_human = _run_stackwalk(stackwalk, dmp, [])
+    tombstone, _symbols, module_bases = parse_stackwalk_machine(raw_m)
+    _apply_minidump_metadata(tombstone, dmp, module_bases, raw_human)
     return format_raw_tombstone(tombstone)

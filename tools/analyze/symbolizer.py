@@ -10,6 +10,8 @@ Provides:
 from __future__ import annotations
 
 import bisect
+import re as _re
+import struct
 import subprocess
 from dataclasses import dataclass, field as dc_field
 from pathlib import Path
@@ -280,7 +282,9 @@ def format_symbolicated(tombstone: ParsedTombstone, symbols: SymbolTable) -> str
 # ---------------------------------------------------------------------------
 
 
-def parse_stackwalk_machine(text: str) -> tuple[ParsedTombstone, SymbolTable]:
+def parse_stackwalk_machine(
+    text: str,
+) -> tuple[ParsedTombstone, SymbolTable, dict[str, int]]:
     """Parse minidump_stackwalk -m pipe-delimited output into a ParsedTombstone.
 
     minidump_stackwalk -m produces lines like:
@@ -290,11 +294,13 @@ def parse_stackwalk_machine(text: str) -> tuple[ParsedTombstone, SymbolTable]:
       Module|name|ver|debug_file|debug_id|base|max|main
       thread_num|frame_num|module|func|file|line|offset
 
-    Returns (tombstone, symbols).  Raises ValueError if no frame lines are found.
+    Returns (tombstone, symbols, module_bases) where module_bases maps
+    module name to its load address.  Raises ValueError if no frame lines found.
     """
     result = ParsedTombstone()
     threads: dict[int, ParsedThread] = {}
     table: SymbolTable = {}
+    module_bases: dict[str, int] = {}
     crashing_thread_idx = 0
 
     for line in text.splitlines():
@@ -319,8 +325,18 @@ def parse_stackwalk_machine(text: str) -> tuple[ParsedTombstone, SymbolTable]:
                 crashing_thread_idx = 0
             continue
 
-        if parts[0] == "OS" and len(parts) >= 2:
-            # No process name in -m output; leave blank.
+        if parts[0] == "OS":
+            continue
+
+        # Module|name|ver|debug_file|debug_id|base|max|main
+        if parts[0] == "Module" and len(parts) >= 7:
+            mod_name = parts[1]
+            try:
+                module_bases[mod_name] = int(parts[5], 16)
+            except ValueError:
+                pass
+            if len(parts) >= 8 and parts[7] == "1":
+                result.process_name = mod_name
             continue
 
         # Frame line: thread_num|frame_num|module|func|file|line|offset
@@ -369,9 +385,203 @@ def parse_stackwalk_machine(text: str) -> tuple[ParsedTombstone, SymbolTable]:
         ordered.insert(0, crashing_thread_idx)
 
     result.threads = [threads[n] for n in ordered]
-    return result, table
+    return result, table, module_bases
 
 
 def format_raw_tombstone(tombstone: ParsedTombstone) -> str:
     """Format a ParsedTombstone without symbol information."""
     return format_symbolicated(tombstone, {})
+
+
+# ---------------------------------------------------------------------------
+# Correct module offsets using human-readable minidump_stackwalk output
+# ---------------------------------------------------------------------------
+
+_HUMAN_THREAD_RE = _re.compile(r"^Thread (\d+)")
+_HUMAN_FRAME_RE = _re.compile(r"^ {0,3}(\d+)\s{2,}")
+_HUMAN_PC_RE = _re.compile(r"\bpc\s*=\s*(0x[0-9a-fA-F]+)")
+
+
+def parse_human_frame_pcs(text: str) -> dict[tuple[int, int], int]:
+    """Parse ``pc = 0xXXXX`` lines from minidump_stackwalk human output.
+
+    Returns {(thread_idx, frame_idx): absolute_pc}.
+    """
+    result: dict[tuple[int, int], int] = {}
+    thread_idx = -1
+    frame_idx = -1
+
+    for line in text.splitlines():
+        m = _HUMAN_THREAD_RE.match(line)
+        if m:
+            thread_idx = int(m.group(1))
+            frame_idx = -1
+            continue
+
+        if thread_idx < 0:
+            continue
+
+        m = _HUMAN_FRAME_RE.match(line)
+        if m:
+            frame_idx = int(m.group(1))
+            continue
+
+        if frame_idx < 0:
+            continue
+
+        # Register dump lines — extract pc value (only the first occurrence per frame).
+        m = _HUMAN_PC_RE.search(line)
+        if m and (thread_idx, frame_idx) not in result:
+            result[(thread_idx, frame_idx)] = int(m.group(1), 16)
+
+    return result
+
+
+def fix_frame_module_offsets(
+    tombstone: ParsedTombstone,
+    module_bases: dict[str, int],
+    frame_pcs: dict[tuple[int, int], int],
+) -> None:
+    """Replace function-relative offsets with module-relative offsets.
+
+    parse_stackwalk_machine() stores the -m ``function_offset`` field in
+    frame.module_offset.  This function replaces that with the true module
+    offset: absolute_pc - module_load_base, using PC values extracted from
+    the human-readable minidump_stackwalk output.
+    """
+    for thread in tombstone.threads:
+        for frame in thread.frames:
+            pc = frame_pcs.get((thread.tid, frame.index))
+            if pc is None:
+                continue
+            base = module_bases.get(frame.module_path)
+            if base is None:
+                continue
+            frame.module_offset = pc - base
+
+
+# ---------------------------------------------------------------------------
+# Process info (pid, crashing tid) from minidump binary
+# ---------------------------------------------------------------------------
+
+_MINIDUMP_MAGIC = b"MDMP"
+_STREAM_MISC_INFO = 15  # MINIDUMP_MISC_INFO
+_STREAM_EXCEPTION = 6  # MINIDUMP_EXCEPTION_STREAM
+_STREAM_THREAD_LIST = 3  # MINIDUMP_THREAD_LIST
+_STREAM_THREAD_NAMES = 24  # MINIDUMP_THREAD_NAMES_LIST (Crashpad extension)
+_MINIDUMP_MISC1_PROCESS_ID = 0x1
+_THREAD_STRUCT_SIZE = 48  # sizeof(MINIDUMP_THREAD)
+_THREAD_NAME_ENTRY_SIZE = 12  # sizeof(MINIDUMP_THREAD_NAME): tid(4) + name_rva(8)
+
+
+def read_minidump_process_info(dmp_path: str) -> tuple[int, int]:
+    """Return (pid, crashing_tid) by parsing the minidump binary.
+
+    crashing_tid is the OS-level thread ID of the faulting thread, taken
+    from the ExceptionStream.  pid comes from MiscInfoStream when the
+    MINIDUMP_MISC1_PROCESS_ID flag is set.  Returns (0, 0) on any error.
+    """
+    try:
+        with open(dmp_path, "rb") as fobj:
+            data = fobj.read()
+    except OSError:
+        return (0, 0)
+
+    if len(data) < 32 or data[:4] != _MINIDUMP_MAGIC:
+        return (0, 0)
+
+    try:
+        _, _, stream_count, dir_rva = struct.unpack_from("<IIII", data, 0)
+
+        misc_rva: int | None = None
+        exc_rva: int | None = None
+
+        for i in range(stream_count):
+            off = dir_rva + i * 12
+            stype, _size, srva = struct.unpack_from("<III", data, off)
+            if stype == _STREAM_MISC_INFO:
+                misc_rva = srva
+            elif stype == _STREAM_EXCEPTION:
+                exc_rva = srva
+
+        pid = 0
+        if misc_rva is not None:
+            _sz, flags1 = struct.unpack_from("<II", data, misc_rva)
+            if flags1 & _MINIDUMP_MISC1_PROCESS_ID:
+                pid = struct.unpack_from("<I", data, misc_rva + 8)[0]
+
+        crashing_tid = 0
+        if exc_rva is not None:
+            # MINIDUMP_EXCEPTION_STREAM: ThreadId is the first ULONG32.
+            crashing_tid = struct.unpack_from("<I", data, exc_rva)[0]
+
+        return (pid, crashing_tid)
+    except struct.error:
+        return (0, 0)
+
+
+def read_minidump_thread_names(dmp_path: str) -> dict[int, str]:
+    """Return {thread_index: thread_name} by parsing the minidump binary.
+
+    Combines ThreadListStream (index→OS tid) with ThreadNamesStream
+    (OS tid→name).  Returns an empty dict on any parse error or if the
+    streams are absent.
+    """
+    try:
+        with open(dmp_path, "rb") as fobj:
+            data = fobj.read()
+    except OSError:
+        return {}
+
+    if len(data) < 32 or data[:4] != _MINIDUMP_MAGIC:
+        return {}
+
+    try:
+        _, _, stream_count, dir_rva = struct.unpack_from("<IIII", data, 0)
+
+        thread_list_rva: int | None = None
+        thread_names_rva: int | None = None
+
+        for i in range(stream_count):
+            off = dir_rva + i * 12
+            stype, _size, srva = struct.unpack_from("<III", data, off)
+            if stype == _STREAM_THREAD_LIST:
+                thread_list_rva = srva
+            elif stype == _STREAM_THREAD_NAMES:
+                thread_names_rva = srva
+
+        if thread_list_rva is None or thread_names_rva is None:
+            return {}
+
+        # ThreadListStream: count(4) + MINIDUMP_THREAD[count]
+        # MINIDUMP_THREAD first field is ThreadId(4); stride is 48 bytes.
+        tl_count = struct.unpack_from("<I", data, thread_list_rva)[0]
+        index_to_tid: dict[int, int] = {}
+        for i in range(tl_count):
+            tid = struct.unpack_from(
+                "<I", data, thread_list_rva + 4 + i * _THREAD_STRUCT_SIZE
+            )[0]
+            index_to_tid[i] = tid
+
+        # ThreadNamesStream: count(4) + MINIDUMP_THREAD_NAME[count]
+        # MINIDUMP_THREAD_NAME: tid(4) + name_rva(8, 64-bit RVA into file)
+        # Name is MINIDUMP_STRING: byte_length(4) + UTF-16LE chars
+        tn_count = struct.unpack_from("<I", data, thread_names_rva)[0]
+        tid_to_name: dict[int, str] = {}
+        for i in range(tn_count):
+            off = thread_names_rva + 4 + i * _THREAD_NAME_ENTRY_SIZE
+            tid, name_rva = struct.unpack_from("<IQ", data, off)
+            byte_len = struct.unpack_from("<I", data, name_rva)[0]
+            name = data[name_rva + 4 : name_rva + 4 + byte_len].decode(
+                "utf-16-le", errors="replace"
+            )
+            if name:
+                tid_to_name[tid] = name
+
+        return {
+            idx: tid_to_name[tid]
+            for idx, tid in index_to_tid.items()
+            if tid in tid_to_name
+        }
+    except struct.error:
+        return {}
