@@ -260,28 +260,14 @@ curl -F binary=@./build/my_binary http://crashomon-web:5000/api/symbols/upload
 To resolve stack frames from system libraries (libc, libstdc++, etc.),
 extract their symbols into the same store.
 
-#### Option A: Build-time (recommended for CI/teams)
-
-```cmake
-# In your CMakeLists.txt, after FetchContent_MakeAvailable(crashomon):
-crashomon_store_sysroot_symbols(
-    SYSROOT "${CMAKE_SYSROOT}"
-    SEARCH_PATHS "usr/lib"
-)
-```
-
-```bash
-cmake --build build --target crashomon_sysroot_symbols
-```
-
-#### Option B: CLI
+#### Option A: CLI (one-time ingestion)
 
 ```bash
 crashomon-syms add --store symbols/ --dump-syms ./dump_syms \
     --sysroot /path/to/sysroot
 ```
 
-#### Option C: Lazy (no setup required)
+#### Option B: Lazy (no setup required)
 
 ```bash
 crashomon-analyze \
