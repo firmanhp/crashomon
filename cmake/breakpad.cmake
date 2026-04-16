@@ -83,57 +83,24 @@ endif()
 
 # ── breakpad_dump_syms ─────────────────────────────────────────────────────────
 # CLI tool: extracts DWARF debug info from ELF binaries into Breakpad .sym files.
-# Used by crashomon-syms and crashomon-web as a subprocess.
+# Used by crashomon_store_symbols() as a POST_BUILD step.
 #
-# This is a HOST tool: it runs on the build machine to read DWARF from ELF
-# binaries (it can parse any ELF architecture regardless of where it runs).
-# When cross-compiling, building it with the cross-compiler produces a target
-# binary that cannot execute on the host. Skip it in that case —
-# crashomon_store_symbols() degrades gracefully when the target is absent.
-#
-# Sources are explicit (no glob) to avoid pulling in test/platform-specific files.
+# dump_syms must be a pre-built host binary — set CRASHOMON_DUMP_SYMS_EXECUTABLE
+# to its path.  See cmake/dump_syms_host/ for the build recipe.
 
-if(NOT CMAKE_CROSSCOMPILING)
-add_executable(breakpad_dump_syms
-  # DWARF parsing
-  "${BREAKPAD_SRC}/common/dwarf_cfi_to_module.cc"
-  "${BREAKPAD_SRC}/common/dwarf_cu_to_module.cc"
-  "${BREAKPAD_SRC}/common/dwarf_line_to_module.cc"
-  "${BREAKPAD_SRC}/common/dwarf_range_list_handler.cc"
-  "${BREAKPAD_SRC}/common/language.cc"
-  "${BREAKPAD_SRC}/common/module.cc"
-  "${BREAKPAD_SRC}/common/path_helper.cc"
-  "${BREAKPAD_SRC}/common/stabs_reader.cc"
-  "${BREAKPAD_SRC}/common/stabs_to_module.cc"
-  "${BREAKPAD_SRC}/common/dwarf/bytereader.cc"
-  "${BREAKPAD_SRC}/common/dwarf/dwarf2diehandler.cc"
-  "${BREAKPAD_SRC}/common/dwarf/dwarf2reader.cc"
-  "${BREAKPAD_SRC}/common/dwarf/elf_reader.cc"
-  # Linux ELF utilities
-  "${BREAKPAD_SRC}/common/linux/crc32.cc"
-  "${BREAKPAD_SRC}/common/linux/dump_symbols.cc"
-  "${BREAKPAD_SRC}/common/linux/elf_symbols_to_module.cc"
-  "${BREAKPAD_SRC}/common/linux/elfutils.cc"
-  "${BREAKPAD_SRC}/common/linux/file_id.cc"
-  "${BREAKPAD_SRC}/common/linux/linux_libc_support.cc"
-  "${BREAKPAD_SRC}/common/linux/memory_mapped_file.cc"
-  "${BREAKPAD_SRC}/common/linux/safe_readlink.cc"
-  # dump_syms main
-  "${BREAKPAD_SRC}/tools/linux/dump_syms/dump_syms.cc"
-)
-target_compile_options(breakpad_dump_syms PRIVATE
-  -w
-  # N_UNDF (stabs symbol type 0) is not in glibc's stab.h enum on Linux.
-  # Define it explicitly for portability.
-  -DN_UNDF=0
-)
-target_include_directories(breakpad_dump_syms PRIVATE "${BREAKPAD_SRC}")
-target_link_libraries(breakpad_dump_syms
-  PRIVATE
-    Threads::Threads
-    ZLIB::ZLIB
-)
-endif()  # NOT CMAKE_CROSSCOMPILING
+set(CRASHOMON_DUMP_SYMS_EXECUTABLE "" CACHE FILEPATH
+  "Path to the pre-built host dump_syms binary.")
+
+if(CRASHOMON_DUMP_SYMS_EXECUTABLE)
+  if(NOT EXISTS "${CRASHOMON_DUMP_SYMS_EXECUTABLE}")
+    message(FATAL_ERROR
+      "CRASHOMON_DUMP_SYMS_EXECUTABLE='${CRASHOMON_DUMP_SYMS_EXECUTABLE}' does not exist.")
+  endif()
+  add_executable(breakpad_dump_syms IMPORTED GLOBAL)
+  set_target_properties(breakpad_dump_syms PROPERTIES
+    IMPORTED_LOCATION "${CRASHOMON_DUMP_SYMS_EXECUTABLE}"
+  )
+endif()
 
 # ── breakpad_synth_minidump ────────────────────────────────────────────────────
 # SynthMinidump + test_assembler: used by gen_synthetic_fixtures (test-only).
@@ -152,7 +119,10 @@ target_include_directories(breakpad_synth_minidump PUBLIC "${BREAKPAD_SRC}")
 # dependency from an IMPORTED_LOCATION path, so without an explicit
 # add_dependencies the linker invocation for each target can run before
 # zlibstatic has been compiled, producing "No rule to make target libz.a".
-foreach(_bp_tgt IN ITEMS breakpad_processor minidump_stackwalk breakpad_dump_syms)
+#
+# breakpad_dump_syms is excluded: it is a pre-built IMPORTED binary and has
+# no link step against the outer build's zlibstatic.
+foreach(_bp_tgt IN ITEMS breakpad_processor minidump_stackwalk)
   if(TARGET ${_bp_tgt} AND TARGET zlibstatic)
     add_dependencies(${_bp_tgt} zlibstatic)
   endif()

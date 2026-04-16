@@ -97,29 +97,22 @@ target_compile_options(crashomon_warnings INTERFACE
 )
 
 # ── Dependencies ───────────────────────────────────────────────────────────────
-include(FetchContent)
 
-# zlib — required by Crashpad and Breakpad.
-# Must be configured BEFORE Crashpad so its find_package(ZLIB REQUIRED) succeeds.
+# Populate zlib, Breakpad, and LSS source trees (shared with cmake/dump_syms_host/).
+include(cmake/fetch_breakpad_deps.cmake)
+
+# zlib — must be set up before Crashpad so its find_package(ZLIB REQUIRED) succeeds.
 # We create a ZLIB::ZLIB alias and set FindZLIB cache vars so downstream find_package
 # calls short-circuit and use our built-from-source version.
-FetchContent_Declare(crashomon_zlib
-  GIT_REPOSITORY https://github.com/madler/zlib.git
-  GIT_TAG        v1.3.1
+set(ZLIB_BUILD_EXAMPLES OFF CACHE BOOL "" FORCE)
+add_subdirectory("${crashomon_zlib_SOURCE_DIR}" "${crashomon_zlib_BINARY_DIR}" EXCLUDE_FROM_ALL)
+target_compile_options(zlibstatic PRIVATE -w)
+# Pin zlibstatic's output to its own build dir regardless of any
+# CMAKE_ARCHIVE_OUTPUT_DIRECTORY set by a parent project. ZLIB::ZLIB's
+# IMPORTED_LOCATION hardcodes this path and must match the actual output.
+set_target_properties(zlibstatic PROPERTIES
+  ARCHIVE_OUTPUT_DIRECTORY "${crashomon_zlib_BINARY_DIR}"
 )
-FetchContent_GetProperties(crashomon_zlib)
-if(NOT crashomon_zlib_POPULATED)
-  FetchContent_Populate(crashomon_zlib)
-  set(ZLIB_BUILD_EXAMPLES OFF CACHE BOOL "" FORCE)
-  add_subdirectory("${crashomon_zlib_SOURCE_DIR}" "${crashomon_zlib_BINARY_DIR}" EXCLUDE_FROM_ALL)
-  target_compile_options(zlibstatic PRIVATE -w)
-  # Pin zlibstatic's output to its own build dir regardless of any
-  # CMAKE_ARCHIVE_OUTPUT_DIRECTORY set by a parent project. ZLIB::ZLIB's
-  # IMPORTED_LOCATION hardcodes this path and must match the actual output.
-  set_target_properties(zlibstatic PROPERTIES
-    ARCHIVE_OUTPUT_DIRECTORY "${crashomon_zlib_BINARY_DIR}"
-  )
-endif()
 # Create ZLIB::ZLIB as an IMPORTED target (not ALIAS) so it is valid in CMake export sets.
 # ALIAS targets of non-IMPORTED builds cause export set validation failures (CMake requires
 # all transitive build-target deps to be exported). IMPORTED targets are self-describing.
@@ -246,51 +239,7 @@ endif()
 
 # Breakpad — minidump-processor library + dump_syms + minidump_stackwalk tools.
 # Breakpad uses GN/autotools; we define our own CMake targets (vcpkg-style).
-
-FetchContent_Declare(crashomon_breakpad
-  GIT_REPOSITORY https://github.com/google/breakpad.git
-  GIT_TAG        v2024.02.16
-)
-FetchContent_GetProperties(crashomon_breakpad)
-if(NOT crashomon_breakpad_POPULATED)
-  FetchContent_Populate(crashomon_breakpad)
-  # Downgrade caller_fp/caller_lr log severity from ERROR to INFO so they are
-  # filtered by BPLOG_MINIMUM_SEVERITY=SEVERITY_ERROR (set in breakpad.cmake).
-  # These fire on every scan-recovered frame when the target binary was compiled
-  # without frame pointers (-fomit-frame-pointer, the -O2/-O3 default): the FP
-  # unwind strategy fails, scan succeeds, but the stale x29 is never updated, so
-  # the same FP address is retried — and fails — for each scanned frame.  The
-  # behaviour is expected and harmless; the noise level scales with frame count.
-  file(READ "${crashomon_breakpad_SOURCE_DIR}/src/processor/stackwalker_arm64.cc" _stackwalker_src)
-  string(REPLACE
-    "BPLOG(ERROR) << \"Unable to read caller_fp"
-    "BPLOG(INFO) << \"Unable to read caller_fp"
-    _stackwalker_src "${_stackwalker_src}")
-  string(REPLACE
-    "BPLOG(ERROR) << \"Unable to read caller_lr"
-    "BPLOG(INFO) << \"Unable to read caller_lr"
-    _stackwalker_src "${_stackwalker_src}")
-  file(WRITE "${crashomon_breakpad_SOURCE_DIR}/src/processor/stackwalker_arm64.cc" "${_stackwalker_src}")
-  unset(_stackwalker_src)
-endif()
-
-# LSS header needed by dump_syms (file_id.cc: #include "third_party/lss/linux_syscall_support.h")
-FetchContent_Declare(crashomon_breakpad_lss
-  GIT_REPOSITORY https://chromium.googlesource.com/linux-syscall-support.git
-  GIT_TAG        v2024.02.01
-)
-FetchContent_GetProperties(crashomon_breakpad_lss)
-if(NOT crashomon_breakpad_lss_POPULATED)
-  FetchContent_Populate(crashomon_breakpad_lss)
-endif()
-# Create the directory and symlink where Breakpad expects the LSS header
-file(MAKE_DIRECTORY "${crashomon_breakpad_SOURCE_DIR}/src/third_party/lss")
-file(CREATE_LINK
-  "${crashomon_breakpad_lss_SOURCE_DIR}/linux_syscall_support.h"
-  "${crashomon_breakpad_SOURCE_DIR}/src/third_party/lss/linux_syscall_support.h"
-  SYMBOLIC
-)
-
+# Source trees populated by fetch_breakpad_deps.cmake above.
 include(cmake/breakpad.cmake)
 include(cmake/crashomon_symbols.cmake)
 

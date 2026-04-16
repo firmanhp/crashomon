@@ -9,9 +9,10 @@ The test directory contains fixture generation utilities, integration scripts, a
 - `daemon/test/test_disk_manager.cpp`, `daemon/test/test_worker.cpp`
 - `web/tests/test_log_parser.py`, `web/tests/test_analyze.py` (Python, for tools/analyze)
 
-Two test layers:
+Three test layers:
 
 - **Unit tests** (two GoogleTest binaries, 103 tests total): built and run via CTest.
+- **dump_syms smoke tests** (`test_dump_syms_smoke.sh`): standalone script, no daemon or CMake needed.
 - **Integration/demo scripts** (bash): exercise the full live pipeline end-to-end and require a successful build first.
 
 ---
@@ -20,9 +21,14 @@ Two test layers:
 
 ### Running
 
+`ENABLE_TESTS=ON` adds the `examples/` targets which call `crashomon_store_symbols()`, so `CRASHOMON_DUMP_SYMS_EXECUTABLE` is required. Build `dump_syms_host` once first (see DEVELOP.md), then:
+
 ```bash
-cmake -B build && cmake --build build
-ctest --test-dir build                  # all 103 tests
+cmake -B build \
+    -DENABLE_TESTS=ON \
+    -DCRASHOMON_DUMP_SYMS_EXECUTABLE="$(pwd)/_dump_syms_build/dump_syms"
+cmake --build build
+ctest --test-dir build                    # all 103 tests
 ctest --test-dir build -R MinidumpReader  # one suite by regex
 ctest --test-dir build --output-on-failure
 ```
@@ -104,11 +110,11 @@ test/gen_fixtures.sh build test/fixtures    # explicit paths
 
 **Note on the `new/` vs `pending/` distinction**: Crashpad's `CrashReportDatabase` writes the minidump to `<db_path>/new/<uuid>.dmp`, then atomically renames it to `<db_path>/pending/<uuid>.dmp` once the write is complete. The integration scripts and the watcherd's inotify watch both target `pending/` to avoid reading a partially-written file.
 
-After generating fixtures, re-run CTest and all 101 tests pass (none skip):
+After generating fixtures, re-run CTest and all 103 tests pass (none skip):
 
 ```bash
 ctest --test-dir build
-# 100% tests passed, 0 tests failed out of 101
+# 100% tests passed, 0 tests failed out of 103
 ```
 
 ---
@@ -144,9 +150,27 @@ test/demo_crash.sh            # uses ./build
 test/demo_crash.sh /my/build
 ```
 
+### `test_dump_syms_smoke.sh`
+
+Standalone smoke tests for the `dump_syms` host binary. No running daemon required.
+
+```bash
+test/test_dump_syms_smoke.sh <dump_syms_path> <debug_elf_path>
+# e.g.:
+test/test_dump_syms_smoke.sh _dump_syms_build/dump_syms build/examples/crashomon-example-segfault
+```
+
+What it checks (12 tests):
+- Exits 0 on a valid debug ELF
+- MODULE line format: 5 fields, `Linux` os, uppercase-hex build ID, correct filename
+- FUNC and FILE records present for a debug ELF
+- Exits non-zero on a non-existent path and on a non-ELF file
+- Stripped binary still produces a MODULE line
+- Self-processing (dump_syms runs on its own binary)
+
 ### `demo_symbolicated.sh`
 
-Full symbolicated crash report demo showing function names and source line numbers. Requires `breakpad_dump_syms` and `minidump_stackwalk` to be built (included in the default CMake build).
+Full symbolicated crash report demo showing function names and source line numbers. Requires the pre-built host `dump_syms` binary (from `cmake/dump_syms_host/`) and `minidump_stackwalk` (built as part of the main CMake build).
 
 ```bash
 test/demo_symbolicated.sh            # uses ./build

@@ -343,7 +343,19 @@ curl -X DELETE http://localhost:5000/symbols/my_binary/A1B2C3D4E5F60000
 
 This section shows how to build crashomon for a device with a different CPU architecture (e.g. aarch64) from an x86-64 host.
 
-### Step 1: Write a toolchain file
+### Step 1: Build `dump_syms` for the host
+
+`dump_syms` is the Breakpad tool that extracts DWARF debug info from ELF binaries into `.sym` files. It reads the binaries you built — it runs on the **build machine**, not the target device. Building it with a cross-compiler produces a target-architecture binary that cannot execute on the host, so it must be built separately with the host compiler before the cross-compilation step.
+
+```bash
+cmake -B _dump_syms_build -S cmake/dump_syms_host/
+cmake --build _dump_syms_build -j$(nproc)
+# Produces: _dump_syms_build/dump_syms
+```
+
+This only needs to be done once per host machine. The binary links zlib and libstdc++ statically and has no runtime dependencies beyond libc, so it can be copied to other machines or cached in CI without reinstalling libraries.
+
+### Step 2: Write a toolchain file
 
 ```cmake
 # toolchain-aarch64.cmake
@@ -374,22 +386,27 @@ set(CMAKE_CXX_COMPILER $ENV{CXX})
 
 For Buildroot, use `output/host/bin/<tuple>-gcc` and `output/host/<tuple>/sysroot`.
 
-### Step 2: Build crashomon for the target
+### Step 3: Build crashomon for the target
+
+Pass the `dump_syms` binary from Step 1 via `CRASHOMON_DUMP_SYMS_EXECUTABLE`:
 
 ```bash
 cmake -B build-cross \
-    -DCMAKE_TOOLCHAIN_FILE=/path/to/toolchain-aarch64.cmake
+    -DCMAKE_TOOLCHAIN_FILE=/path/to/toolchain-aarch64.cmake \
+    -DCRASOMON_DUMP_SYMS_EXECUTABLE="$(pwd)/_dump_syms_build/dump_syms"
 cmake --build build-cross -j$(nproc) \
     --target crashomon_client crashomon_watcherd
 ```
 
 FetchContent builds all C/C++ dependencies (Crashpad, Breakpad, Abseil, zlib) for the target. The first build takes longer; subsequent rebuilds are fast.
 
-### Step 3: Option A — LD_PRELOAD (no code changes)
+`CRASHOMON_DUMP_SYMS_EXECUTABLE` is required whenever `crashomon_store_symbols()` is called. Configure will fail with an error if the function is used and the variable is not set.
+
+### Step 4: Option A — LD_PRELOAD (no code changes)
 
 Copy to the target and install the systemd unit as described in the [Deployment](#deployment-on-a-linux-target) section above, using the cross-compiled binaries.
 
-### Step 3: Option B — FetchContent (build alongside your project)
+### Step 4: Option B — FetchContent (build alongside your project)
 
 ```cmake
 include(FetchContent)
@@ -404,13 +421,15 @@ crashomon_store_symbols(my_app)
 ```
 
 ```bash
+# Build dump_syms for the host first (see Step 1 above), then:
 cmake -B build \
     -DCMAKE_TOOLCHAIN_FILE=/path/to/toolchain-aarch64.cmake \
+    -DCRASOMON_DUMP_SYMS_EXECUTABLE="$(pwd)/_dump_syms_build/dump_syms" \
     -DCRASOMON_SYMBOL_STORE=/srv/crashomon/symbols
 cmake --build build -j$(nproc)
 ```
 
-### Step 3: Option C — Install and find as a pre-built library
+### Step 4: Option C — Install and find as a pre-built library
 
 ```bash
 cmake --install build-cross --prefix /opt/my-sdk/sysroot/usr \
@@ -436,6 +455,7 @@ Useful when the target has a minimal rootfs. Requires static versions of all sys
 ```bash
 cmake -B build-cross \
     -DCMAKE_TOOLCHAIN_FILE=toolchain-aarch64.cmake \
+    -DCRASOMON_DUMP_SYMS_EXECUTABLE="$(pwd)/_dump_syms_build/dump_syms" \
     -DCMAKE_EXE_LINKER_FLAGS="-static" \
     -DCMAKE_FIND_LIBRARY_SUFFIXES=".a"
 ```

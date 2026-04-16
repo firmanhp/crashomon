@@ -10,9 +10,15 @@ tools/
   analyze/      crashomon-analyze — CLI symbolication (Python 3.11 package)
   syms/         crashomon-syms — symbol store management (Python)
 web/            crashomon-web — Flask UI + REST API (Python, imports tools.analyze)
-cmake/          CMake helper modules: breakpad.cmake, crashomon_symbols.cmake
+cmake/
+  breakpad.cmake            Breakpad CMake targets (processor, stackwalk, dump_syms IMPORTED)
+  crashomon_symbols.cmake   crashomon_store_symbols() function
+  fetch_breakpad_deps.cmake FetchContent population for zlib, Breakpad, LSS (shared by main build
+                            and dump_syms_host/)
+  store_sym_impl.cmake      POST_BUILD cmake -P script that runs dump_syms and writes the store
+  dump_syms_host/           Standalone CMake project — builds the host dump_syms binary
 bench/          Microbenchmarks (Google Benchmark, opt-in via -DENABLE_BENCHMARKS=ON)
-test/           C/C++ unit tests (GoogleTest) + integration scripts
+test/           C/C++ unit tests (GoogleTest) + integration + smoke test scripts
 examples/       Example crasher programs (segfault, abort, multithread)
 systemd/        systemd unit files + drop-in snippets
 ```
@@ -54,8 +60,17 @@ C++ tests use CTest; Python tests use pytest directly — they are not mixed.
 
 ### Build first
 
+`ENABLE_TESTS=ON` adds the `examples/` targets, which call `crashomon_store_symbols()` and therefore require the host `dump_syms` binary. Build it once before configuring:
+
 ```bash
-cmake -B build -DENABLE_TESTS=ON
+# Build dump_syms for the host (one-time)
+cmake -B _dump_syms_build -S cmake/dump_syms_host/
+cmake --build _dump_syms_build -j$(nproc)
+
+# Configure and build with tests
+cmake -B build \
+    -DENABLE_TESTS=ON \
+    -DCRASHOMON_DUMP_SYMS_EXECUTABLE="$(pwd)/_dump_syms_build/dump_syms"
 cmake --build build -j$(nproc)
 ```
 
@@ -97,13 +112,29 @@ test/gen_fixtures.sh build
 ctest --test-dir build -R MinidumpReader
 ```
 
+### dump_syms smoke tests
+
+Standalone script — no running daemon required. Pass the host binary and any debug ELF:
+
+```bash
+test/test_dump_syms_smoke.sh _dump_syms_build/dump_syms build/examples/crashomon-example-segfault
+```
+
+Checks: exit codes, MODULE line format, build ID encoding, FUNC/FILE record presence, stripped binary handling, self-processing, and error paths.
+
 ### Sanitizer builds
 
 ```bash
-cmake -B build-ubsan -DENABLE_UBSAN=ON -DENABLE_TESTS=ON && cmake --build build-ubsan
+cmake -B build-ubsan \
+    -DENABLE_UBSAN=ON -DENABLE_TESTS=ON \
+    -DCRASHOMON_DUMP_SYMS_EXECUTABLE="$(pwd)/_dump_syms_build/dump_syms"
+cmake --build build-ubsan
 ctest --test-dir build-ubsan --output-on-failure
 
-cmake -B build-asan -DENABLE_ASAN=ON -DENABLE_TESTS=ON && cmake --build build-asan
+cmake -B build-asan \
+    -DENABLE_ASAN=ON -DENABLE_TESTS=ON \
+    -DCRASHOMON_DUMP_SYMS_EXECUTABLE="$(pwd)/_dump_syms_build/dump_syms"
+cmake --build build-asan
 ctest --test-dir build-asan --output-on-failure
 ```
 

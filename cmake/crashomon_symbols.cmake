@@ -31,10 +31,8 @@
 #                             Override at configure time:
 #                               cmake -B build -DCRASOMON_SYMBOL_STORE=/srv/symbols
 #
-# Requires breakpad_dump_syms to be a visible CMake target (defined in
-# cmake/breakpad.cmake). When the target is absent a WARNING is emitted and the
-# function returns without adding any command (graceful degradation when consumed
-# as a subproject that skips the Breakpad build).
+# Requires CRASHOMON_DUMP_SYMS_EXECUTABLE to be set (see cmake/breakpad.cmake).
+# If the breakpad_dump_syms target is absent, configure fails with FATAL_ERROR.
 
 # ── Cache variable ─────────────────────────────────────────────────────────────
 # Declared here (not in the root CMakeLists.txt) so it is available in both
@@ -71,10 +69,13 @@ function(crashomon_store_symbols target)
   endif()
 
   if(NOT TARGET breakpad_dump_syms)
-    message(WARNING
-      "crashomon_store_symbols: breakpad_dump_syms target not found; "
-      "skipping symbol ingestion for '${target}'")
-    return()
+    message(FATAL_ERROR
+      "crashomon_store_symbols(${target}): dump_syms host binary not configured.\n"
+      "Build it once with the host compiler:\n"
+      "  cmake -B _dump_syms_build -S <crashomon>/cmake/dump_syms_host/\n"
+      "  cmake --build _dump_syms_build\n"
+      "Then re-run configure with:\n"
+      "  -DCRASOMON_DUMP_SYMS_EXECUTABLE=<path>/_dump_syms_build/dump_syms")
   endif()
 
   # Generator expressions ($<TARGET_FILE:...>) are evaluated at build time by

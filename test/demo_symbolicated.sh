@@ -7,7 +7,12 @@
 #   3. Run crashomon-analyze with the symbol store → function names + line numbers
 #
 # Usage:
-#   test/demo_symbolicated.sh [BUILD_DIR]
+#   test/demo_symbolicated.sh [BUILD_DIR [DUMP_SYMS_PATH]]
+#
+# DUMP_SYMS_PATH can also be supplied via the CRASHOMON_DUMP_SYMS_EXECUTABLE
+# environment variable. Build the binary with:
+#   cmake -B _dump_syms_build -S cmake/dump_syms_host/
+#   cmake --build _dump_syms_build
 
 set -euo pipefail
 
@@ -21,18 +26,33 @@ LIBCRASHOMON="${BUILD_DIR}/lib/libcrashomon.so"
 EXAMPLE="${BUILD_DIR}/examples/crashomon-example-segfault"
 ANALYZE="${PROJECT_ROOT}/tools/analyze/crashomon-analyze"
 SYMS="${PROJECT_ROOT}/tools/syms/crashomon-syms"
-DUMP_SYMS="$(find "${BUILD_DIR}" -maxdepth 2 -name 'breakpad_dump_syms' -type f | head -1)"
 STACKWALK="$(find "${BUILD_DIR}" -maxdepth 2 -name 'minidump_stackwalk' -type f | head -1)"
+
+# dump_syms is a host binary built separately from the main CMake target build.
+# Resolution order: CLI arg > CRASHOMON_DUMP_SYMS_EXECUTABLE env var.
+DUMP_SYMS="${2:-${CRASHOMON_DUMP_SYMS_EXECUTABLE:-}}"
 
 for f in "${WATCHERD}" "${LIBCRASHOMON}" "${EXAMPLE}" "${ANALYZE}" "${SYMS}"; do
   if [[ ! -f "${f}" ]]; then
     echo "ERROR: not found: ${f}" >&2
-    echo "Run: cmake -B build && cmake --build build" >&2
+    echo "Run: cmake -B build -DENABLE_TESTS=ON && cmake --build build" >&2
     exit 1
   fi
 done
-if [[ -z "${DUMP_SYMS}" || -z "${STACKWALK}" ]]; then
-  echo "ERROR: dump_syms or minidump_stackwalk not found under ${BUILD_DIR}" >&2
+if [[ -z "${DUMP_SYMS}" ]]; then
+  echo "ERROR: dump_syms path not set." >&2
+  echo "Build it with:" >&2
+  echo "  cmake -B _dump_syms_build -S cmake/dump_syms_host/" >&2
+  echo "  cmake --build _dump_syms_build" >&2
+  echo "Then pass it as the second argument or set CRASHOMON_DUMP_SYMS_EXECUTABLE." >&2
+  exit 1
+fi
+if [[ ! -f "${DUMP_SYMS}" ]]; then
+  echo "ERROR: dump_syms not found at '${DUMP_SYMS}'" >&2
+  exit 1
+fi
+if [[ -z "${STACKWALK}" ]]; then
+  echo "ERROR: minidump_stackwalk not found under ${BUILD_DIR}" >&2
   exit 1
 fi
 
