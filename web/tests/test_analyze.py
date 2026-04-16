@@ -38,39 +38,39 @@ _MACHINE_OUTPUT = textwrap.dedent("""\
 
 
 def test_parse_machine_crash_signal():
-    t = parse_stackwalk_machine(_MACHINE_OUTPUT)
+    t, _ = parse_stackwalk_machine(_MACHINE_OUTPUT)
     assert t.signal_info == "SIGSEGV"
 
 
 def test_parse_machine_fault_addr():
-    t = parse_stackwalk_machine(_MACHINE_OUTPUT)
+    t, _ = parse_stackwalk_machine(_MACHINE_OUTPUT)
     assert t.fault_addr == 4
 
 
 def test_parse_machine_crashing_thread_first():
-    t = parse_stackwalk_machine(_MACHINE_OUTPUT)
+    t, _ = parse_stackwalk_machine(_MACHINE_OUTPUT)
     assert t.threads[0].is_crashing
 
 
 def test_parse_machine_thread_count():
-    t = parse_stackwalk_machine(_MACHINE_OUTPUT)
+    t, _ = parse_stackwalk_machine(_MACHINE_OUTPUT)
     assert len(t.threads) == 2
 
 
 def test_parse_machine_frame_count():
-    t = parse_stackwalk_machine(_MACHINE_OUTPUT)
+    t, _ = parse_stackwalk_machine(_MACHINE_OUTPUT)
     assert len(t.threads[0].frames) == 2
     assert len(t.threads[1].frames) == 1
 
 
 def test_parse_machine_frame_module():
-    t = parse_stackwalk_machine(_MACHINE_OUTPUT)
+    t, _ = parse_stackwalk_machine(_MACHINE_OUTPUT)
     assert t.threads[0].frames[0].module_path == "my_service"
     assert t.threads[0].frames[1].module_path == "libc.so"
 
 
 def test_parse_machine_frame_offset():
-    t = parse_stackwalk_machine(_MACHINE_OUTPUT)
+    t, _ = parse_stackwalk_machine(_MACHINE_OUTPUT)
     assert t.threads[0].frames[0].module_offset == 0x1000
 
 
@@ -90,19 +90,19 @@ def test_parse_machine_no_frames_raises():
 
 
 def test_format_raw_tombstone_contains_sep():
-    t = parse_stackwalk_machine(_MACHINE_OUTPUT)
+    t, _ = parse_stackwalk_machine(_MACHINE_OUTPUT)
     out = format_raw_tombstone(t)
     assert "*** *** ***" in out
 
 
 def test_format_raw_tombstone_contains_signal():
-    t = parse_stackwalk_machine(_MACHINE_OUTPUT)
+    t, _ = parse_stackwalk_machine(_MACHINE_OUTPUT)
     out = format_raw_tombstone(t)
     assert "SIGSEGV" in out
 
 
 def test_format_raw_tombstone_contains_frame():
-    t = parse_stackwalk_machine(_MACHINE_OUTPUT)
+    t, _ = parse_stackwalk_machine(_MACHINE_OUTPUT)
     out = format_raw_tombstone(t)
     assert "my_service" in out
 
@@ -114,11 +114,11 @@ def test_format_raw_tombstone_contains_frame():
 
 def test_mode_minidump_store_passes_args():
     with patch("tools.analyze.analyze.subprocess.run") as mock_run:
-        mock_run.return_value = MagicMock(stdout="output", returncode=0)
+        mock_run.return_value = MagicMock(stdout=_MACHINE_OUTPUT, returncode=0)
         result = mode_minidump_store("/sym/store", "crash.dmp", "minidump_stackwalk")
     cmd = mock_run.call_args[0][0]
-    assert cmd == ["minidump_stackwalk", "crash.dmp", "/sym/store"]
-    assert result == "output"
+    assert cmd == ["minidump_stackwalk", "-m", "crash.dmp", "/sym/store"]
+    assert "*** *** ***" in result
 
 
 def test_mode_minidump_store_missing_binary_raises():
@@ -179,17 +179,17 @@ def test_mode_sym_file_minidump_creates_temp_store(tmp_path):
     sym_file.write_text(_SYM_CONTENT)
 
     with patch("tools.analyze.analyze.subprocess.run") as mock_run:
-        mock_run.return_value = MagicMock(stdout="stackwalk output", returncode=0)
+        mock_run.return_value = MagicMock(stdout=_MACHINE_OUTPUT, returncode=0)
         result = mode_sym_file_minidump(str(sym_file), "crash.dmp", "minidump_stackwalk")
 
-    assert result == "stackwalk output"
+    assert "*** *** ***" in result
     cmd = mock_run.call_args[0][0]
-    # stackwalk binary and dmp path
     assert cmd[0] == "minidump_stackwalk"
-    assert cmd[1] == "crash.dmp"
+    assert cmd[1] == "-m"
+    assert cmd[2] == "crash.dmp"
     # store path is a temp dir that no longer exists (cleaned up)
     # Temp dir is cleaned up after the call — just verify the command structure.
-    assert len(cmd) == 3
+    assert len(cmd) == 4
 
 
 def test_mode_sym_file_minidump_missing_sym_raises(tmp_path):
