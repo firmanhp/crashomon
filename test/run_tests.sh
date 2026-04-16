@@ -2,9 +2,10 @@
 # test/run_tests.sh — build and run the full crashomon test suite.
 #
 # Runs in order:
-#   1. ctest               — C++ and Python unit tests
-#   2. integration_test.sh — end-to-end pipeline tests
-#   3. test_run_analyze.sh — run_analyze CMake target tests
+#   1. ctest               — C++ unit tests (client library, daemon, tombstone)
+#   2. pytest              — Python unit tests (web/, tools/analyze/)
+#   3. integration_test.sh — end-to-end pipeline tests
+#   4. test_run_analyze.sh — run_analyze CMake target tests
 #
 # Usage:
 #   test/run_tests.sh [BUILD_DIR]
@@ -38,7 +39,7 @@ cmake -B "${BUILD_DIR}" -DENABLE_TESTS=ON --log-level=WARNING 2>&1 | sed 's/^/  
 cmake --build "${BUILD_DIR}" -j"${NPROC}" 2>&1 | sed 's/^/  /'
 echo "  build: ok"
 
-# ── ctest (unit tests + Python tests) ────────────────────────────────────────
+# ── ctest (C++ unit tests) ────────────────────────────────────────────────────
 
 echo ""
 echo "-- ctest --"
@@ -50,6 +51,17 @@ if ctest --test-dir "${BUILD_DIR}" \
   suite_pass "ctest"
 else
   suite_fail "ctest"
+fi
+
+# ── Python tests ──────────────────────────────────────────────────────────────
+
+echo ""
+echo "-- pytest --"
+if uv run python -m pytest "${PROJECT_ROOT}/web/tests/" --tb=short -q 2>&1 \
+    | sed 's/^/  /'; then
+  suite_pass "pytest"
+else
+  suite_fail "pytest"
 fi
 
 # ── Integration tests ─────────────────────────────────────────────────────────

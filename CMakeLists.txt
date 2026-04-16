@@ -275,12 +275,17 @@ if(NOT crashomon_breakpad_POPULATED)
   # unwind strategy fails, scan succeeds, but the stale x29 is never updated, so
   # the same FP address is retried — and fails — for each scanned frame.  The
   # behaviour is expected and harmless; the noise level scales with frame count.
-  execute_process(
-    COMMAND sed -i
-      -e "s|BPLOG(ERROR) << \"Unable to read caller_fp|BPLOG(INFO) << \"Unable to read caller_fp|g"
-      -e "s|BPLOG(ERROR) << \"Unable to read caller_lr|BPLOG(INFO) << \"Unable to read caller_lr|g"
-      "${crashomon_breakpad_SOURCE_DIR}/src/processor/stackwalker_arm64.cc"
-  )
+  file(READ "${crashomon_breakpad_SOURCE_DIR}/src/processor/stackwalker_arm64.cc" _stackwalker_src)
+  string(REPLACE
+    "BPLOG(ERROR) << \"Unable to read caller_fp"
+    "BPLOG(INFO) << \"Unable to read caller_fp"
+    _stackwalker_src "${_stackwalker_src}")
+  string(REPLACE
+    "BPLOG(ERROR) << \"Unable to read caller_lr"
+    "BPLOG(INFO) << \"Unable to read caller_lr"
+    _stackwalker_src "${_stackwalker_src}")
+  file(WRITE "${crashomon_breakpad_SOURCE_DIR}/src/processor/stackwalker_arm64.cc" "${_stackwalker_src}")
+  unset(_stackwalker_src)
 endif()
 
 # LSS header needed by dump_syms (file_id.cc: #include "third_party/lss/linux_syscall_support.h")
@@ -339,34 +344,6 @@ if(ENABLE_TESTS)
   enable_testing()
   add_subdirectory(test)
 
-  # Python tests via pytest — wired into ctest so `ctest` covers the full suite.
-  # Prefer the project's .venv interpreter (populated by uv), then fall back to
-  # whatever Python3 CMake finds.  Gate on interpreter having pytest installed.
-  find_program(VENV_PYTHON NAMES python python3
-    PATHS "${PROJECT_SOURCE_DIR}/.venv/bin"
-    NO_DEFAULT_PATH
-  )
-  if(NOT VENV_PYTHON)
-    find_package(Python3 COMPONENTS Interpreter QUIET)
-    set(VENV_PYTHON "${Python3_EXECUTABLE}")
-  endif()
-  if(VENV_PYTHON)
-    execute_process(
-      COMMAND ${VENV_PYTHON} -c "import pytest"
-      RESULT_VARIABLE _pytest_found
-      OUTPUT_QUIET ERROR_QUIET
-    )
-    if(_pytest_found EQUAL 0)
-      add_test(NAME python_tests
-        COMMAND ${VENV_PYTHON} -m pytest --tb=short -q
-        WORKING_DIRECTORY ${PROJECT_SOURCE_DIR}
-      )
-      set_tests_properties(python_tests PROPERTIES
-        ENVIRONMENT "PYTHONPATH=${PROJECT_SOURCE_DIR}"
-        LABELS "python"
-      )
-    endif()
-  endif()
   add_subdirectory(bench)
 endif()
 

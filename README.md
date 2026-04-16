@@ -28,7 +28,7 @@ Crash monitoring ecosystem for ELF binaries on embedded Linux. Provides Android 
 
 | Tool | Version | Notes |
 |---|---|---|
-| CMake | ≥ 3.21 | |
+| CMake | ≥ 3.24 | |
 | C++ compiler | GCC ≥ 13 or Clang ≥ 16 | Must support C++20 |
 | Python | ≥ 3.11 | For `crashomon-syms` and `crashomon-web` |
 | `uv` | any | Python dependency management (`pip install uv`) |
@@ -457,33 +457,53 @@ uv run ruff format --check web/ tools/analyze/ tools/syms/
 
 ## Running the Tests
 
-### C/C++ unit tests
+Each module has its own test command. C++ tests use CTest; Python tests use pytest directly — they are not mixed.
+
+### Build first (C++ tests require `-DENABLE_TESTS=ON`)
 
 ```bash
-# Build and run all tests
-cmake -B build && cmake --build build
-ctest --test-dir build --output-on-failure
-
-# Run a specific test suite by name
-ctest --test-dir build -R MinidumpReader
-ctest --test-dir build -R TombstoneFormatter
+cmake -B build -DENABLE_TESTS=ON
+cmake --build build -j$(nproc)
 ```
 
-### Python tests (web layer + analyze tool)
+### Client library (`lib/`)
+
+```bash
+ctest --test-dir build -R crashomon_client --output-on-failure
+```
+
+### Daemon + tombstone (`daemon/`, `tombstone/`)
+
+```bash
+ctest --test-dir build -R crashomon_daemon --output-on-failure
+```
+
+### tools/analyze + web (`tools/analyze/`, `web/`)
 
 ```bash
 uv run pytest web/tests/ -v
 ```
 
-### Fixture-based tests (requires running crashers)
+### tools/syms (`tools/syms/`)
 
-The `test_minidump_reader.cpp` tests need real `.dmp` files generated from the example crashers. Run once to populate `test/fixtures/`:
+Covered by the integration test — no isolated unit tests:
 
 ```bash
-# Generate fixtures (requires a built project)
-test/gen_fixtures.sh build
+test/integration_test.sh build
+```
 
-# Then re-run tests — fixture tests will no longer be skipped
+### All C++ tests at once
+
+```bash
+ctest --test-dir build --output-on-failure
+```
+
+### Fixture-based tests (require running crashers)
+
+The `MinidumpReader` tests need real `.dmp` files. Run once to populate `test/fixtures/`:
+
+```bash
+test/gen_fixtures.sh build
 ctest --test-dir build -R MinidumpReader
 ```
 
@@ -494,20 +514,16 @@ ctest --test-dir build -R MinidumpReader
 test/integration_test.sh build
 
 # cmake symbol store: build → store layout → crashomon-analyze with cmake-generated store
-# Validates that crashomon_store_symbols() produces a store that fully symbolicates a
-# live crash — no manual crashomon-syms add step.
 test/test_symbol_store.sh build
 ```
 
 ### Sanitizer builds
 
 ```bash
-cmake -B build-ubsan -DENABLE_UBSAN=ON
-cmake --build build-ubsan
+cmake -B build-ubsan -DENABLE_UBSAN=ON -DENABLE_TESTS=ON && cmake --build build-ubsan
 ctest --test-dir build-ubsan --output-on-failure
 
-cmake -B build-asan -DENABLE_ASAN=ON
-cmake --build build-asan
+cmake -B build-asan -DENABLE_ASAN=ON -DENABLE_TESTS=ON && cmake --build build-asan
 ctest --test-dir build-asan --output-on-failure
 ```
 
@@ -859,4 +875,4 @@ Note that static linking requires static versions of all system libraries (glibc
 | No upload URL in Crashpad | Crash data never leaves the device; analysis is always offline |
 | Breakpad symbol store layout | `minidump_stackwalk` auto-resolves the right symbol file by build ID |
 | Abseil types internal-only | Public API uses only C types — consumers add no dependencies |
-| All deps via CMake FetchContent | Reproducible builds; no system-package version conflicts |
+| C/C++ deps via CMake FetchContent | Reproducible builds; no system-package version conflicts |
