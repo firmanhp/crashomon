@@ -138,17 +138,40 @@ def _lookup_offset(
     return sym
 
 
+def _breakpad_id_to_gnu_prefix(store_id: str) -> str:
+    """Convert a Breakpad debug ID to the first-16-byte GNU build ID prefix.
+
+    Breakpad debug IDs use Windows GUID byte-ordering: the first 4 bytes,
+    next 2 bytes, and next 2 bytes are each stored little-endian (reversed).
+    The trailing age digit ("0") is stripped before conversion.
+
+    Example: "809DC333A9F5EA487F5468590D71859F0"
+          ->  "33c39d80f5a948ea7f5468590d71859f"
+    which matches the first 32 chars of GNU build ID
+    "33c39d80f5a948ea7f5468590d71859f87f08cbf".
+    """
+    s = store_id[:-1] if store_id.endswith("0") else store_id
+    s = s.lower()
+    if len(s) < 32:
+        return s
+    g1 = bytes.fromhex(s[0:8])[::-1].hex()
+    g2 = bytes.fromhex(s[8:12])[::-1].hex()
+    g3 = bytes.fromhex(s[12:16])[::-1].hex()
+    return g1 + g2 + g3 + s[16:]
+
+
 def _build_store_index(store: Path) -> dict[str, Path]:
-    """Walk a Breakpad symbol store and return {raw_build_id: sym_file_path}.
+    """Walk a Breakpad symbol store and return {gnu_build_id_prefix: sym_file_path}.
 
     The store directory name is the Breakpad debug ID (uppercase hex + trailing
-    "0" age suffix).  Stripping the trailing "0" and lowercasing recovers the
-    raw GNU build ID that appears in tombstone (BuildId:) annotations.
+    "0" age suffix). Breakpad IDs use Windows GUID byte-ordering for the first
+    16 bytes, so a byte-swap reversal is needed to recover the GNU build ID
+    prefix that appears in tombstone (BuildId:) annotations.
     """
     index: dict[str, Path] = {}
     for sym_file in store.rglob("*.sym"):
         store_id = sym_file.parent.name
-        raw_id = (store_id[:-1] if store_id.endswith("0") else store_id).lower()
+        raw_id = _breakpad_id_to_gnu_prefix(store_id)
         index[raw_id] = sym_file
     return index
 
@@ -171,7 +194,7 @@ def symbolize_with_store(
         for frame in thread.frames:
             if not frame.build_id:
                 continue
-            sym_path = store_index.get(frame.build_id)
+            sym_path = store_index.get(frame.build_id[:32])
             if sym_path is None:
                 continue
             if sym_path not in parsed_cache:
