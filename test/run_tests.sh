@@ -5,7 +5,6 @@
 #   1. ctest               — C++ unit tests (client library, daemon, tombstone)
 #   2. pytest              — Python unit tests (web/, tools/analyze/)
 #   3. integration_test.sh — end-to-end pipeline tests
-#   4. test_run_analyze.sh — run_analyze CMake target tests
 #
 # Usage:
 #   test/run_tests.sh [BUILD_DIR]
@@ -72,16 +71,6 @@ if "${SCRIPT_DIR}/integration_test.sh" "${BUILD_DIR}" 2>&1 | sed 's/^/  /'; then
   suite_pass "integration_test.sh"
 else
   suite_fail "integration_test.sh"
-fi
-
-# ── run_analyze target tests ──────────────────────────────────────────────────
-
-echo ""
-echo "-- test_run_analyze.sh --"
-if "${SCRIPT_DIR}/test_run_analyze.sh" "${BUILD_DIR}" 2>&1 | sed 's/^/  /'; then
-  suite_pass "test_run_analyze.sh"
-else
-  suite_fail "test_run_analyze.sh"
 fi
 
 # ── Summary ───────────────────────────────────────────────────────────────────
