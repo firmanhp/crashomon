@@ -107,17 +107,6 @@ std::string FormatTombstone(const MinidumpInfo& info) {
     AppendFrames(out, info.threads[0].frames, build_ids);
   }
 
-  // Non-crashing threads.
-  for (size_t i = 1; i < info.threads.size(); ++i) {
-    const auto& thread = info.threads[i];
-    if (!thread.name.empty()) {
-      out << std::format("\n--- --- --- thread {} ({}) --- --- ---\n", thread.tid, thread.name);
-    } else {
-      out << std::format("\n--- --- --- thread {} --- --- ---\n", thread.tid);
-    }
-    AppendFrames(out, thread.frames, build_ids);
-  }
-
   out << "\nminidump saved to: " << info.minidump_path << "\n";
   out << kSeparator << "\n";
 

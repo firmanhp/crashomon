@@ -13,8 +13,8 @@ namespace crashomon {
 
 // Format a MinidumpInfo into an Android-style tombstone string.
 // The output begins and ends with the *** separator line.
-// Registers are shown only for the crashing thread.
-// Other threads are appended with a "--- --- --- thread TID --- --- ---" header.
+// Only the crashing thread (registers + backtrace) is included; other threads
+// remain in the minidump but are not printed.
 std::string FormatTombstone(const MinidumpInfo& info);
 
 }  // namespace crashomon
