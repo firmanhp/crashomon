@@ -32,8 +32,8 @@ target_include_directories(crashomon_watcherd
 # FetchContent before CMake 3.25 does not mark fetched-dep includes as SYSTEM.
 # Adding the abseil source dir as SYSTEM here causes the compiler to use -isystem,
 # which suppresses warnings from Abseil headers without affecting our own code.
-if(absl_SOURCE_DIR)
-  target_include_directories(crashomon_watcherd SYSTEM PRIVATE "${absl_SOURCE_DIR}")
+if(crashomon_absl_SOURCE_DIR)
+  target_include_directories(crashomon_watcherd SYSTEM PRIVATE "${crashomon_absl_SOURCE_DIR}")
 endif()
 # Breakpad headers use zero-size arrays (a C extension) and other non-pedantic
 # constructs. Same SYSTEM workaround as for Abseil above.

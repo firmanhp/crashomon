@@ -23,8 +23,8 @@ target_include_directories(crashomon_bench
     ${CMAKE_CURRENT_SOURCE_DIR}
 )
 
-if(absl_SOURCE_DIR)
-  target_include_directories(crashomon_bench SYSTEM PRIVATE "${absl_SOURCE_DIR}")
+if(crashomon_absl_SOURCE_DIR)
+  target_include_directories(crashomon_bench SYSTEM PRIVATE "${crashomon_absl_SOURCE_DIR}")
 endif()
 if(crashomon_breakpad_SOURCE_DIR)
   target_include_directories(crashomon_bench SYSTEM PRIVATE "${crashomon_breakpad_SOURCE_DIR}/src")

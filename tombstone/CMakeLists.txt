@@ -23,8 +23,8 @@ target_include_directories(crashomon_tombstone
 
 # Abseil headers use __int128 (a GCC extension) and have internal sign-conversion
 # issues that fire under our -Wpedantic and -Wsign-conversion flags.
-if(absl_SOURCE_DIR)
-  target_include_directories(crashomon_tombstone SYSTEM PRIVATE "${absl_SOURCE_DIR}")
+if(crashomon_absl_SOURCE_DIR)
+  target_include_directories(crashomon_tombstone SYSTEM PRIVATE "${crashomon_absl_SOURCE_DIR}")
 endif()
 # Breakpad headers use zero-size arrays (a C extension) and other non-pedantic
 # constructs.

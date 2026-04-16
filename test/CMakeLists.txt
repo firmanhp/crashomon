@@ -40,8 +40,8 @@ target_include_directories(crashomon_daemon_tests
     ${CMAKE_CURRENT_SOURCE_DIR}
 )
 
-if(absl_SOURCE_DIR)
-  target_include_directories(crashomon_daemon_tests SYSTEM PRIVATE "${absl_SOURCE_DIR}")
+if(crashomon_absl_SOURCE_DIR)
+  target_include_directories(crashomon_daemon_tests SYSTEM PRIVATE "${crashomon_absl_SOURCE_DIR}")
 endif()
 if(crashomon_breakpad_SOURCE_DIR)
   target_include_directories(crashomon_daemon_tests SYSTEM PRIVATE "${crashomon_breakpad_SOURCE_DIR}/src")
@@ -87,8 +87,8 @@ target_include_directories(crashomon_client_tests
     ${CMAKE_CURRENT_SOURCE_DIR}
 )
 
-if(absl_SOURCE_DIR)
-  target_include_directories(crashomon_client_tests SYSTEM PRIVATE "${absl_SOURCE_DIR}")
+if(crashomon_absl_SOURCE_DIR)
+  target_include_directories(crashomon_client_tests SYSTEM PRIVATE "${crashomon_absl_SOURCE_DIR}")
 endif()
 # lib/crashomon.cpp and test_tags.cpp include Crashpad headers directly.
 # Mark Crashpad's directories as SYSTEM so -Werror does not fire on third-party
