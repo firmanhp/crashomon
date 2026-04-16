@@ -393,7 +393,7 @@ Pass the `dump_syms` binary from Step 1 via `CRASHOMON_DUMP_SYMS_EXECUTABLE`:
 ```bash
 cmake -B build-cross \
     -DCMAKE_TOOLCHAIN_FILE=/path/to/toolchain-aarch64.cmake \
-    -DCRASOMON_DUMP_SYMS_EXECUTABLE="$(pwd)/_dump_syms_build/dump_syms"
+    -DCRASHOMON_DUMP_SYMS_EXECUTABLE="$(pwd)/_dump_syms_build/dump_syms"
 cmake --build build-cross -j$(nproc) \
     --target crashomon_client crashomon_watcherd
 ```
@@ -424,7 +424,7 @@ crashomon_store_symbols(my_app)
 # Build dump_syms for the host first (see Step 1 above), then:
 cmake -B build \
     -DCMAKE_TOOLCHAIN_FILE=/path/to/toolchain-aarch64.cmake \
-    -DCRASOMON_DUMP_SYMS_EXECUTABLE="$(pwd)/_dump_syms_build/dump_syms" \
+    -DCRASHOMON_DUMP_SYMS_EXECUTABLE="$(pwd)/_dump_syms_build/dump_syms" \
     -DCRASOMON_SYMBOL_STORE=/srv/crashomon/symbols
 cmake --build build -j$(nproc)
 ```
@@ -455,7 +455,7 @@ Useful when the target has a minimal rootfs. Requires static versions of all sys
 ```bash
 cmake -B build-cross \
     -DCMAKE_TOOLCHAIN_FILE=toolchain-aarch64.cmake \
-    -DCRASOMON_DUMP_SYMS_EXECUTABLE="$(pwd)/_dump_syms_build/dump_syms" \
+    -DCRASHOMON_DUMP_SYMS_EXECUTABLE="$(pwd)/_dump_syms_build/dump_syms" \
     -DCMAKE_EXE_LINKER_FLAGS="-static" \
     -DCMAKE_FIND_LIBRARY_SUFFIXES=".a"
 ```

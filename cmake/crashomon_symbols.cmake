@@ -75,7 +75,7 @@ function(crashomon_store_symbols target)
       "  cmake -B _dump_syms_build -S <crashomon>/cmake/dump_syms_host/\n"
       "  cmake --build _dump_syms_build\n"
       "Then re-run configure with:\n"
-      "  -DCRASOMON_DUMP_SYMS_EXECUTABLE=<path>/_dump_syms_build/dump_syms")
+      "  -DCRASHOMON_DUMP_SYMS_EXECUTABLE=<path>/_dump_syms_build/dump_syms")
   endif()
 
   # Generator expressions ($<TARGET_FILE:...>) are evaluated at build time by
