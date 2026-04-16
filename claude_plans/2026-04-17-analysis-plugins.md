@@ -176,19 +176,28 @@ or when BuildId is present (mode 2).
 
 ### 4. `DebuggerHint`  — tombstone, certain
 
-Pure formatting — always correct.  Emits a ready-to-paste `gdb` and `lldb`
-command from the minidump path in the tombstone.  No analysis, just removes
-the "how do I open this again?" friction.
+Pure formatting — always correct.  Emits ready-to-paste debugger commands from
+the minidump path in the tombstone.  No analysis, just removes the "how do I
+open this again?" friction.
+
+GDB does not read minidump format (it expects ELF core dumps).  LLDB reads
+minidumps natively via its minidump plugin, including aarch64 minidumps opened
+on an x86-64 host.  For GDB users, Breakpad's `minidump-2-core` converts the
+.dmp to a synthetic ELF core that GDB can load.
 
 Output:
 ```
 [certain] DEBUGGER_HINT
-          gdb -c /var/lib/crashomon/dumps/abc123.dmp /path/to/binary
-            (gdb) info registers
-            (gdb) bt full
+          # lldb (recommended — native minidump support, works cross-arch):
           lldb --core /var/lib/crashomon/dumps/abc123.dmp /path/to/binary
             (lldb) bt all
             (lldb) register read
+
+          # gdb (requires conversion first):
+          minidump-2-core /var/lib/crashomon/dumps/abc123.dmp > /tmp/crash.core
+          gdb /path/to/binary /tmp/crash.core
+            (gdb) info registers
+            (gdb) bt full
 ```
 
 Only fires when `tombstone.minidump_path` is non-empty.  False alarm rate: 0%.
@@ -209,7 +218,7 @@ Output:
 ```
 [certain] CORRUPT_PC — frame #0 PC is 0x0000000000000001 (not a valid code
           address). The backtrace below is unreliable. Open the minidump in
-          gdb/lldb to inspect register state directly.
+          lldb (or gdb via minidump-2-core) to inspect register state directly.
 ```
 
 False alarm rate: ~0%.  A PC of 0x1 or 0x3 is never a valid instruction
@@ -395,7 +404,7 @@ run all registered plugins against the `ParsedTombstone` and append findings:
 Analysis findings:
 [certain]  EXPLICIT_ABORT — process called abort() ...
 [certain]  MISSING_SYMBOLS — libfoo.so (BuildId: a1b2...) not symbolicated
-[certain]  DEBUGGER_HINT — gdb -c /var/lib/.../abc123.dmp ...
+[certain]  DEBUGGER_HINT — lldb --core /var/lib/.../abc123.dmp ...
 ```
 
 Findings are appended after the tombstone, not interleaved, so the tombstone
