@@ -219,16 +219,29 @@ endif()
 FetchContent_Declare(crashomon_absl
   GIT_REPOSITORY https://github.com/abseil/abseil-cpp.git
   GIT_TAG        20240722.0
-  SYSTEM  # mark all include dirs as SYSTEM so -Wpedantic/-Wsign-conversion don't fire on absl headers
 )
 # Only populate if no caller has already provided absl (e.g. via Conan, vcpkg,
 # or their own FetchContent). absl::base is present in every absl installation
 # and serves as the canonical existence check.
 if(NOT TARGET absl::base)
+  FetchContent_GetProperties(crashomon_absl)
+  if(NOT crashomon_absl_POPULATED)
+    FetchContent_Populate(crashomon_absl)
+  endif()
   set(ABSL_PROPAGATE_CXX_STD ON CACHE BOOL "" FORCE)
   set(ABSL_BUILD_TESTING      OFF CACHE BOOL "" FORCE)
   set(BUILD_TESTING            OFF CACHE BOOL "" FORCE)
-  FetchContent_MakeAvailable(crashomon_absl)
+  # EXCLUDE_FROM_ALL is critical here: FetchContent_MakeAvailable runs
+  # Abseil's full CMakeLists.txt and registers all ~200 absl_* targets as
+  # default build targets, so `cmake --build .` compiles the entire Abseil
+  # tree even when only absl::status and absl::statusor are linked.
+  # Using FetchContent_Populate + add_subdirectory(EXCLUDE_FROM_ALL) instead
+  # limits the build to only the targets that are actually linked — matching
+  # the same pattern used for Crashpad above.
+  # Warning suppression for Abseil headers (pedantic extensions, sign-conversion)
+  # is handled per-target via target_include_directories(... SYSTEM PRIVATE
+  # "${crashomon_absl_SOURCE_DIR}") in each component's CMakeLists.txt.
+  add_subdirectory("${crashomon_absl_SOURCE_DIR}" "${crashomon_absl_BINARY_DIR}" EXCLUDE_FROM_ALL)
 endif()
 
 # Breakpad — minidump-processor library + dump_syms + minidump_stackwalk tools.
