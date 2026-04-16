@@ -85,8 +85,15 @@ endif()
 # CLI tool: extracts DWARF debug info from ELF binaries into Breakpad .sym files.
 # Used by crashomon-syms and crashomon-web as a subprocess.
 #
+# This is a HOST tool: it runs on the build machine to read DWARF from ELF
+# binaries (it can parse any ELF architecture regardless of where it runs).
+# When cross-compiling, building it with the cross-compiler produces a target
+# binary that cannot execute on the host. Skip it in that case —
+# crashomon_store_symbols() degrades gracefully when the target is absent.
+#
 # Sources are explicit (no glob) to avoid pulling in test/platform-specific files.
 
+if(NOT CMAKE_CROSSCOMPILING)
 add_executable(breakpad_dump_syms
   # DWARF parsing
   "${BREAKPAD_SRC}/common/dwarf_cfi_to_module.cc"
@@ -126,6 +133,7 @@ target_link_libraries(breakpad_dump_syms
     Threads::Threads
     ZLIB::ZLIB
 )
+endif()  # NOT CMAKE_CROSSCOMPILING
 
 # ── breakpad_synth_minidump ────────────────────────────────────────────────────
 # SynthMinidump + test_assembler: used by gen_synthetic_fixtures (test-only).
