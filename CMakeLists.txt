@@ -1,4 +1,4 @@
-cmake_minimum_required(VERSION 3.24)
+cmake_minimum_required(VERSION 3.25)
 project(crashomon VERSION 0.1.0 LANGUAGES C CXX)
 
 # ── Language standards ─────────────────────────────────────────────────────────
@@ -219,6 +219,7 @@ endif()
 FetchContent_Declare(crashomon_absl
   GIT_REPOSITORY https://github.com/abseil/abseil-cpp.git
   GIT_TAG        20240722.0
+  SYSTEM  # mark all include dirs as SYSTEM so -Wpedantic/-Wsign-conversion don't fire on absl headers
 )
 # Only populate if no caller has already provided absl (e.g. via Conan, vcpkg,
 # or their own FetchContent). absl::base is present in every absl installation
@@ -228,34 +229,6 @@ if(NOT TARGET absl::base)
   set(ABSL_BUILD_TESTING      OFF CACHE BOOL "" FORCE)
   set(BUILD_TESTING            OFF CACHE BOOL "" FORCE)
   FetchContent_MakeAvailable(crashomon_absl)
-endif()
-
-# Abseil headers use __int128 (a GCC extension) and have internal sign-conversion
-# issues. FetchContent before CMake 3.25 does not mark fetched deps as SYSTEM
-# includes, so our -Wpedantic/-Wsign-conversion would fire on Abseil headers when
-# our own code includes them.
-#
-# Fix: propagate crashomon_absl_SOURCE_DIR as INTERFACE_SYSTEM_INCLUDE_DIRECTORIES on all
-# absl targets so any downstream target that links absl gets SYSTEM includes.
-# This suppresses warnings only from Abseil headers — not from our own code.
-if(crashomon_absl_SOURCE_DIR)
-  get_property(_absl_targets DIRECTORY "${crashomon_absl_SOURCE_DIR}" PROPERTY BUILDSYSTEM_TARGETS)
-  foreach(_tgt IN LISTS _absl_targets)
-    if(TARGET ${_tgt})
-      get_target_property(_type ${_tgt} TYPE)
-      if(NOT _type STREQUAL "INTERFACE_LIBRARY")
-        set_property(TARGET ${_tgt} APPEND PROPERTY
-          INTERFACE_SYSTEM_INCLUDE_DIRECTORIES "${crashomon_absl_SOURCE_DIR}")
-      else()
-        # INTERFACE targets may have their own include dirs — mark those too.
-        get_target_property(_inc ${_tgt} INTERFACE_INCLUDE_DIRECTORIES)
-        if(_inc)
-          set_property(TARGET ${_tgt} APPEND PROPERTY
-            INTERFACE_SYSTEM_INCLUDE_DIRECTORIES "${_inc}")
-        endif()
-      endif()
-    endif()
-  endforeach()
 endif()
 
 # Breakpad — minidump-processor library + dump_syms + minidump_stackwalk tools.

@@ -6,11 +6,11 @@ include(GoogleTest)
 # crashpad_client, so there is no startup connection retry delay.
 
 set(DAEMON_TEST_SOURCES
-  test_tombstone_formatter.cpp
-  test_disk_manager.cpp
-  test_minidump_reader.cpp
-  test_register_extract.cpp
-  test_worker.cpp
+  ${PROJECT_SOURCE_DIR}/tombstone/test/test_tombstone_formatter.cpp
+  ${PROJECT_SOURCE_DIR}/tombstone/test/test_minidump_reader.cpp
+  ${PROJECT_SOURCE_DIR}/tombstone/test/test_register_extract.cpp
+  ${PROJECT_SOURCE_DIR}/daemon/test/test_disk_manager.cpp
+  ${PROJECT_SOURCE_DIR}/daemon/test/test_worker.cpp
 )
 
 add_executable(crashomon_daemon_tests ${DAEMON_TEST_SOURCES})
@@ -59,9 +59,9 @@ set_target_properties(crashomon_daemon_tests PROPERTIES CXX_CLANG_TIDY "${CRASHO
 # crashomon_init() directly and are not affected by this flag.
 
 set(CLIENT_TEST_SOURCES
-  test_crashomon.cpp
-  test_tags.cpp
-  test_connect_retry.cpp
+  ${PROJECT_SOURCE_DIR}/lib/test/test_crashomon.cpp
+  ${PROJECT_SOURCE_DIR}/lib/test/test_tags.cpp
+  ${PROJECT_SOURCE_DIR}/lib/test/test_connect_retry.cpp
 )
 
 add_executable(crashomon_client_tests ${CLIENT_TEST_SOURCES})
