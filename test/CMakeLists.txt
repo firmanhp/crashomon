@@ -23,12 +23,10 @@ target_link_libraries(crashomon_daemon_tests
     breakpad_processor
     absl::status
     absl::statusor
-    spdlog::spdlog_header_only
+    crashomon_spdlog
     Threads::Threads
 )
 
-# worker.cpp uses spdlog; match the -fno-exceptions build.
-target_compile_definitions(crashomon_daemon_tests PRIVATE SPDLOG_NO_EXCEPTIONS=1)
 
 # Modules under test compiled directly so tests can #include internal headers.
 target_sources(crashomon_daemon_tests PRIVATE

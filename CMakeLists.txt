@@ -300,29 +300,17 @@ include(cmake/breakpad.cmake)
 include(cmake/crashomon_symbols.cmake)
 
 # spdlog — structured logging for crashomon-watcherd.
-# SPDLOG_SYSTEM_INCLUDES: spdlog marks its own headers as -isystem, suppressing
-# -Wpedantic/-Werror on spdlog GCC extensions without any manual set_property.
-# SPDLOG_NO_EXCEPTIONS: spdlog's compiled library and header paths must match
-# our global -fno-exceptions; this replaces throw/catch with abort paths.
-FetchContent_Declare(spdlog
-  GIT_REPOSITORY https://github.com/gabime/spdlog.git
-  GIT_TAG        v1.14.1
-  # No OVERRIDE_FIND_PACKAGE: crashomon is a library, not a top-level app.
-  # OVERRIDE_FIND_PACKAGE hijacks find_package(spdlog) for the entire consumer
-  # build, breaking consumers that rely on their own spdlog (e.g. Conan-provided)
-  # for transitive deps like fmt. Instead, we guard the populate below.
+# Vendored as headers in third_party/spdlog/ (v1.14.1) to avoid FetchContent
+# namespace conflicts when crashomon is consumed as a subdirectory. Consumers
+# that provide their own spdlog are unaffected: crashomon's internal target is
+# distinct and does not interfere with any find_package(spdlog) in the outer build.
+add_library(crashomon_spdlog INTERFACE)
+target_include_directories(crashomon_spdlog SYSTEM INTERFACE
+  "${CMAKE_CURRENT_SOURCE_DIR}/third_party/spdlog/include"
 )
-# Only populate if no caller has already provided spdlog targets (e.g. via Conan,
-# vcpkg, or their own FetchContent_MakeAvailable). This avoids the ALIAS-target
-# set_property error without stealing find_package(spdlog) from the consumer.
-if(NOT TARGET spdlog::spdlog_header_only)
-  set(SPDLOG_BUILD_EXAMPLE  OFF CACHE BOOL "" FORCE)
-  set(SPDLOG_BUILD_TESTS    OFF CACHE BOOL "" FORCE)
-  set(SPDLOG_INSTALL        OFF CACHE BOOL "" FORCE)
-  set(SPDLOG_SYSTEM_INCLUDES ON  CACHE BOOL "" FORCE)
-  set(SPDLOG_NO_EXCEPTIONS   ON  CACHE BOOL "" FORCE)
-  FetchContent_MakeAvailable(spdlog)
-endif()
+# SPDLOG_NO_EXCEPTIONS: matches our global -fno-exceptions; replaces throw/catch
+# with abort paths throughout spdlog's headers.
+target_compile_definitions(crashomon_spdlog INTERFACE SPDLOG_NO_EXCEPTIONS=1)
 
 # Google Benchmark (only when ENABLE_TESTS=ON)
 if(ENABLE_TESTS)
