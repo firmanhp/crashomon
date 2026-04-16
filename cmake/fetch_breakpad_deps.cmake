@@ -15,6 +15,15 @@
 
 include(FetchContent)
 
+# FetchContent_Populate(<name>) is intentionally used here (not MakeAvailable)
+# so that each dep's CMakeLists.txt is NOT processed — the two consumers
+# (CMakeLists.txt and dump_syms_host/) add subdirectories themselves with
+# different options.  Suppress the CMP0169 deprecation warning that CMake 3.30+
+# emits for this pattern.
+if(POLICY CMP0169)
+  cmake_policy(SET CMP0169 OLD)
+endif()
+
 # ── zlib ──────────────────────────────────────────────────────────────────────
 
 FetchContent_Declare(crashomon_zlib
