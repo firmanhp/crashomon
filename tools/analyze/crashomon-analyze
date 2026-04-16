@@ -33,6 +33,7 @@ Options:
 from __future__ import annotations
 
 import argparse
+import shutil
 import sys
 from pathlib import Path
 
@@ -68,23 +69,32 @@ def _build_parser() -> argparse.ArgumentParser:
     return parser
 
 
+def _resolve_binary(name: str) -> str:
+    resolved = shutil.which(name)
+    if resolved is None:
+        print(f"crashomon-analyze: {name!r} not found", file=sys.stderr)
+        sys.exit(1)
+    print(f"crashomon-analyze: using {name}: {resolved}", file=sys.stderr)
+    return resolved
+
+
 def main() -> int:
     parser = _build_parser()
     args = parser.parse_args()
 
     try:
         if args.store and args.minidump:
-            output = mode_minidump_store(args.store, args.minidump, args.stackwalk_binary)
+            output = mode_minidump_store(args.store, args.minidump, _resolve_binary(args.stackwalk_binary))
         elif args.debug_dir and args.read_stdin:
             text = sys.stdin.read()
-            output = mode_stdin_debug_dir(text, args.debug_dir, args.addr2line_binary)
+            output = mode_stdin_debug_dir(text, args.debug_dir, _resolve_binary(args.addr2line_binary))
         elif args.store and args.read_stdin:
             text = sys.stdin.read()
-            output = mode_stdin_store(text, args.store, args.addr2line_binary)
+            output = mode_stdin_store(text, args.store, _resolve_binary(args.addr2line_binary))
         elif args.symbols and args.minidump:
-            output = mode_sym_file_minidump(args.symbols, args.minidump, args.stackwalk_binary)
+            output = mode_sym_file_minidump(args.symbols, args.minidump, _resolve_binary(args.stackwalk_binary))
         elif args.minidump:
-            output = mode_raw_tombstone(args.minidump, args.stackwalk_binary)
+            output = mode_raw_tombstone(args.minidump, _resolve_binary(args.stackwalk_binary))
         else:
             print("crashomon-analyze: no valid mode specified.", file=sys.stderr)
             parser.print_usage(sys.stderr)

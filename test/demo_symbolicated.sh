@@ -9,10 +9,11 @@
 # Usage:
 #   test/demo_symbolicated.sh [BUILD_DIR [DUMP_SYMS_PATH]]
 #
-# DUMP_SYMS_PATH can also be supplied via the CRASHOMON_DUMP_SYMS_EXECUTABLE
-# environment variable. Build the binary with:
-#   cmake -B _dump_syms_build -S cmake/dump_syms_host/
-#   cmake --build _dump_syms_build
+# dump_syms and minidump_stackwalk are auto-discovered from _dump_syms_build/ or
+# co-located with minidump_stackwalk in BUILD_DIR. DUMP_SYMS_PATH can also be
+# supplied via the CRASHOMON_DUMP_SYMS_EXECUTABLE environment variable.
+# Build the host tools with:
+#   cmake -B _dump_syms_build -S cmake/dump_syms_host/ && cmake --build _dump_syms_build
 
 set -euo pipefail
 
@@ -26,11 +27,22 @@ LIBCRASHOMON="${BUILD_DIR}/lib/libcrashomon.so"
 EXAMPLE="${BUILD_DIR}/examples/crashomon-example-segfault"
 ANALYZE="${PROJECT_ROOT}/tools/analyze/crashomon-analyze"
 SYMS="${PROJECT_ROOT}/tools/syms/crashomon-syms"
-STACKWALK="$(find "${BUILD_DIR}" -maxdepth 2 -name 'minidump_stackwalk' -type f | head -1)"
+# minidump_stackwalk: main build first, then host tools build.
+STACKWALK="$(find "${BUILD_DIR}" -maxdepth 2 -name 'minidump_stackwalk' -type f 2>/dev/null | head -1 || true)"
+if [[ -z "${STACKWALK}" ]]; then
+  STACKWALK="$(find "${PROJECT_ROOT}/_dump_syms_build" -maxdepth 1 -name 'minidump_stackwalk' -type f 2>/dev/null | head -1 || true)"
+fi
 
-# dump_syms is a host binary built separately from the main CMake target build.
-# Resolution order: CLI arg > CRASHOMON_DUMP_SYMS_EXECUTABLE env var.
+# dump_syms is a host binary built separately (see cmake/dump_syms_host/).
+# Resolution order: CLI arg > env var > co-located with minidump_stackwalk > _dump_syms_build/.
 DUMP_SYMS="${2:-${CRASHOMON_DUMP_SYMS_EXECUTABLE:-}}"
+if [[ -z "${DUMP_SYMS}" ]] && [[ -n "${STACKWALK}" ]]; then
+  CANDIDATE="$(dirname "${STACKWALK}")/dump_syms"
+  [[ -f "${CANDIDATE}" ]] && DUMP_SYMS="${CANDIDATE}"
+fi
+if [[ -z "${DUMP_SYMS}" ]] && [[ -f "${PROJECT_ROOT}/_dump_syms_build/dump_syms" ]]; then
+  DUMP_SYMS="${PROJECT_ROOT}/_dump_syms_build/dump_syms"
+fi
 
 for f in "${WATCHERD}" "${LIBCRASHOMON}" "${EXAMPLE}" "${ANALYZE}" "${SYMS}"; do
   if [[ ! -f "${f}" ]]; then
@@ -40,11 +52,8 @@ for f in "${WATCHERD}" "${LIBCRASHOMON}" "${EXAMPLE}" "${ANALYZE}" "${SYMS}"; do
   fi
 done
 if [[ -z "${DUMP_SYMS}" ]]; then
-  echo "ERROR: dump_syms path not set." >&2
-  echo "Build it with:" >&2
-  echo "  cmake -B _dump_syms_build -S cmake/dump_syms_host/" >&2
-  echo "  cmake --build _dump_syms_build" >&2
-  echo "Then pass it as the second argument or set CRASHOMON_DUMP_SYMS_EXECUTABLE." >&2
+  echo "ERROR: dump_syms not found. Build the host tools with:" >&2
+  echo "  cmake -B _dump_syms_build -S cmake/dump_syms_host/ && cmake --build _dump_syms_build" >&2
   exit 1
 fi
 if [[ ! -f "${DUMP_SYMS}" ]]; then

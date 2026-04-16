@@ -56,7 +56,7 @@ fi
 
 echo ""
 echo "-- pytest --"
-if uv run python -m pytest "${PROJECT_ROOT}/web/tests/" --tb=short -q 2>&1 \
+if uv run --extra dev python -m pytest "${PROJECT_ROOT}/web/tests/" --tb=short -q 2>&1 \
     | sed 's/^/  /'; then
   suite_pass "pytest"
 else

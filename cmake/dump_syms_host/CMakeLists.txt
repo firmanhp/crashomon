@@ -1,9 +1,9 @@
 cmake_minimum_required(VERSION 3.25)
 project(dump_syms_host C CXX)
 
-# Standalone build for the Breakpad dump_syms host tool.
+# Standalone build for the Breakpad host tools: dump_syms and minidump_stackwalk.
 # Build this once on a machine with a host C++ compiler, then ship the resulting
-# binary in the SDK toolchain and point CRASHOMON_DUMP_SYMS_EXECUTABLE at it.
+# binaries in the SDK toolchain and point CRASHOMON_DUMP_SYMS_EXECUTABLE at dump_syms.
 #
 # Usage:
 #   cmake -B build -S cmake/dump_syms_host/
@@ -36,6 +36,43 @@ target_compile_options(zlibstatic PRIVATE -w)
 set_target_properties(zlibstatic PROPERTIES
   ARCHIVE_OUTPUT_DIRECTORY "${CMAKE_BINARY_DIR}/zlib-build"
 )
+
+find_package(Threads REQUIRED)
+
+# ── breakpad_libdisasm ─────────────────────────────────────────────────────────
+
+file(GLOB _libdisasm_sources "${BREAKPAD_SRC}/third_party/libdisasm/*.c")
+add_library(breakpad_libdisasm STATIC ${_libdisasm_sources})
+target_compile_options(breakpad_libdisasm PRIVATE -w)
+target_include_directories(breakpad_libdisasm PUBLIC "${BREAKPAD_SRC}/third_party/libdisasm")
+
+# ── breakpad_processor ─────────────────────────────────────────────────────────
+
+file(GLOB _processor_sources "${BREAKPAD_SRC}/processor/*.cc")
+list(FILTER _processor_sources EXCLUDE REGEX
+  "(_unittest|_selftest|synth_minidump|_test)\\.cc$|minidump_stackwalk\\.cc$|minidump_dump\\.cc$|microdump_stackwalk\\.cc$"
+)
+add_library(breakpad_processor STATIC
+  ${_processor_sources}
+  "${BREAKPAD_SRC}/common/linux/scoped_pipe.cc"
+  "${BREAKPAD_SRC}/common/linux/scoped_tmpfile.cc"
+  "${BREAKPAD_SRC}/common/path_helper.cc"
+)
+target_compile_options(breakpad_processor PRIVATE -w)
+target_compile_definitions(breakpad_processor PRIVATE BPLOG_MINIMUM_SEVERITY=SEVERITY_ERROR)
+target_include_directories(breakpad_processor PUBLIC "${BREAKPAD_SRC}")
+target_link_libraries(breakpad_processor PRIVATE breakpad_libdisasm Threads::Threads zlibstatic)
+add_dependencies(breakpad_processor zlibstatic)
+
+# ── minidump_stackwalk executable ──────────────────────────────────────────────
+
+add_executable(minidump_stackwalk
+  "${BREAKPAD_SRC}/processor/minidump_stackwalk.cc"
+)
+target_compile_options(minidump_stackwalk PRIVATE -w)
+target_include_directories(minidump_stackwalk PRIVATE "${BREAKPAD_SRC}")
+target_link_libraries(minidump_stackwalk PRIVATE breakpad_processor)
+target_link_options(minidump_stackwalk PRIVATE -static-libstdc++ -static-libgcc)
 
 # ── dump_syms executable ───────────────────────────────────────────────────────
 # Sources are explicit (no glob) to avoid pulling in test/platform-specific files.
@@ -79,4 +116,4 @@ target_link_options(dump_syms PRIVATE -static-libstdc++ -static-libgcc)
 # ── Install ────────────────────────────────────────────────────────────────────
 
 include(GNUInstallDirs)
-install(TARGETS dump_syms RUNTIME DESTINATION ${CMAKE_INSTALL_BINDIR})
+install(TARGETS dump_syms minidump_stackwalk RUNTIME DESTINATION ${CMAKE_INSTALL_BINDIR})
