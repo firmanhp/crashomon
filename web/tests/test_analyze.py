@@ -42,6 +42,19 @@ def test_parse_machine_crash_signal():
     assert t.signal_info == "SIGSEGV"
 
 
+def test_parse_machine_signal_number_derived_from_name():
+    t, _ = parse_stackwalk_machine(_MACHINE_OUTPUT)
+    assert t.signal_number == 11  # SIGSEGV = 11
+
+
+def test_parse_machine_signal_number_compound_crash_reason():
+    # Breakpad formats crash_reason as "SIGSEGV /SEGV_MAPERR" (space-slash, no trailing space).
+    output = _MACHINE_OUTPUT.replace("Crash|SIGSEGV|", "Crash|SIGSEGV /SEGV_MAPERR|")
+    t, _ = parse_stackwalk_machine(output)
+    assert t.signal_number == 11
+    assert t.signal_info == "SIGSEGV /SEGV_MAPERR"
+
+
 def test_parse_machine_fault_addr():
     t, _ = parse_stackwalk_machine(_MACHINE_OUTPUT)
     assert t.fault_addr == 4

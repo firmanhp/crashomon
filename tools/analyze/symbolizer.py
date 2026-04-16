@@ -21,6 +21,19 @@ from .log_parser import ParsedFrame, ParsedThread, ParsedTombstone
 
 _SEP = "*** *** *** *** *** *** *** *** *** *** *** *** *** *** *** ***"
 
+# Signal name → signal number (POSIX, x86-64 Linux).
+# minidump_stackwalk -m only provides the signal name; we derive the number for display.
+_SIGNAL_NUMBERS: dict[str, int] = {
+    "SIGABRT": 6,
+    "SIGBUS": 7,
+    "SIGFPE": 8,
+    "SIGILL": 4,
+    "SIGKILL": 9,
+    "SIGSEGV": 11,
+    "SIGSYS": 31,
+    "SIGTRAP": 5,
+}
+
 
 # ---------------------------------------------------------------------------
 # eu-addr2line symbolization
@@ -117,47 +130,37 @@ def symbolize_with_addr2line(
 # ---------------------------------------------------------------------------
 
 
-def _frame_func(frame: ParsedFrame, sym: SymbolInfo | None) -> str:
-    """Return the best available function string for *frame*."""
-    if sym and sym.function not in ("??", ""):
-        return sym.function
-    if frame.trailing:
-        return frame.trailing
-    if frame.module_path:
-        return frame.module_path
-    return "??"
-
-
 def _emit_stack_trace_section(
     thread: ParsedThread,
     symbols: SymbolTable,
     out: list[str],
     addr_w: int,
 ) -> None:
-    """Emit one Android-style 'Stack Trace:' section for *thread*."""
-    rows: list[tuple[str, str, str]] = []
+    """Emit Android-style backtrace frames for *thread*.
+
+    Outputs one ``    #N pc 0xADDR  MODULE  (func) [file:line]`` line per
+    frame, matching the format produced by the C++ daemon so that output is
+    re-parseable by ``parse_tombstone``.  The ``backtrace:`` section header
+    is emitted by the caller only for the crashing thread.
+    """
     for frame in thread.frames:
-        reladdr = f"{frame.module_offset:0{addr_w}x}"
-        func_str = _frame_func(frame, symbols.get((thread.tid, frame.index)))
+        module = frame.module_path or "???"
+        addr = f"0x{frame.module_offset:0{addr_w}x}"
         sym = symbols.get((thread.tid, frame.index))
-        file_line = ""
-        if sym and sym.source_file and sym.source_line > 0:
-            file_line = f"{sym.source_file}:{sym.source_line}"
-        rows.append((reladdr, func_str, file_line))
 
-    if not rows:
-        return
+        trailing = ""
+        if sym and sym.function not in ("??", ""):
+            if sym.source_file and sym.source_line > 0:
+                trailing = f"({sym.function}) [{sym.source_file}:{sym.source_line}]"
+            else:
+                trailing = f"({sym.function})"
+        elif frame.trailing:
+            trailing = frame.trailing
 
-    func_w = max(len(r[1]) for r in rows)
-    func_w = max(func_w, len("FUNCTION"))
-
-    out.append("Stack Trace:\n")
-    out.append(f"  {'RELADDR':<{addr_w}}  {'FUNCTION':<{func_w}}  FILE:LINE\n")
-    for reladdr, func_str, file_line in rows:
-        if file_line:
-            out.append(f"  {reladdr}  {func_str:<{func_w}}  {file_line}\n")
+        if trailing:
+            out.append(f"    #{frame.index:02d} pc {addr}  {module}  {trailing}\n")
         else:
-            out.append(f"  {reladdr}  {func_str}\n")
+            out.append(f"    #{frame.index:02d} pc {addr}  {module}\n")
 
 
 def _tombstone_addr_width(tombstone: ParsedTombstone) -> int:
@@ -198,7 +201,7 @@ def format_symbolicated(tombstone: ParsedTombstone, symbols: SymbolTable) -> str
         out.append(f"timestamp: {tombstone.timestamp}\n")
 
     if tombstone.threads and tombstone.threads[0].is_crashing:
-        out.append("\n")
+        out.append("\nbacktrace:\n")
         _emit_stack_trace_section(tombstone.threads[0], symbols, out, addr_w)
 
     for thread in tombstone.threads[1:]:
@@ -246,6 +249,9 @@ def parse_stackwalk_machine(text: str) -> tuple[ParsedTombstone, SymbolTable]:
         if parts[0] == "Crash" and len(parts) >= 3:
             # Crash|signal_name|address|crashing_thread_index
             result.signal_info = parts[1]
+            # Breakpad formats crash_reason as "SIGSEGV /SEGV_MAPERR" (space-slash,
+            # no trailing space), so split on whitespace and take the first token.
+            result.signal_number = _SIGNAL_NUMBERS.get(parts[1].split()[0], 0)
             try:
                 result.fault_addr = int(parts[2], 16)
             except ValueError:

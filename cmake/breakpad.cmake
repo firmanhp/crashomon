@@ -79,6 +79,7 @@ if(CRASHOMON_INSTALL_ANALYZE OR CRASHOMON_BUILD_ANALYZE)
   target_compile_options(minidump_stackwalk PRIVATE -w)
   target_include_directories(minidump_stackwalk PRIVATE "${BREAKPAD_SRC}")
   target_link_libraries(minidump_stackwalk PRIVATE breakpad_processor)
+  target_link_options(minidump_stackwalk PRIVATE -static-libstdc++ -static-libgcc)
 endif()
 
 # ── breakpad_dump_syms ─────────────────────────────────────────────────────────

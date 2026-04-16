@@ -58,7 +58,7 @@ lib/          C++20 client library with C-compatible header (libcrashomon.so/.a)
 cmake/        CMake helper modules (cmake/breakpad.cmake defines Breakpad targets)
 daemon/       C++ watcher daemon (crashomon-watcherd)
 tools/
-  analyze/    C++ CLI analysis tool (crashomon-analyze)
+  analyze/    Python CLI analysis tool (crashomon-analyze)
   syms/       Symbol ingestion script (crashomon-syms)
 web/          Python Flask web UI (crashomon-web)
 bench/        Microbenchmarks (Google Benchmark, opt-in via -DENABLE_BENCHMARKS=ON)
