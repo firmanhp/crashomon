@@ -67,12 +67,14 @@ void ExportMinidump(const std::string& src_path, std::string_view export_path,
 
   const std::filesystem::path dst =
       std::filesystem::path(std::string(export_path)) /
-      (name + "_" + bid + "_" + timestamp.data() + ".crashdump");
+      (name + "_" + timestamp.data() + "_" + bid + ".crashdump");
   std::error_code err;
   std::filesystem::copy_file(src_path, dst, std::filesystem::copy_options::overwrite_existing, err);
   if (err) {
     spdlog::warn("crashomon-watcherd: export failed \xe2\x86\x92 {}: {}", dst.string(),
                  err.message());
+  } else {
+    spdlog::info("crashomon-watcherd: exported minidump \xe2\x86\x92 {}", dst.string());
   }
 }
 
