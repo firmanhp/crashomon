@@ -22,6 +22,7 @@ FrameInfo MakeFrame(int idx) {
           static_cast<uint64_t>(0x5555'0000'0000ULL) + static_cast<uint64_t>(idx) * uint64_t{0x100},
       .module_offset = static_cast<uint64_t>(idx) * uint64_t{0x100},
       .module_path = "/usr/bin/bench_binary",
+      .build_id = "aabbccdd00112233",
   };
 }
 

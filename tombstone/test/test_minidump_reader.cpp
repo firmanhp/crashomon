@@ -230,12 +230,13 @@ TEST(MinidumpReaderTest, MultithreadFixture_ParsesOk) {
   ASSERT_TRUE(result.ok()) << result.status();
 }
 
-TEST(MinidumpReaderTest, MultithreadFixture_HasMultipleThreads) {
+TEST(MinidumpReaderTest, MultithreadFixture_HasCrashingThread) {
   REQUIRE_FIXTURE("multithread", path);
   auto result = ReadMinidump(path.string());
   ASSERT_TRUE(result.ok()) << result.status();
-  // The program spawns at least 2 threads (idle + crash) plus the main thread.
-  EXPECT_GE(result->threads.size(), 2U);
+  // Only the crashing thread is collected; non-crashing threads are not included.
+  EXPECT_EQ(result->threads.size(), 1U);
+  EXPECT_TRUE(result->threads[0].is_crashing);
 }
 
 TEST(MinidumpReaderTest, MultithreadFixture_CrashingThreadIsFirst) {

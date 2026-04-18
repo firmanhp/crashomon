@@ -1,7 +1,6 @@
 """Symbolization and tombstone formatting utilities.
 
 Provides:
-  - symbolize_with_store: resolve frame addresses via a Breakpad symbol store
   - format_symbolicated: format a ParsedTombstone with symbol information
   - parse_stackwalk_machine: parse minidump_stackwalk -m output
   - format_raw_tombstone: format a ParsedTombstone without symbols (Mode 4)
@@ -160,52 +159,6 @@ def _breakpad_id_to_gnu_prefix(store_id: str) -> str:
     return g1 + g2 + g3 + s[16:]
 
 
-def _build_store_index(store: Path) -> dict[str, Path]:
-    """Walk a Breakpad symbol store and return {gnu_build_id_prefix: sym_file_path}.
-
-    The store directory name is the Breakpad debug ID (uppercase hex + trailing
-    "0" age suffix). Breakpad IDs use Windows GUID byte-ordering for the first
-    16 bytes, so a byte-swap reversal is needed to recover the GNU build ID
-    prefix that appears in tombstone (BuildId:) annotations.
-    """
-    index: dict[str, Path] = {}
-    for sym_file in store.rglob("*.sym"):
-        store_id = sym_file.parent.name
-        raw_id = _breakpad_id_to_gnu_prefix(store_id)
-        index[raw_id] = sym_file
-    return index
-
-
-def symbolize_with_store(
-    tombstone: ParsedTombstone,
-    store: Path,
-) -> SymbolTable:
-    """Resolve frame addresses using build IDs matched against a Breakpad symbol store.
-
-    Frames whose build_id is absent or not found in the store map to
-    SymbolInfo(function="??").  Never raises — missing or unparseable .sym
-    files result in unknown symbols.
-    """
-    store_index = _build_store_index(store)
-    parsed_cache: dict[Path, tuple[dict[int, str], list[_FuncEntry]]] = {}
-
-    table: SymbolTable = {}
-    for thread in tombstone.threads:
-        for frame in thread.frames:
-            if not frame.build_id:
-                continue
-            sym_path = store_index.get(frame.build_id[:32])
-            if sym_path is None:
-                continue
-            if sym_path not in parsed_cache:
-                parsed_cache[sym_path] = _parse_sym_file(sym_path)
-            file_map, funcs = parsed_cache[sym_path]
-            sym = _lookup_offset(file_map, funcs, frame.module_offset)
-            if sym.function not in ("??", ""):
-                table[(thread.tid, frame.index)] = sym
-
-    return table
-
 
 # ---------------------------------------------------------------------------
 # Tombstone formatter (symbolicated)
@@ -222,8 +175,8 @@ def _emit_stack_trace_section(
 
     Outputs one ``    #N pc 0xADDR  MODULE  (func) [file:line]`` line per
     frame, matching the format produced by the C++ daemon so that output is
-    re-parseable by ``parse_tombstone``.  The ``backtrace:`` section header
-    is emitted by the caller only for the crashing thread.
+    The ``backtrace:`` section header is emitted by the caller only for the
+    crashing thread.
     """
     for frame in thread.frames:
         module = frame.module_path or "???"

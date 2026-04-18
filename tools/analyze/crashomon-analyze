@@ -1,16 +1,11 @@
 #!/usr/bin/env python3
-"""crashomon-analyze — minidump / tombstone symbolication tool.
+"""crashomon-analyze — minidump symbolication tool.
 
 Modes:
   crashomon-analyze --store=<dir> --minidump=<file.dmp>
       Symbolicate a Breakpad minidump using a symbol store.
       Delegates to minidump_stackwalk; build IDs in the minidump auto-match
       to .sym files in the store.
-
-  crashomon-analyze --store=<dir> --stdin
-      Read a tombstone from stdin, symbolicate using the symbol store.
-      Frames are matched by GNU build ID from (BuildId: ...) annotations.
-      Works across cross-compiled targets — no host-side binaries required.
 
   crashomon-analyze --symbols=<file.sym> --minidump=<file.dmp>
       Symbolicate a minidump using a single explicit .sym file.
@@ -44,7 +39,6 @@ from tools.analyze.analyze import (  # noqa: E402
     mode_minidump_store,
     mode_minidump_sysroot,
     mode_raw_tombstone,
-    mode_stdin_store,
     mode_sym_file_minidump,
 )
 
@@ -58,7 +52,6 @@ def _build_parser() -> argparse.ArgumentParser:
     parser.add_argument("--store", metavar="DIR", default="")
     parser.add_argument("--minidump", metavar="FILE", default="")
     parser.add_argument("--symbols", metavar="FILE", default="")
-    parser.add_argument("--stdin", dest="read_stdin", action="store_true")
     parser.add_argument("--sysroot", metavar="DIR", default="")
     parser.add_argument(
         "--dump-syms-binary", metavar="PATH", default="dump_syms",
@@ -94,9 +87,6 @@ def main() -> int:
             )
         elif args.store and args.minidump:
             output = mode_minidump_store(args.store, args.minidump, _resolve_binary(args.stackwalk_binary))
-        elif args.store and args.read_stdin:
-            text = sys.stdin.read()
-            output = mode_stdin_store(text, args.store)
         elif args.symbols and args.minidump:
             output = mode_sym_file_minidump(args.symbols, args.minidump, _resolve_binary(args.stackwalk_binary))
         elif args.minidump:

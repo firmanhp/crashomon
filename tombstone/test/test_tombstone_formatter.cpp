@@ -30,8 +30,6 @@ constexpr uint64_t kFrame2Pc = 0x7f0000023b09ULL;
 constexpr uint64_t kFrame2Offset = 0x23b09ULL;
 constexpr uint64_t kThread2Frame0Pc = 0x7f0000010000ULL;
 constexpr uint64_t kThread2Frame0Offset = 0x10000ULL;
-constexpr uint64_t kUnknownModPc = 0x7f0000001000ULL;
-constexpr uint64_t kUnknownModOffset = 0x1000ULL;
 
 // Build a minimal MinidumpInfo for testing.
 MinidumpInfo MakeInfo() {
@@ -61,14 +59,14 @@ MinidumpInfo MakeInfo() {
       {"r12", 0xc}, {"r13", 0xd}, {"r14", 0xe}, {"r15", 0xf}, {"rip", 0x10},
   };
   // NOLINTEND(cppcoreguidelines-avoid-magic-numbers,readability-magic-numbers)
+  // build_id is set on each frame so the formatter can emit (BuildId: ...) directly.
   crashing.frames = {
-      {kFrame0Pc, kFrame0Offset, "/usr/bin/my_service"},
-      {kFrame1Pc, kFrame1Offset, "/usr/bin/my_service"},
-      {kFrame2Pc, kFrame2Offset, "/usr/lib/libc.so.6"},
+      {kFrame0Pc, kFrame0Offset, "/usr/bin/my_service", "9c1e3ae2f0aabb00"},
+      {kFrame1Pc, kFrame1Offset, "/usr/bin/my_service", "9c1e3ae2f0aabb00"},
+      {kFrame2Pc, kFrame2Offset, "/usr/lib/libc.so.6", "7a4f0b11d3ccdd00"},
   };
   info.threads.push_back(crashing);
 
-  // Populate module list so the formatter can emit (BuildId: ...).
   ModuleInfo  // NOLINT(misc-include-cleaner) — false positive from include-cleaner
       svc_mod;
   svc_mod.path = "/usr/bin/my_service";
@@ -85,18 +83,29 @@ MinidumpInfo MakeInfo() {
 
 TEST(TombstoneFormatterTest, ContainsSeparators) {
   auto tomb = FormatTombstone(MakeInfo());
-  EXPECT_NE(tomb.find("*** *** ***"), std::string::npos);
-  // Should appear twice: at start and end.
+  EXPECT_NE(tomb.find("CRASH DETECTED"), std::string::npos);
+  EXPECT_NE(tomb.find("END OF CRASH"), std::string::npos);
+  // Both separators contain the star pattern.
   const size_t first = tomb.find("*** *** ***");
   const size_t last = tomb.rfind("*** *** ***");
   EXPECT_NE(first, last);
 }
 
-TEST(TombstoneFormatterTest, ContainsPidTid) {
+TEST(TombstoneFormatterTest, ContainsProcessAndThreadHeader) {
   auto tomb = FormatTombstone(MakeInfo());
-  EXPECT_NE(tomb.find("pid: 1234"), std::string::npos);
-  EXPECT_NE(tomb.find("tid: 1234"), std::string::npos);
-  EXPECT_NE(tomb.find("my_service"), std::string::npos);
+  // New header format: process: <name> (pid N)  thread: <name> (tid N)
+  EXPECT_NE(tomb.find("process: my_service (pid 1234)"), std::string::npos);
+  // Thread name falls back to process name when crashing thread has no name.
+  EXPECT_NE(tomb.find("thread: my_service (tid 1234)"), std::string::npos);
+}
+
+TEST(TombstoneFormatterTest, CrashingThreadNameShownInHeader) {
+  MinidumpInfo info = MakeInfo();
+  info.threads[0].name = "main-thread";
+  auto tomb = FormatTombstone(info);
+  EXPECT_NE(tomb.find("thread: main-thread (tid 1234)"), std::string::npos);
+  // Process name still shows the binary name.
+  EXPECT_NE(tomb.find("process: my_service (pid 1234)"), std::string::npos);
 }
 
 TEST(TombstoneFormatterTest, ContainsSignalLine) {
@@ -118,20 +127,21 @@ TEST(TombstoneFormatterTest, ContainsTimestamp) {
   EXPECT_NE(tomb.find("2026-03-27T10:15:30Z"), std::string::npos);
 }
 
-TEST(TombstoneFormatterTest, ContainsRegisters) {
+TEST(TombstoneFormatterTest, RegistersNotPrinted) {
   auto tomb = FormatTombstone(MakeInfo());
-  EXPECT_NE(tomb.find("rax"), std::string::npos);
-  EXPECT_NE(tomb.find("rip"), std::string::npos);
-  // rip = 0x10 → "0000000000000010"
-  EXPECT_NE(tomb.find("0000000000000010"), std::string::npos);
+  // Registers are not actionable in journald — they must not appear in the tombstone.
+  EXPECT_EQ(tomb.find("rax"), std::string::npos);
+  // rip value 0x10 → "0000000000000010" must not appear as a register line.
+  EXPECT_EQ(tomb.find("rip"), std::string::npos);
 }
 
-TEST(TombstoneFormatterTest, ContainsBacktrace) {
+TEST(TombstoneFormatterTest, ContainsPcLine) {
   auto tomb = FormatTombstone(MakeInfo());
-  EXPECT_NE(tomb.find("backtrace:"), std::string::npos);
-  EXPECT_NE(tomb.find("#0"), std::string::npos);
+  // Only frames[0] is printed as a bare "pc <offset>  <module> (BuildId: ...)" line.
   EXPECT_NE(tomb.find("/usr/bin/my_service"), std::string::npos);
-  EXPECT_NE(tomb.find("/usr/lib/libc.so.6"), std::string::npos);
+  EXPECT_NE(tomb.find("BuildId: 9c1e3ae2f0aabb00"), std::string::npos);
+  // frames[1] and frames[2] are not printed.
+  EXPECT_EQ(tomb.find("/usr/lib/libc.so.6"), std::string::npos);
 }
 
 TEST(TombstoneFormatterTest, ContainsMinidumpPath) {
@@ -157,12 +167,12 @@ TEST(TombstoneFormatterTest, MultipleThreads) {
   ThreadInfo idle;
   idle.tid = kTestTid2;
   idle.is_crashing = false;
-  idle.frames = {{kThread2Frame0Pc, kThread2Frame0Offset, "/usr/lib/libc.so.6"}};
+  idle.frames = {{kThread2Frame0Pc, kThread2Frame0Offset, "/usr/lib/libc.so.6", ""}};
   info.threads.push_back(idle);
 
   // Non-crashing threads are NOT printed — only the crashing thread is shown.
   auto tomb = FormatTombstone(info);
-  EXPECT_EQ(tomb.find("--- --- --- thread 1235"), std::string::npos);
+  EXPECT_EQ(tomb.find("tid: 1235"), std::string::npos);
 }
 
 TEST(TombstoneFormatterTest, ThreadWithName) {
@@ -176,12 +186,12 @@ TEST(TombstoneFormatterTest, ThreadWithName) {
 
   // Non-crashing threads are NOT printed — only the crashing thread is shown.
   auto tomb = FormatTombstone(info);
-  EXPECT_EQ(tomb.find("--- --- --- thread 9999 (worker) --- --- ---"), std::string::npos);
+  EXPECT_EQ(tomb.find("worker"), std::string::npos);
 }
 
 TEST(TombstoneFormatterTest, UnmappedFrame) {
   MinidumpInfo info = MakeInfo();
-  info.threads[0].frames = {{kTestUnmappedPc, 0, ""}};
+  info.threads[0].frames = {{kTestUnmappedPc, 0, "", ""}};
   auto tomb = FormatTombstone(info);
   EXPECT_NE(tomb.find("???"), std::string::npos);
 }
@@ -190,8 +200,8 @@ TEST(TombstoneFormatterTest, EmptyRegisters) {
   MinidumpInfo info = MakeInfo();
   info.threads[0].registers.clear();
   auto tomb = FormatTombstone(info);
-  // Tombstone still valid without register block.
-  EXPECT_NE(tomb.find("backtrace:"), std::string::npos);
+  // PC line still emitted even without registers (frame is pre-populated in test data).
+  EXPECT_NE(tomb.find("/usr/bin/my_service"), std::string::npos);
 }
 
 TEST(TombstoneFormatterTest, FaultAddrZero) {
@@ -203,17 +213,17 @@ TEST(TombstoneFormatterTest, FaultAddrZero) {
 
 // ── BuildId emission ─────────────────────────────────────────────────────────
 
-TEST(TombstoneFormatterTest, MappedFramesCarryBuildId) {
+TEST(TombstoneFormatterTest, MappedFrameCarriesBuildId) {
   auto tomb = FormatTombstone(MakeInfo());
-  // /usr/bin/my_service frames should include the build ID.
+  // Only frames[0] is printed; its build ID should appear.
   EXPECT_NE(tomb.find("(BuildId: 9c1e3ae2f0aabb00)"), std::string::npos);
-  // /usr/lib/libc.so.6 frame should also carry its build ID.
-  EXPECT_NE(tomb.find("(BuildId: 7a4f0b11d3ccdd00)"), std::string::npos);
+  // frames[2] (/usr/lib/libc.so.6) is not printed — its build ID must not appear.
+  EXPECT_EQ(tomb.find("(BuildId: 7a4f0b11d3ccdd00)"), std::string::npos);
 }
 
 TEST(TombstoneFormatterTest, UnmappedFrameHasNoBuildId) {
   MinidumpInfo info = MakeInfo();
-  info.threads[0].frames = {{kTestUnmappedPc, 0, ""}};
+  info.threads[0].frames = {{kTestUnmappedPc, 0, "", ""}};
   auto tomb = FormatTombstone(info);
   EXPECT_NE(tomb.find("???"), std::string::npos);
   EXPECT_EQ(tomb.find("BuildId"), std::string::npos);
@@ -221,32 +231,56 @@ TEST(TombstoneFormatterTest, UnmappedFrameHasNoBuildId) {
 
 TEST(TombstoneFormatterTest, EmptyBuildIdNotEmitted) {
   MinidumpInfo info = MakeInfo();
-  // Clear all build IDs — formatter must not emit "(BuildId: )".
-  for (auto& mod : info.modules) {
-    mod.build_id.clear();
-  }
+  // Clear the build ID on the printed frame — formatter must not emit "(BuildId: )".
+  info.threads[0].frames[0].build_id.clear();
   auto tomb = FormatTombstone(info);
   EXPECT_EQ(tomb.find("BuildId"), std::string::npos);
 }
 
-TEST(TombstoneFormatterTest, FrameWithNoModuleEntryHasNoBuildId) {
+TEST(TombstoneFormatterTest, FrameWithEmptyBuildIdHasNoSuffix) {
   MinidumpInfo info = MakeInfo();
-  // Add a frame whose module_path has no matching ModuleInfo entry.
-  info.threads[0].frames.push_back({kUnknownModPc, kUnknownModOffset, "/usr/lib/libunknown.so"});
+  // Replace the crashing frame with one that has no build ID.
+  info.threads[0].frames = {{kFrame0Pc, kFrame0Offset, "/usr/lib/libunknown.so", ""}};
   auto tomb = FormatTombstone(info);
-  // The extra frame appears but without a BuildId suffix.
   EXPECT_NE(tomb.find("/usr/lib/libunknown.so"), std::string::npos);
-  // Only the two known build IDs should appear.
-  EXPECT_NE(tomb.find("(BuildId: 9c1e3ae2f0aabb00)"), std::string::npos);
-  EXPECT_NE(tomb.find("(BuildId: 7a4f0b11d3ccdd00)"), std::string::npos);
-  // libunknown.so has no BuildId entry.
-  const size_t libunknown_pos = tomb.find("/usr/lib/libunknown.so");
-  const size_t build_id_after = tomb.find("BuildId", libunknown_pos);
-  // If BuildId appears after libunknown.so, it must be on a later line (not on the same line).
-  if (build_id_after != std::string::npos) {
-    EXPECT_NE(tomb.find('\n', libunknown_pos), std::string::npos);
-    EXPECT_GT(build_id_after, tomb.find('\n', libunknown_pos));
-  }
+  EXPECT_EQ(tomb.find("BuildId"), std::string::npos);
+}
+
+// ── Probable cause ────────────────────────────────────────────────────────────
+
+TEST(TombstoneFormatterTest, ProbableCauseNullDeref) {
+  MinidumpInfo info = MakeInfo();
+  info.signal_number = kTestSigSegv;
+  info.fault_addr = 0;
+  auto tomb = FormatTombstone(info);
+  EXPECT_NE(tomb.find("probable cause: null pointer dereference"), std::string::npos);
+}
+
+TEST(TombstoneFormatterTest, ProbableCauseNullDerefWithOffset) {
+  MinidumpInfo info = MakeInfo();
+  info.signal_number = kTestSigSegv;
+  // NOLINTBEGIN(cppcoreguidelines-avoid-magic-numbers,readability-magic-numbers)
+  info.fault_addr = 0x40;  // small offset — still in null page
+  // NOLINTEND(cppcoreguidelines-avoid-magic-numbers,readability-magic-numbers)
+  auto tomb = FormatTombstone(info);
+  EXPECT_NE(tomb.find("probable cause: null pointer dereference — access at offset"), std::string::npos);
+}
+
+TEST(TombstoneFormatterTest, ProbableCauseAbort) {
+  MinidumpInfo info = MakeInfo();
+  info.signal_number = kTestSigAbrt;
+  info.signal_info = "SIGABRT";
+  info.signal_code = 0;
+  auto tomb = FormatTombstone(info);
+  EXPECT_NE(tomb.find("probable cause: abort()"), std::string::npos);
+}
+
+TEST(TombstoneFormatterTest, NoProbableCauseAmbiguousSIGSEGV) {
+  MinidumpInfo info = MakeInfo();
+  // fault_addr well outside null page, not near sp (rsp=0x7), not equal to pc (rip=0x10).
+  info.fault_addr = kTestFaultAddr;  // 0xdeadbeef00000000
+  auto tomb = FormatTombstone(info);
+  EXPECT_EQ(tomb.find("probable cause"), std::string::npos);
 }
 
 }  // namespace

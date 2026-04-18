@@ -22,8 +22,6 @@ def create_app(
     db_path: str | None = None,
     dump_syms: str = "dump_syms",
     stackwalk: str = "minidump_stackwalk",
-    addr2line: str = "eu-addr2line",
-    analyze_binary: str = "crashomon-analyze",
     testing: bool = False,
 ) -> Flask:
     """Create and configure the Flask application."""
@@ -40,8 +38,6 @@ def create_app(
     )
     app.config["DUMP_SYMS"] = dump_syms
     app.config["STACKWALK"] = stackwalk
-    app.config["ADDR2LINE"] = addr2line
-    app.config["ANALYZE_BINARY"] = analyze_binary
 
     if not testing:
         app.config["SYMBOL_STORE"].mkdir(parents=True, exist_ok=True)
@@ -142,24 +138,6 @@ def create_app(
                 signal=sig,
                 report=report,
                 dmp_path=str(dmp_path),
-            )
-            return redirect(url_for("crash_detail", crash_id=crash_id))
-
-        text = request.form.get("tombstone", "").strip()
-        if text:
-            report = analyzer.analyze_tombstone_text(
-                text,
-                store_path=store,
-                addr2line=app.config["ADDR2LINE"],
-                analyze_binary=app.config["ANALYZE_BINARY"],
-            )
-            process, sig = _extract_meta(report or text)
-            crash_id = models.insert_crash(
-                app.config["DB_PATH"],
-                ts=ts,
-                process=process,
-                signal=sig,
-                report=report or text,
             )
             return redirect(url_for("crash_detail", crash_id=crash_id))
 

@@ -17,17 +17,6 @@ SAMPLE_SYM = textwrap.dedent("""\
     1a0 10 42 0
 """)
 
-SAMPLE_TOMBSTONE = textwrap.dedent("""\
-    *** *** *** *** *** *** *** *** *** *** *** *** *** *** *** ***
-    pid: 42, tid: 42, name: my_app  >>> my_app <<<
-    signal 11 (SIGSEGV), code 1 (SEGV_MAPERR), fault addr 0x0000000000000000
-    timestamp: 2026-03-28T10:00:00Z
-
-    backtrace:
-        #00 pc 0x0000000000001000  /usr/bin/my_app
-    *** *** *** *** *** *** *** *** *** *** *** *** *** *** *** ***
-""")
-
 
 # ---------------------------------------------------------------------------
 # Dashboard
@@ -195,21 +184,6 @@ def test_upload_empty_redirects(client):
     assert resp.status_code in (302, 303)
     # No crash stored.
     assert models.get_crashes
-
-
-def test_upload_tombstone_stores_crash(client, app):
-    resp = client.post("/crashes/upload", data={"tombstone": SAMPLE_TOMBSTONE})
-    assert resp.status_code in (302, 303)
-    crashes = models.get_crashes(app.config["DB_PATH"])
-    assert len(crashes) == 1
-    assert crashes[0]["process"] == "my_app"
-    assert crashes[0]["signal"] == "SIGSEGV"
-
-
-def test_upload_tombstone_redirects_to_detail(client, app):
-    resp = client.post("/crashes/upload", data={"tombstone": SAMPLE_TOMBSTONE})
-    location = resp.headers.get("Location", "")
-    assert "/crashes/" in location
 
 
 # ---------------------------------------------------------------------------

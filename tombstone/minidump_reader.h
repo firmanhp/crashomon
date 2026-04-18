@@ -21,6 +21,7 @@ struct FrameInfo {
   uint64_t pc = 0;             // absolute program counter
   uint64_t module_offset = 0;  // offset within the containing module
   std::string module_path;     // full path to the module; empty if unmapped
+  std::string build_id;        // Breakpad code identifier; copied from module at extraction time
 };
 
 struct ThreadInfo {

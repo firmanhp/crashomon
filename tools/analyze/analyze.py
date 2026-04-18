@@ -12,7 +12,7 @@ import sys
 import tempfile
 from pathlib import Path
 
-from .log_parser import ParsedTombstone, parse_tombstone
+from .log_parser import ParsedTombstone
 from .symbolizer import (
     fix_frame_module_offsets,
     format_raw_tombstone,
@@ -21,7 +21,6 @@ from .symbolizer import (
     parse_stackwalk_machine,
     read_minidump_process_info,
     read_minidump_thread_names,
-    symbolize_with_store,
 )
 
 
@@ -89,18 +88,6 @@ def mode_minidump_store(store: str, dmp: str, stackwalk: str) -> str:
     raw_human = _run_stackwalk(stackwalk, dmp, [store])
     tombstone, symbols, module_bases = parse_stackwalk_machine(raw_m)
     _apply_minidump_metadata(tombstone, dmp, module_bases, raw_human)
-    return format_symbolicated(tombstone, symbols)
-
-
-def mode_stdin_store(text: str, store: str) -> str:
-    """Mode 2: parse tombstone text from stdin and symbolicate via the symbol store.
-
-    Frames are matched to .sym files by GNU build ID, which the daemon writes
-    into every tombstone frame as ``(BuildId: <hex>)``.  No external tools are
-    required.
-    """
-    tombstone = parse_tombstone(text)
-    symbols = symbolize_with_store(tombstone, Path(store))
     return format_symbolicated(tombstone, symbols)
 
 

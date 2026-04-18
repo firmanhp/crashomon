@@ -14,7 +14,6 @@ from tools.analyze.analyze import (
     _extract_sysroot_symbols,
     mode_minidump_store,
     mode_raw_tombstone,
-    mode_stdin_store,
     mode_sym_file_minidump,
 )
 from tools.analyze.symbolizer import format_raw_tombstone, parse_stackwalk_machine
@@ -152,32 +151,6 @@ def test_mode_minidump_store_empty_output_raises():
         mock_run.return_value = MagicMock(stdout="", returncode=1)
         with pytest.raises(RuntimeError, match="no output"):
             mode_minidump_store("/store", "crash.dmp", "minidump_stackwalk")
-
-
-# ---------------------------------------------------------------------------
-# mode_stdin_store
-# ---------------------------------------------------------------------------
-
-
-_SIMPLE_TOMBSTONE = (
-    "pid: 1, tid: 1, name: app  >>> app <<<\n"
-    "signal 11 (SIGSEGV), fault addr 0x0\n"
-    "\n"
-    "backtrace:\n"
-    "    #00 pc 0x0000000000001000  /nonexistent/app\n"
-)
-
-
-def test_mode_stdin_store_returns_formatted():
-    # Module path /nonexistent/app won't exist so symbolization is skipped.
-    result = mode_stdin_store(_SIMPLE_TOMBSTONE, "/store")
-    assert "*** *** ***" in result
-    assert "SIGSEGV" in result
-
-
-def test_mode_stdin_store_invalid_input_raises():
-    with pytest.raises(ValueError):
-        mode_stdin_store("", "/store")
 
 
 # ---------------------------------------------------------------------------
