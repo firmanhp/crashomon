@@ -20,6 +20,8 @@
 #include <cstring>
 #include <ctime>
 #include <cxxabi.h>
+#include <format>
+#include <memory>
 #include <mutex>
 #include <string>
 
@@ -210,23 +212,25 @@ __attribute__((destructor)) void AutoShutdown() {
 
 void WriteAssertAnnotation(const char* assertion, const char* file,
                             unsigned int line, const char* func) noexcept {
-  constexpr size_t kBufSize = 512;
-  char buf[kBufSize];
-  std::snprintf(buf, kBufSize, "assertion failed: '%s' (%s:%u, %s)",
-                assertion != nullptr ? assertion : "?",
-                file != nullptr ? file : "?", line,
-                func != nullptr ? func : "?");
-  crashomon_set_abort_message(buf);
+  const std::string msg =
+      std::format("assertion failed: '{}' ({}:{}, {})",
+                  assertion != nullptr ? assertion : "?",
+                  file != nullptr ? file : "?",
+                  line,
+                  func != nullptr ? func : "?");
+  crashomon_set_abort_message(msg.c_str());
 }
 
-void WriteTerminateAnnotation(const std::type_info* ti) noexcept {
-  if (ti != nullptr) {
+void WriteTerminateAnnotation(const std::type_info* exc_type) noexcept {
+  if (exc_type != nullptr) {
     int status = 0;
-    char* demangled = abi::__cxa_demangle(ti->name(), nullptr, nullptr, &status);
+    // NOLINTNEXTLINE(cppcoreguidelines-no-malloc, cppcoreguidelines-owning-memory)
+    auto demangled = std::unique_ptr<char, decltype(&std::free)>(
+        abi::__cxa_demangle(exc_type->name(), nullptr, nullptr, &status),
+        std::free);
     const char* type_name =
-        (status == 0 && demangled != nullptr) ? demangled : ti->name();
+        (status == 0 && demangled != nullptr) ? demangled.get() : exc_type->name();
     crashomon_set_tag("terminate_type", type_name);
-    std::free(demangled);
     crashomon_set_abort_message("unhandled C++ exception");
   } else {
     crashomon_set_abort_message("terminate called without active exception");
@@ -238,6 +242,7 @@ void WriteTerminateAnnotation(const std::type_info* ti) noexcept {
 // Override glibc's __assert_fail so assert() failures are captured as annotations
 // before SIGABRT fires. The dynamic linker resolves this definition first when
 // libcrashomon.so is LD_PRELOAD'd.
+// NOLINTNEXTLINE(bugprone-reserved-identifier, readability-identifier-naming)
 extern "C" [[noreturn]] void __assert_fail(const char* assertion, const char* file,
                                             unsigned int line,
                                             const char* func) noexcept {

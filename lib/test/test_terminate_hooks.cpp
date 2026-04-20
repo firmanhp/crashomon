@@ -2,13 +2,10 @@
 //                                     WriteTerminateAnnotation.
 
 #include <memory>
-#include <stdexcept>
-#include <typeinfo>
 
 #include "client/crashpad_info.h"
 #include "client/simple_string_dictionary.h"
 #include "gtest/gtest.h"
-#include "lib/crashomon.h"
 #include "lib/crashomon_internal.h"
 
 namespace {
@@ -22,13 +19,15 @@ class TerminateHooksTest : public ::testing::Test {
   void TearDown() override {
     crashpad::CrashpadInfo::GetCrashpadInfo()->set_simple_annotations(nullptr);
   }
+  // NOLINTNEXTLINE(misc-non-private-member-variables-in-classes) — TEST_F subclasses require protected access
   std::unique_ptr<crashpad::SimpleStringDictionary> dict_;
 };
 
 // ── WriteAssertAnnotation ─────────────────────────────────────────────────────
 
 TEST_F(TerminateHooksTest, AssertAnnotation_FormatsExprFileLineFuncCorrectly) {
-  crashomon::WriteAssertAnnotation("x > 0", "src/main.cpp", 42, "foo()");
+  constexpr unsigned int kTestLineNumber = 42;
+  crashomon::WriteAssertAnnotation("x > 0", "src/main.cpp", kTestLineNumber, "foo()");
   EXPECT_STREQ(dict_->GetValueForKey("abort_message"),
                "assertion failed: 'x > 0' (src/main.cpp:42, foo())");
 }

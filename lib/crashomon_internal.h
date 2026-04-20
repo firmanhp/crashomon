@@ -65,13 +65,13 @@ struct ResolvedConfig {
 
 // Formats an assert() failure annotation and writes it to abort_message.
 // Safe to call before DoInit() — crashomon_set_abort_message is a no-op when
-// the annotations pointer is null. Uses a stack buffer; no heap allocation.
+// the annotations pointer is null.
 void WriteAssertAnnotation(const char* assertion, const char* file,
                             unsigned int line, const char* func) noexcept;
 
 // Writes terminate_type (demangled exception class name) and abort_message.
-// Pass abi::__cxa_current_exception_type() for ti; pass nullptr when there
-// is no active exception.
-void WriteTerminateAnnotation(const std::type_info* ti) noexcept;
+// Pass abi::__cxa_current_exception_type() for exc_type; pass nullptr when
+// there is no active exception.
+void WriteTerminateAnnotation(const std::type_info* exc_type) noexcept;
 
 }  // namespace crashomon
