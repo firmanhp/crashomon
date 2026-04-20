@@ -19,7 +19,7 @@ class TerminateHooksTest : public ::testing::Test {
   void TearDown() override {
     crashpad::CrashpadInfo::GetCrashpadInfo()->set_simple_annotations(nullptr);
   }
-  // NOLINTNEXTLINE(cppcoreguidelines-non-private-member-variables-in-classes)
+  // NOLINTNEXTLINE(cppcoreguidelines-non-private-member-variables-in-classes, misc-non-private-member-variables-in-classes)
   std::unique_ptr<crashpad::SimpleStringDictionary> dict;
 };
 
