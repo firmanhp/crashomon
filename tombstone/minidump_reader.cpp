@@ -6,7 +6,9 @@
 
 #include <array>
 #include <cstdint>
+#include <cstring>
 #include <ctime>
+#include <fstream>
 #include <string>
 #include <unordered_map>
 #include <vector>
@@ -173,6 +175,67 @@ void ExtractThreadName(google_breakpad::Minidump& raw, MinidumpInfo& info) {
   }
 }
 
+uint32_t ReadU32Le(const std::string& buf, size_t offset) noexcept {
+  if (offset + 4 > buf.size()) return 0;
+  uint32_t val = 0;
+  std::memcpy(&val, buf.data() + offset, sizeof(val));
+  return val;
+}
+
+std::string ReadUtf8Str(const std::string& buf, uint32_t rva) {
+  if (rva == 0 || rva + 4 > buf.size()) return {};
+  const uint32_t length = ReadU32Le(buf, rva);
+  if (length == 0 || rva + 4 + length > buf.size()) return {};
+  return std::string(buf.data() + rva + 4, length);
+}
+
+void ExtractCrashpadAnnotations(const std::string& path, MinidumpInfo& info) {
+  std::ifstream f(path, std::ios::binary | std::ios::ate);
+  if (!f.is_open()) return;
+  const auto file_size = static_cast<size_t>(f.tellg());
+  f.seekg(0);
+  std::string buf(file_size, '\0');
+  if (!f.read(buf.data(), static_cast<std::streamsize>(file_size))) return;
+
+  if (buf.size() < 32) return;
+  if (ReadU32Le(buf, 0) != 0x504d444du) return;
+  const uint32_t stream_count = ReadU32Le(buf, 8);
+  const uint32_t dir_rva = ReadU32Le(buf, 12);
+
+  static constexpr uint32_t kCrashpadInfoType = 0x43500007u;
+  uint32_t stream_rva = 0;
+  for (uint32_t i = 0; i < stream_count; ++i) {
+    const uint32_t entry_off = dir_rva + i * 12u;
+    if (entry_off + 12u > buf.size()) break;
+    if (ReadU32Le(buf, entry_off) == kCrashpadInfoType) {
+      stream_rva = ReadU32Le(buf, entry_off + 8u);
+      break;
+    }
+  }
+  if (stream_rva == 0) return;
+
+  if (stream_rva + 44u > buf.size()) return;
+  if (ReadU32Le(buf, stream_rva) != 1u) return;
+
+  const uint32_t dict_size = ReadU32Le(buf, stream_rva + 36u);
+  const uint32_t dict_rva  = ReadU32Le(buf, stream_rva + 40u);
+  if (dict_rva == 0 || dict_size < 4u) return;
+  if (dict_rva + dict_size > buf.size()) return;
+
+  const uint32_t count = ReadU32Le(buf, dict_rva);
+  for (uint32_t i = 0; i < count; ++i) {
+    const uint32_t entry_off = dict_rva + 4u + i * 8u;
+    if (entry_off + 8u > buf.size()) break;
+    const std::string key = ReadUtf8Str(buf, ReadU32Le(buf, entry_off));
+    const std::string val = ReadUtf8Str(buf, ReadU32Le(buf, entry_off + 4u));
+    if (key == "abort_message") {
+      info.abort_message = val;
+    } else if (key == "terminate_type") {
+      info.terminate_type = val;
+    }
+  }
+}
+
 }  // namespace
 
 absl::StatusOr<MinidumpInfo> ReadMinidump(const std::string& path) {
@@ -227,6 +290,8 @@ absl::StatusOr<MinidumpInfo> ReadMinidump(const std::string& path) {
 
     ExtractThreadName(raw, info);
   }
+
+  ExtractCrashpadAnnotations(path, info);
 
   return info;
 }

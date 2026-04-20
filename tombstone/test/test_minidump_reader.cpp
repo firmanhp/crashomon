@@ -270,5 +270,149 @@ TEST(MinidumpReaderTest, MultithreadFixture_NonCrashingThreadsHaveNoRegisters) {
   }
 }
 
+// ── Helpers for annotation tests ─────────────────────────────────────────────
+
+namespace annot_helpers {
+
+void AppendU32(std::string& buf, uint32_t val) {
+  buf.append(reinterpret_cast<const char*>(&val), sizeof(val));
+}
+
+void AppendUtf8String(std::string& buf, const std::string& s) {
+  AppendU32(buf, static_cast<uint32_t>(s.size()));
+  buf.append(s);
+  buf.push_back('\0');
+}
+
+// Builds a minimal valid MDMP binary with a CrashpadInfo stream (type 0x43500007)
+// containing abort_message (and optionally terminate_type).
+std::string BuildAnnotatedMinidump(const std::string& abort_msg,
+                                   const std::string& term_type) {
+  static constexpr uint32_t kMdmpSignature = 0x504d444d;
+  static constexpr uint32_t kMdmpVersion = 0xa793;
+  static constexpr uint32_t kCrashpadInfoType = 0x43500007;
+  static constexpr uint32_t kHeaderSize = 32;
+  static constexpr uint32_t kDirEntrySize = 12;
+  static constexpr uint32_t kCrashpadHeaderSize = 52;
+  static constexpr uint32_t kDirRva = kHeaderSize;
+  static constexpr uint32_t kStreamRva = kDirRva + kDirEntrySize;
+
+  const uint32_t num_entries = term_type.empty() ? 1u : 2u;
+  const uint32_t dict_rva = kStreamRva + kCrashpadHeaderSize;
+  const uint32_t dict_bytes = 4u + num_entries * 8u;
+  const uint32_t strings_rva = dict_rva + dict_bytes;
+
+  auto str_total = [](const std::string& s) -> uint32_t {
+    return 4u + static_cast<uint32_t>(s.size()) + 1u;
+  };
+
+  const std::string kKeyAbort = "abort_message";
+  const std::string kKeyType  = "terminate_type";
+
+  const uint32_t key0_rva = strings_rva;
+  const uint32_t val0_rva = key0_rva + str_total(kKeyAbort);
+  const uint32_t key1_rva = val0_rva + str_total(abort_msg);
+  const uint32_t val1_rva = key1_rva + str_total(kKeyType);
+
+  uint32_t total_strings = str_total(kKeyAbort) + str_total(abort_msg);
+  if (!term_type.empty()) {
+    total_strings += str_total(kKeyType) + str_total(term_type);
+  }
+  const uint32_t stream_size = kCrashpadHeaderSize + dict_bytes + total_strings;
+
+  std::string buf;
+  buf.reserve(kHeaderSize + kDirEntrySize + stream_size);
+
+  // MDMP header.
+  AppendU32(buf, kMdmpSignature);
+  AppendU32(buf, kMdmpVersion);
+  AppendU32(buf, 1u);       // stream_count
+  AppendU32(buf, kDirRva);  // stream_directory_rva
+  AppendU32(buf, 0u);       // checksum
+  AppendU32(buf, 0u);       // time_date_stamp
+  buf.append(8, '\0');      // flags (uint64_t)
+
+  // Directory entry.
+  AppendU32(buf, kCrashpadInfoType);
+  AppendU32(buf, stream_size);
+  AppendU32(buf, kStreamRva);
+
+  // MinidumpCrashpadInfo header.
+  AppendU32(buf, 1u);          // version
+  buf.append(16, '\0');        // report_id
+  buf.append(16, '\0');        // client_id
+  AppendU32(buf, dict_bytes);  // simple_annotations.DataSize
+  AppendU32(buf, dict_rva);    // simple_annotations.RVA
+  AppendU32(buf, 0u);          // module_list.DataSize
+  AppendU32(buf, 0u);          // module_list.RVA
+
+  // SimpleStringDictionary.
+  AppendU32(buf, num_entries);
+  AppendU32(buf, key0_rva);
+  AppendU32(buf, val0_rva);
+  if (!term_type.empty()) {
+    AppendU32(buf, key1_rva);
+    AppendU32(buf, val1_rva);
+  }
+
+  // String data.
+  AppendUtf8String(buf, kKeyAbort);
+  AppendUtf8String(buf, abort_msg);
+  if (!term_type.empty()) {
+    AppendUtf8String(buf, kKeyType);
+    AppendUtf8String(buf, term_type);
+  }
+
+  return buf;
+}
+
+std::string WriteTmpFile(const std::string& buf) {
+  std::string tmpl = "/tmp/crashomon_annot_XXXXXX";
+  const int fd = mkstemp(tmpl.data());
+  if (fd < 0) return {};
+  // NOLINTNEXTLINE(misc-include-cleaner) — write() comes via <unistd.h> which is included.
+  [[maybe_unused]] ssize_t unused = ::write(fd, buf.data(), buf.size());
+  ::close(fd);
+  return tmpl;
+}
+
+}  // namespace annot_helpers
+
+// ── Annotation reader tests ──────────────────────────────────────────────────
+
+TEST(MinidumpReaderAnnotationTest, ExtractsAbortMessageFromCrashpadStream) {
+  const std::string dmp = annot_helpers::WriteTmpFile(
+      annot_helpers::BuildAnnotatedMinidump(
+          "assertion failed: 'x > 0' (main.cpp:7, run())", ""));
+  ASSERT_FALSE(dmp.empty());
+  auto result = ReadMinidump(dmp);
+  ::unlink(dmp.c_str());
+  ASSERT_TRUE(result.ok()) << result.status();
+  EXPECT_EQ(result->abort_message, "assertion failed: 'x > 0' (main.cpp:7, run())");
+  EXPECT_TRUE(result->terminate_type.empty());
+}
+
+TEST(MinidumpReaderAnnotationTest, ExtractsBothAbortMessageAndTerminateType) {
+  const std::string dmp = annot_helpers::WriteTmpFile(
+      annot_helpers::BuildAnnotatedMinidump("unhandled C++ exception", "std::logic_error"));
+  ASSERT_FALSE(dmp.empty());
+  auto result = ReadMinidump(dmp);
+  ::unlink(dmp.c_str());
+  ASSERT_TRUE(result.ok()) << result.status();
+  EXPECT_EQ(result->abort_message, "unhandled C++ exception");
+  EXPECT_EQ(result->terminate_type, "std::logic_error");
+}
+
+TEST(MinidumpReaderAnnotationTest, AbortMessageOnlyOneEntry) {
+  const std::string dmp = annot_helpers::WriteTmpFile(
+      annot_helpers::BuildAnnotatedMinidump("msg", ""));
+  ASSERT_FALSE(dmp.empty());
+  auto result = ReadMinidump(dmp);
+  ::unlink(dmp.c_str());
+  ASSERT_TRUE(result.ok()) << result.status();
+  EXPECT_EQ(result->abort_message, "msg");
+  EXPECT_TRUE(result->terminate_type.empty());
+}
+
 }  // namespace
 }  // namespace crashomon
