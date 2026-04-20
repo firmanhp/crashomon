@@ -3,7 +3,6 @@
 
 #include <memory>
 #include <stdexcept>
-#include <typeinfo>
 
 #include "client/crashpad_info.h"
 #include "client/simple_string_dictionary.h"
