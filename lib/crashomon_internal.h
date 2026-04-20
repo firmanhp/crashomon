@@ -65,7 +65,9 @@ struct ResolvedConfig {
 
 // Formats an assert() failure annotation and writes it to abort_message.
 // Safe to call before DoInit() — crashomon_set_abort_message is a no-op when
-// the annotations pointer is null.
+// the annotations pointer is null.  Heap allocation (std::format/std::string)
+// is permissible here: __assert_fail fires in thread context, not an async
+// signal handler.
 void WriteAssertAnnotation(const char* assertion, const char* file,
                             unsigned int line, const char* func) noexcept;
 

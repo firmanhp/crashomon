@@ -1,4 +1,4 @@
-// lib/crashomon.cpp — C++17 implementation of the crashomon client library.
+// lib/crashomon.cpp — C++20 implementation of the crashomon client library.
 //
 // The public interface (crashomon.h) is a pure C API with no C++ dependencies.
 // All C++ internals are confined to this translation unit and crashomon_internal.h.
