@@ -2,6 +2,8 @@
 //                                     WriteTerminateAnnotation.
 
 #include <memory>
+#include <stdexcept>
+#include <typeinfo>
 
 #include "client/crashpad_info.h"
 #include "client/simple_string_dictionary.h"
@@ -40,6 +42,33 @@ TEST_F(TerminateHooksTest, AssertAnnotation_NullAnnotationsIsNoOp) {
 TEST_F(TerminateHooksTest, AssertAnnotation_NullArgsDoNotCrash) {
   crashomon::WriteAssertAnnotation(nullptr, nullptr, 0, nullptr);
   EXPECT_NE(dict_->GetValueForKey("abort_message"), nullptr);
+}
+
+// ── WriteTerminateAnnotation ──────────────────────────────────────────────────
+
+TEST_F(TerminateHooksTest, TerminateAnnotation_WithExceptionTypeSetsTypeAndMessage) {
+  crashomon::WriteTerminateAnnotation(&typeid(std::runtime_error));
+  EXPECT_STREQ(dict_->GetValueForKey("abort_message"), "unhandled C++ exception");
+  EXPECT_STREQ(dict_->GetValueForKey("terminate_type"), "std::runtime_error");
+}
+
+TEST_F(TerminateHooksTest, TerminateAnnotation_UnknownTypeSetsNonEmptyTypeName) {
+  crashomon::WriteTerminateAnnotation(&typeid(int));
+  EXPECT_STREQ(dict_->GetValueForKey("abort_message"), "unhandled C++ exception");
+  EXPECT_STREQ(dict_->GetValueForKey("terminate_type"), "int");
+}
+
+TEST_F(TerminateHooksTest, TerminateAnnotation_NoActiveExceptionWritesFallback) {
+  crashomon::WriteTerminateAnnotation(nullptr);
+  EXPECT_STREQ(dict_->GetValueForKey("abort_message"),
+               "terminate called without active exception");
+  EXPECT_EQ(dict_->GetValueForKey("terminate_type"), nullptr);
+}
+
+TEST_F(TerminateHooksTest, TerminateAnnotation_NullAnnotationsIsNoOp) {
+  crashpad::CrashpadInfo::GetCrashpadInfo()->set_simple_annotations(nullptr);
+  crashomon::WriteTerminateAnnotation(&typeid(std::logic_error));
+  // Must not crash.
 }
 
 }  // namespace

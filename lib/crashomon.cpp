@@ -20,6 +20,7 @@
 #include <cstring>
 #include <ctime>
 #include <cxxabi.h>
+#include <exception>
 #include <format>
 #include <memory>
 #include <mutex>
@@ -189,6 +190,11 @@ int DoInit(const ResolvedConfig& cfg) {
   // up tags written via crashomon_set_tag().
   static crashpad::SimpleStringDictionary annotations;
   crashpad::CrashpadInfo::GetCrashpadInfo()->set_simple_annotations(&annotations);
+
+  std::set_terminate([]() noexcept {
+    crashomon::WriteTerminateAnnotation(abi::__cxa_current_exception_type());
+    std::abort();
+  });
   return 0;
 }
 
