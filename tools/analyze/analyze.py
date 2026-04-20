@@ -19,6 +19,7 @@ from .symbolizer import (
     format_symbolicated,
     parse_human_frame_pcs,
     parse_stackwalk_machine,
+    read_minidump_annotations,
     read_minidump_process_info,
     read_minidump_thread_names,
 )
@@ -80,6 +81,10 @@ def _apply_minidump_metadata(
     thread_names = read_minidump_thread_names(dmp)
     for thread in tombstone.threads:
         thread.name = thread_names.get(thread.tid, "")
+
+    annotations = read_minidump_annotations(dmp)
+    tombstone.abort_message = annotations.get("abort_message", "")
+    tombstone.terminate_type = annotations.get("terminate_type", "")
 
 
 def mode_minidump_store(store: str, dmp: str, stackwalk: str) -> str:
