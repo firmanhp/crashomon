@@ -130,6 +130,14 @@ std::string FormatTombstone(const MinidumpInfo& info) {
     }
   }
 
+  if (!info.abort_message.empty()) {
+    if (!info.terminate_type.empty()) {
+      out << "Abort message: '" << info.terminate_type << ": " << info.abort_message << "'\n";
+    } else {
+      out << "Abort message: '" << info.abort_message << "'\n";
+    }
+  }
+
   out << "timestamp: " << info.timestamp << "\n";
 
   // Single crashing-thread PC line.

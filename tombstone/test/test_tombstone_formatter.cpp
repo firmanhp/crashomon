@@ -283,5 +283,41 @@ TEST(TombstoneFormatterTest, NoProbableCauseAmbiguousSIGSEGV) {
   EXPECT_EQ(tomb.find("probable cause"), std::string::npos);
 }
 
+// ── Abort message ─────────────────────────────────────────────────────────────
+
+TEST(TombstoneFormatterTest, AbortMessageOnlyPrintsAbortMessageLine) {
+  MinidumpInfo info = MakeInfo();
+  info.abort_message = "assertion failed: 'count >= 0' (counter.cpp:17, tick())";
+  auto tomb = FormatTombstone(info);
+  EXPECT_NE(tomb.find(
+                "Abort message: 'assertion failed: 'count >= 0' (counter.cpp:17, tick())'"),
+            std::string::npos);
+}
+
+TEST(TombstoneFormatterTest, AbortMessageWithTerminateTypeCombinesBoth) {
+  MinidumpInfo info = MakeInfo();
+  info.abort_message  = "unhandled C++ exception";
+  info.terminate_type = "std::logic_error";
+  auto tomb = FormatTombstone(info);
+  EXPECT_NE(tomb.find("Abort message: 'std::logic_error: unhandled C++ exception'"),
+            std::string::npos);
+}
+
+TEST(TombstoneFormatterTest, EmptyAbortMessageProducesNoAbortMessageLine) {
+  auto tomb = FormatTombstone(MakeInfo());
+  EXPECT_EQ(tomb.find("Abort message:"), std::string::npos);
+}
+
+TEST(TombstoneFormatterTest, AbortMessageAppearsAfterSignalLine) {
+  MinidumpInfo info = MakeInfo();
+  info.abort_message = "test msg";
+  auto tomb = FormatTombstone(info);
+  const size_t sig_pos   = tomb.find("signal 11");
+  const size_t abort_pos = tomb.find("Abort message:");
+  ASSERT_NE(sig_pos, std::string::npos);
+  ASSERT_NE(abort_pos, std::string::npos);
+  EXPECT_GT(abort_pos, sig_pos);
+}
+
 }  // namespace
 }  // namespace crashomon
