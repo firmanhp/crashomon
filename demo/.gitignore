@@ -1,3 +1,5 @@
 _build/
 _host_build/
 _work/
+_work*/
+demo-crasher
