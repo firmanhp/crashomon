@@ -62,6 +62,7 @@ set(CLIENT_TEST_SOURCES
   ${PROJECT_SOURCE_DIR}/lib/test/test_crashomon.cpp
   ${PROJECT_SOURCE_DIR}/lib/test/test_tags.cpp
   ${PROJECT_SOURCE_DIR}/lib/test/test_connect_retry.cpp
+  ${PROJECT_SOURCE_DIR}/lib/test/test_terminate_hooks.cpp
 )
 
 add_executable(crashomon_client_tests ${CLIENT_TEST_SOURCES})

@@ -16,8 +16,10 @@
 #include <array>
 #include <cerrno>
 #include <cstdio>
+#include <cstdlib>
 #include <cstring>
 #include <ctime>
+#include <cxxabi.h>
 #include <mutex>
 #include <string>
 
@@ -205,7 +207,43 @@ __attribute__((destructor)) void AutoShutdown() {
 }
 
 }  // namespace
+
+void WriteAssertAnnotation(const char* assertion, const char* file,
+                            unsigned int line, const char* func) noexcept {
+  constexpr size_t kBufSize = 512;
+  char buf[kBufSize];
+  std::snprintf(buf, kBufSize, "assertion failed: '%s' (%s:%u, %s)",
+                assertion != nullptr ? assertion : "?",
+                file != nullptr ? file : "?", line,
+                func != nullptr ? func : "?");
+  crashomon_set_abort_message(buf);
+}
+
+void WriteTerminateAnnotation(const std::type_info* ti) noexcept {
+  if (ti != nullptr) {
+    int status = 0;
+    char* demangled = abi::__cxa_demangle(ti->name(), nullptr, nullptr, &status);
+    const char* type_name =
+        (status == 0 && demangled != nullptr) ? demangled : ti->name();
+    crashomon_set_tag("terminate_type", type_name);
+    std::free(demangled);
+    crashomon_set_abort_message("unhandled C++ exception");
+  } else {
+    crashomon_set_abort_message("terminate called without active exception");
+  }
+}
+
 }  // namespace crashomon
+
+// Override glibc's __assert_fail so assert() failures are captured as annotations
+// before SIGABRT fires. The dynamic linker resolves this definition first when
+// libcrashomon.so is LD_PRELOAD'd.
+extern "C" [[noreturn]] void __assert_fail(const char* assertion, const char* file,
+                                            unsigned int line,
+                                            const char* func) noexcept {
+  crashomon::WriteAssertAnnotation(assertion, file, line, func);
+  std::abort();
+}
 
 // ── Public C API ─────────────────────────────────────────────────────────────
 // C-compatible names — GlobalFunctionCase: lower_case in .clang-tidy covers these.
