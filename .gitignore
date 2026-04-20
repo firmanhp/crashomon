@@ -30,3 +30,4 @@ dist/
 
 # Claude Code project settings (local machine context, not repo config)
 .claude/
+.worktrees/
