@@ -1,4 +1,4 @@
-// lib/crashomon.cpp — C++17 implementation of the crashomon client library.
+// lib/crashomon.cpp — C++20 implementation of the crashomon client library.
 //
 // The public interface (crashomon.h) is a pure C API with no C++ dependencies.
 // All C++ internals are confined to this translation unit and crashomon_internal.h.
@@ -16,8 +16,13 @@
 #include <array>
 #include <cerrno>
 #include <cstdio>
+#include <cstdlib>
 #include <cstring>
 #include <ctime>
+#include <cxxabi.h>
+#include <exception>
+#include <format>
+#include <memory>
 #include <mutex>
 #include <string>
 
@@ -185,6 +190,11 @@ int DoInit(const ResolvedConfig& cfg) {
   // up tags written via crashomon_set_tag().
   static crashpad::SimpleStringDictionary annotations;
   crashpad::CrashpadInfo::GetCrashpadInfo()->set_simple_annotations(&annotations);
+
+  std::set_terminate([]() noexcept {
+    crashomon::WriteTerminateAnnotation(abi::__cxa_current_exception_type());
+    std::abort();
+  });
   return 0;
 }
 
@@ -205,7 +215,46 @@ __attribute__((destructor)) void AutoShutdown() {
 }
 
 }  // namespace
+
+void WriteAssertAnnotation(const char* assertion, const char* file,
+                            unsigned int line, const char* func) noexcept {
+  const std::string msg =
+      std::format("assertion failed: '{}' ({}:{}, {})",
+                  assertion != nullptr ? assertion : "?",
+                  file != nullptr ? file : "?",
+                  line,
+                  func != nullptr ? func : "?");
+  crashomon_set_abort_message(msg.c_str());
+}
+
+void WriteTerminateAnnotation(const std::type_info* exc_type) noexcept {
+  if (exc_type != nullptr) {
+    int status = 0;
+    // NOLINTNEXTLINE(cppcoreguidelines-no-malloc, cppcoreguidelines-owning-memory)
+    auto demangled = std::unique_ptr<char, decltype(&std::free)>(
+        abi::__cxa_demangle(exc_type->name(), nullptr, nullptr, &status),
+        std::free);
+    const char* type_name =
+        (status == 0 && demangled != nullptr) ? demangled.get() : exc_type->name();
+    crashomon_set_tag("terminate_type", type_name);
+    crashomon_set_abort_message("unhandled C++ exception");
+  } else {
+    crashomon_set_abort_message("terminate called without active exception");
+  }
+}
+
 }  // namespace crashomon
+
+// Override glibc's __assert_fail so assert() failures are captured as annotations
+// before SIGABRT fires. The dynamic linker resolves this definition first when
+// libcrashomon.so is LD_PRELOAD'd.
+// NOLINTNEXTLINE(bugprone-reserved-identifier, cert-dcl37-c, cert-dcl51-cpp, readability-identifier-naming)
+extern "C" [[noreturn]] void __assert_fail(const char* assertion, const char* file,
+                                            unsigned int line,
+                                            const char* func) noexcept {
+  crashomon::WriteAssertAnnotation(assertion, file, line, func);
+  std::abort();
+}
 
 // ── Public C API ─────────────────────────────────────────────────────────────
 // C-compatible names — GlobalFunctionCase: lower_case in .clang-tidy covers these.
