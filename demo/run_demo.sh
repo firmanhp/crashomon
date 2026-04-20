@@ -13,7 +13,6 @@
 #                  b) --minidump --store        (app symbols only, partial)
 #                  c) --minidump --store        (full store with sysroot, complete)
 #                  d) --minidump --sysroot      (lazy per-minidump sysroot extraction)
-#                  e) --stdin --store           (re-symbolicate from watcherd log)
 #
 # Usage:
 #   ./run_demo.sh [--clean]
@@ -194,7 +193,7 @@ done
 if grep -qF '*** *** ***' "$LOG_DIR/tombstone.log" 2>/dev/null; then
     _ok "Tombstone written to $LOG_DIR/tombstone.log"
 else
-    _warn "Tombstone not found in watcherd log — stdin-mode demo will be skipped."
+    _warn "Tombstone not found in watcherd log."
 fi
 
 # Stop watcherd gracefully now that crash data is captured.
@@ -316,25 +315,6 @@ echo ""
 echo "  App-only store after lazy extraction:"
 "$SYMS_TOOL" list --store "$SYMBOLS_APP"
 echo ""
-
-# ── 4e. Mode: --stdin --store (re-symbolicate from watcherd tombstone) ────────
-# The watcherd writes each tombstone to stdout with (BuildId: ...) annotations
-# on every frame.  Pipe tombstone.log to crashomon-analyze --stdin --store for
-# offline re-symbolication — the intended workflow for crash reports exported
-# from embedded targets where minidumps are not retained.
-_banner "── 4e. Stdin mode (tombstone text from watcherd stdout) ──"
-echo "  Piping $LOG_DIR/tombstone.log to --stdin --store."
-echo "  Frames are matched to .sym files by GNU build ID."
-
-if grep -qF '*** *** ***' "$LOG_DIR/tombstone.log" 2>/dev/null; then
-    "$ANALYZE_TOOL" \
-        --store="$SYMBOLS_FULL" \
-        --stdin \
-        < "$LOG_DIR/tombstone.log"
-else
-    _warn "No tombstone found in $LOG_DIR/tombstone.log — stdout analysis only."
-    _warn "Check $LOG_DIR/daemon.log for watcherd errors."
-fi
 
 # ═══════════════════════════════════════════════════════════════════════════════
 echo ""

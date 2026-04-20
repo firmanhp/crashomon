@@ -13,7 +13,6 @@
 #
 # Optional -D variables:
 #   WITH_BINARY  — set to 1 to also copy the unstripped ELF into the store entry
-#                  (enables crashomon-analyze --debug-dir --stdin mode)
 #
 # Store layout written:
 #   <STORE>/<module_name>/<build_id>/<module_name>.sym
@@ -71,9 +70,7 @@ message(STATUS
   "  symbols: ${_module_name}/${_build_id}/${_module_name}.sym")
 
 # ── Step 4 (optional): copy the unstripped binary ─────────────────────────────
-# When WITH_BINARY=1, the ELF is also stored alongside the .sym file. This makes
-# the store directory usable as a --debug-dir argument to crashomon-analyze, which
-# indexes ELFs by GNU build ID for tombstone-text symbolication via eu-addr2line.
+# When WITH_BINARY=1, the ELF is also stored alongside the .sym file.
 #
 # The binary is the unstripped build-tree artifact (POST_BUILD fires before any
 # install-time stripping), so DWARF info is intact.

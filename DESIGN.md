@@ -273,9 +273,6 @@ crashomon-syms add --store /shared/symbol_store --recursive /build/output/
 # Symbolicate a minidump using the symbol store (auto-matches by build ID)
 crashomon-analyze --store /path/to/symbol_store --minidump crash.dmp
 
-# Symbolicate from pasted crash log text
-crashomon-analyze --store /path/to/symbol_store --stdin < tombstone.txt
-
 # Explicit symbol path (no store, manual)
 crashomon-analyze --symbols /path/to/specific.sym --minidump crash.dmp
 ```
@@ -487,12 +484,11 @@ FetchContent, gated behind `-DENABLE_BENCHMARKS=ON`.
 6. **Symbol ingestion test**: Run `crashomon-syms add --store /tmp/symbols /path/to/my_service`. Verify `.sym` file stored at `<store>/<module>/<build_id>/<module>.sym`
 7. **CLI symbolication test**: `crashomon-analyze --store <symbol-store> --minidump <file>` outputs function names + line numbers
 8. **Cross-version symbolication test**: Build two versions of `examples/segfault` with different code, ingest both into the symbol store, crash both, verify each minidump symbolicates against the correct version's symbols
-9. **Crash log paste test**: `echo "<tombstone text>" | crashomon-analyze --store <store> --stdin` symbolicates from text
-10. **Web UI — symbol upload**: Upload a debug binary via web form, verify it appears in the symbol browser with correct module name + build ID
-11. **Web UI — CI/CD API**: `curl -F binary=@my_service POST http://localhost:5000/api/symbols/upload`, verify symbols stored
-12. **Web UI — minidump analysis**: Upload a `.dmp` via web form, verify auto-symbolicated report with correct function names
-13. **Web UI — missing symbols**: Upload a minidump for a version whose symbols are NOT in the store, verify clear error showing the missing build ID
-14. **Web UI — crash history**: Upload multiple minidumps, verify crash list shows all with correct metadata, filter by process name works
+9. **Web UI — symbol upload**: Upload a debug binary via web form, verify it appears in the symbol browser with correct module name + build ID
+10. **Web UI — CI/CD API**: `curl -F binary=@my_service POST http://localhost:5000/api/symbols/upload`, verify symbols stored
+11. **Web UI — minidump analysis**: Upload a `.dmp` via web form, verify auto-symbolicated report with correct function names
+12. **Web UI — missing symbols**: Upload a minidump for a version whose symbols are NOT in the store, verify clear error showing the missing build ID
+13. **Web UI — crash history**: Upload multiple minidumps, verify crash list shows all with correct metadata, filter by process name works
 15. **Disk management test**: Generate many crashes, verify watcher prunes old minidumps at configured limit
 
 ---

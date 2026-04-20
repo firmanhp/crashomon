@@ -288,18 +288,12 @@ Symbolicate a minidump or annotate a pasted tombstone from a developer machine.
 | Mode | When to use |
 |---|---|
 | `--store --minidump` | You have a `.dmp` file and a symbol store |
-| `--store --stdin` | Tombstone text from journalctl; matched by build ID — no host binaries required |
 | `--symbols --minidump` | Single `.sym` file, no full store |
 | `--minidump` only | Raw unsymbolicated tombstone — no symbols needed |
 
 ```bash
 # Symbolicate a minidump against a symbol store (auto-matches by build ID)
 crashomon-analyze --store=/var/crashomon/symbols --minidump=crash.dmp
-
-# Annotate tombstone text copied from journalctl.
-# Frames are matched by GNU build ID — target paths need not exist on the host.
-journalctl -u crashomon-watcherd --since "10 minutes ago" | \
-    crashomon-analyze --store=/var/crashomon/symbols --stdin
 
 # Use a single explicit .sym file
 crashomon-analyze --symbols=my_service.sym --minidump=crash.dmp

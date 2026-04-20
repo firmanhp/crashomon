@@ -18,13 +18,9 @@
 #   # Minidump analysis (primary use case):
 #   crashomon-analyze --store <dir> --minidump crash.dmp
 #
-#   # Tombstone text from journalctl (requires WITH_BINARY):
-#   crashomon-analyze --debug-dir <dir> --stdin < tombstone.txt
-#
 # Options:
 #   STORE <dir>   — override CRASHOMON_SYMBOL_STORE for this target only
-#   WITH_BINARY   — also copy the unstripped ELF into the store entry, enabling
-#                   --debug-dir --stdin mode in crashomon-analyze
+#   WITH_BINARY   — also copy the unstripped ELF into the store entry
 #
 # Cache variables:
 #   CRASHOMON_SYMBOL_STORE  — store root, default ${CMAKE_BINARY_DIR}/symbols
