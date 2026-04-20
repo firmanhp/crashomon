@@ -242,7 +242,7 @@ void WriteTerminateAnnotation(const std::type_info* exc_type) noexcept {
 // Override glibc's __assert_fail so assert() failures are captured as annotations
 // before SIGABRT fires. The dynamic linker resolves this definition first when
 // libcrashomon.so is LD_PRELOAD'd.
-// NOLINTNEXTLINE(bugprone-reserved-identifier, readability-identifier-naming)
+// NOLINTNEXTLINE(bugprone-reserved-identifier, cert-dcl51-cpp, readability-identifier-naming)
 extern "C" [[noreturn]] void __assert_fail(const char* assertion, const char* file,
                                             unsigned int line,
                                             const char* func) noexcept {

@@ -13,22 +13,22 @@ namespace {
 class TerminateHooksTest : public ::testing::Test {
  protected:
   void SetUp() override {
-    dict_ = std::make_unique<crashpad::SimpleStringDictionary>();
-    crashpad::CrashpadInfo::GetCrashpadInfo()->set_simple_annotations(dict_.get());
+    dict = std::make_unique<crashpad::SimpleStringDictionary>();
+    crashpad::CrashpadInfo::GetCrashpadInfo()->set_simple_annotations(dict.get());
   }
   void TearDown() override {
     crashpad::CrashpadInfo::GetCrashpadInfo()->set_simple_annotations(nullptr);
   }
-  // NOLINTNEXTLINE(misc-non-private-member-variables-in-classes) — TEST_F subclasses require protected access
-  std::unique_ptr<crashpad::SimpleStringDictionary> dict_;
+  // NOLINTNEXTLINE(cppcoreguidelines-non-private-member-variables-in-classes)
+  std::unique_ptr<crashpad::SimpleStringDictionary> dict;
 };
 
 // ── WriteAssertAnnotation ─────────────────────────────────────────────────────
 
 TEST_F(TerminateHooksTest, AssertAnnotation_FormatsExprFileLineFuncCorrectly) {
-  constexpr unsigned int kTestLineNumber = 42;
-  crashomon::WriteAssertAnnotation("x > 0", "src/main.cpp", kTestLineNumber, "foo()");
-  EXPECT_STREQ(dict_->GetValueForKey("abort_message"),
+  constexpr unsigned int test_line_number = 42;
+  crashomon::WriteAssertAnnotation("x > 0", "src/main.cpp", test_line_number, "foo()");
+  EXPECT_STREQ(dict->GetValueForKey("abort_message"),
                "assertion failed: 'x > 0' (src/main.cpp:42, foo())");
 }
 
@@ -39,7 +39,7 @@ TEST_F(TerminateHooksTest, AssertAnnotation_NullAnnotationsIsNoOp) {
 
 TEST_F(TerminateHooksTest, AssertAnnotation_NullArgsDoNotCrash) {
   crashomon::WriteAssertAnnotation(nullptr, nullptr, 0, nullptr);
-  EXPECT_NE(dict_->GetValueForKey("abort_message"), nullptr);
+  EXPECT_NE(dict->GetValueForKey("abort_message"), nullptr);
 }
 
 }  // namespace
