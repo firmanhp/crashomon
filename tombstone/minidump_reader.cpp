@@ -176,58 +176,75 @@ void ExtractThreadName(google_breakpad::Minidump& raw, MinidumpInfo& info) {
 }
 
 uint32_t ReadU32Le(const std::string& buf, size_t offset) noexcept {
-  if (offset + 4 > buf.size()) return 0;
+  if (offset + 4 > buf.size()) { return 0; }
   uint32_t val = 0;
-  std::memcpy(&val, buf.data() + offset, sizeof(val));
+  std::memcpy(&val, &buf[offset], sizeof(val));
   return val;
 }
 
 std::string ReadUtf8Str(const std::string& buf, uint32_t rva) {
-  if (rva == 0 || rva + 4 > buf.size()) return {};
+  if (rva == 0 || rva + 4 > buf.size()) { return {}; }
   const uint32_t length = ReadU32Le(buf, rva);
-  if (length == 0 || rva + 4 + length > buf.size()) return {};
-  return std::string(buf.data() + rva + 4, length);
+  if (length == 0 || rva + 4 + length > buf.size()) { return {}; }
+  return std::string(buf, rva + 4, length);
 }
 
 void ExtractCrashpadAnnotations(const std::string& path, MinidumpInfo& info) {
-  std::ifstream f(path, std::ios::binary | std::ios::ate);
-  if (!f.is_open()) return;
-  const auto file_size = static_cast<size_t>(f.tellg());
-  f.seekg(0);
+  // MDMP header layout constants.
+  static constexpr size_t   kMdmpHeaderSize        = 32U;
+  static constexpr uint32_t kMdmpSignature         = 0x504d444dU;
+  static constexpr uint32_t kMdmpStreamCountOff    = 8U;
+  static constexpr uint32_t kMdmpDirRvaOff         = 12U;
+  // Stream directory entry layout.
+  static constexpr uint32_t kDirEntrySize          = 12U;
+  static constexpr uint32_t kDirEntryRvaOff        = 8U;
+  static constexpr uint32_t kCrashpadInfoType      = 0x43500007U;
+  // MinidumpCrashpadInfo layout (version=4, report_id=16, client_id=16, then LOCATION pair).
+  static constexpr uint32_t kCrashpadInfoMinSize   = 44U;
+  static constexpr uint32_t kAnnotDictSizeOff      = 36U;
+  static constexpr uint32_t kAnnotDictRvaOff       = 40U;
+  // SimpleStringDictionary entry layout.
+  static constexpr uint32_t kDictEntrySize         = 8U;
+  static constexpr uint32_t kDictCountSize         = 4U;
+  static constexpr uint32_t kDictEntryValRvaOff    = 4U;
+
+  std::ifstream file(path, std::ios::binary | std::ios::ate);
+  if (!file.is_open()) { return; }
+  const auto file_size = static_cast<size_t>(file.tellg());
+  file.seekg(0);
   std::string buf(file_size, '\0');
-  if (!f.read(buf.data(), static_cast<std::streamsize>(file_size))) return;
+  if (!file.read(buf.data(), static_cast<std::streamsize>(file_size))) { return; }
 
-  if (buf.size() < 32) return;
-  if (ReadU32Le(buf, 0) != 0x504d444du) return;
-  const uint32_t stream_count = ReadU32Le(buf, 8);
-  const uint32_t dir_rva = ReadU32Le(buf, 12);
+  if (buf.size() < kMdmpHeaderSize) { return; }
+  if (ReadU32Le(buf, 0) != kMdmpSignature) { return; }
+  const uint32_t stream_count = ReadU32Le(buf, kMdmpStreamCountOff);
+  const uint32_t dir_rva      = ReadU32Le(buf, kMdmpDirRvaOff);
 
-  static constexpr uint32_t kCrashpadInfoType = 0x43500007u;
   uint32_t stream_rva = 0;
   for (uint32_t i = 0; i < stream_count; ++i) {
-    const uint32_t entry_off = dir_rva + i * 12u;
-    if (entry_off + 12u > buf.size()) break;
+    const uint32_t entry_off = dir_rva + i * kDirEntrySize;
+    if (entry_off + kDirEntrySize > buf.size()) { break; }
     if (ReadU32Le(buf, entry_off) == kCrashpadInfoType) {
-      stream_rva = ReadU32Le(buf, entry_off + 8u);
+      stream_rva = ReadU32Le(buf, entry_off + kDirEntryRvaOff);
       break;
     }
   }
-  if (stream_rva == 0) return;
+  if (stream_rva == 0) { return; }
 
-  if (stream_rva + 44u > buf.size()) return;
-  if (ReadU32Le(buf, stream_rva) != 1u) return;
+  if (stream_rva + kCrashpadInfoMinSize > buf.size()) { return; }
+  if (ReadU32Le(buf, stream_rva) != 1U) { return; }
 
-  const uint32_t dict_size = ReadU32Le(buf, stream_rva + 36u);
-  const uint32_t dict_rva  = ReadU32Le(buf, stream_rva + 40u);
-  if (dict_rva == 0 || dict_size < 4u) return;
-  if (dict_rva + dict_size > buf.size()) return;
+  const uint32_t dict_size = ReadU32Le(buf, stream_rva + kAnnotDictSizeOff);
+  const uint32_t dict_rva  = ReadU32Le(buf, stream_rva + kAnnotDictRvaOff);
+  if (dict_rva == 0 || dict_size < kDictCountSize) { return; }
+  if (dict_rva + dict_size > buf.size()) { return; }
 
   const uint32_t count = ReadU32Le(buf, dict_rva);
   for (uint32_t i = 0; i < count; ++i) {
-    const uint32_t entry_off = dict_rva + 4u + i * 8u;
-    if (entry_off + 8u > buf.size()) break;
+    const uint32_t entry_off = dict_rva + kDictCountSize + i * kDictEntrySize;
+    if (entry_off + kDictEntrySize > buf.size()) { break; }
     const std::string key = ReadUtf8Str(buf, ReadU32Le(buf, entry_off));
-    const std::string val = ReadUtf8Str(buf, ReadU32Le(buf, entry_off + 4u));
+    const std::string val = ReadUtf8Str(buf, ReadU32Le(buf, entry_off + kDictEntryValRvaOff));
     if (key == "abort_message") {
       info.abort_message = val;
     } else if (key == "terminate_type") {
