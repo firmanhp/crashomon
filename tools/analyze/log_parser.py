@@ -34,3 +34,5 @@ class ParsedTombstone:
     timestamp: str = ""
     threads: list[ParsedThread] = field(default_factory=list)
     minidump_path: str = ""
+    abort_message: str = ""
+    terminate_type: str = ""

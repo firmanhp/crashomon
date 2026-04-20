@@ -561,3 +561,76 @@ def read_minidump_thread_names(dmp_path: str) -> dict[int, str]:
         }
     except struct.error:
         return {}
+
+
+# ---------------------------------------------------------------------------
+# Crashpad simple-annotations reader
+# ---------------------------------------------------------------------------
+
+_CRASHPAD_INFO_STREAM_TYPE = 0x43500007
+
+
+def _read_utf8_string(data: bytes, rva: int) -> str:
+    """Read a MINIDUMP_UTF8_STRING at *rva*: length(u32le) + UTF-8 bytes."""
+    if rva == 0 or rva + 4 > len(data):
+        return ""
+    length = struct.unpack_from("<I", data, rva)[0]
+    if length == 0 or rva + 4 + length > len(data):
+        return ""
+    return data[rva + 4 : rva + 4 + length].decode("utf-8", errors="replace")
+
+
+def read_minidump_annotations(dmp_path: str) -> dict[str, str]:
+    """Return the Crashpad SimpleStringDictionary from a minidump as a plain dict.
+
+    Parses the CrashpadInfo stream (type 0x43500007) directly from the file
+    binary, using the same approach as read_minidump_process_info.  Returns an
+    empty dict on any parse error or when the stream is absent.
+    """
+    try:
+        with open(dmp_path, "rb") as fobj:
+            data = fobj.read()
+    except OSError:
+        return {}
+
+    if len(data) < 32 or data[:4] != _MINIDUMP_MAGIC:
+        return {}
+
+    try:
+        _, _, stream_count, dir_rva = struct.unpack_from("<IIII", data, 0)
+
+        stream_rva = 0
+        for i in range(stream_count):
+            off = dir_rva + i * 12
+            stype, _size, srva = struct.unpack_from("<III", data, off)
+            if stype == _CRASHPAD_INFO_STREAM_TYPE:
+                stream_rva = srva
+                break
+
+        if stream_rva == 0:
+            return {}
+
+        # MinidumpCrashpadInfo:
+        #   version(4) | report_id(16) | client_id(16) |
+        #   annotations_DataSize(4) | annotations_RVA(4) | ...
+        if stream_rva + 44 > len(data):
+            return {}
+        version = struct.unpack_from("<I", data, stream_rva)[0]
+        if version != 1:
+            return {}
+        dict_size, dict_rva = struct.unpack_from("<II", data, stream_rva + 36)
+        if dict_rva == 0 or dict_size < 4:
+            return {}
+
+        count = struct.unpack_from("<I", data, dict_rva)[0]
+        result: dict[str, str] = {}
+        for i in range(count):
+            entry_off = dict_rva + 4 + i * 8
+            if entry_off + 8 > len(data):
+                break
+            key_rva, val_rva = struct.unpack_from("<II", data, entry_off)
+            result[_read_utf8_string(data, key_rva)] = _read_utf8_string(data, val_rva)
+
+        return result
+    except struct.error:
+        return {}
