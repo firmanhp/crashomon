@@ -16,6 +16,7 @@ foreach(target crashomon_client crashomon_client_static)
     PRIVATE
       crashomon_warnings
       crashpad_client
+      ${CMAKE_DL_LIBS}
   )
   target_include_directories(${target}
     PUBLIC

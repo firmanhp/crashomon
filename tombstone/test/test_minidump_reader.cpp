@@ -91,7 +91,7 @@ TEST(MinidumpReaderTest, GarbageFile) {
   constexpr size_t junk_size = 18;
   const std::string junk{"not a minidump\x00\x01\x02\x03", junk_size};
   // NOLINTNEXTLINE(misc-include-cleaner) — write() comes via <unistd.h> which is included.
-  [[maybe_unused]] ssize_t unused = ::write(fd, junk.data(), junk.size());
+  [[maybe_unused]] const ssize_t unused = ::write(fd, junk.data(), junk.size());
   ::close(fd);
 
   auto result = ReadMinidump(tmpl);
@@ -377,7 +377,7 @@ std::string WriteTmpFile(const std::string& buf) {
   const int tmp_fd = mkstemp(tmpl.data());
   if (tmp_fd < 0) { return {}; }
   // NOLINTNEXTLINE(misc-include-cleaner) — write() comes via <unistd.h> which is included.
-  [[maybe_unused]] ssize_t unused = ::write(tmp_fd, buf.data(), buf.size());
+  [[maybe_unused]] const ssize_t unused = ::write(tmp_fd, buf.data(), buf.size());
   ::close(tmp_fd);
   return tmpl;
 }

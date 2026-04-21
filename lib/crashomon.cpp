@@ -13,6 +13,8 @@
 #include <sys/un.h>
 #include <unistd.h>
 
+#include <dlfcn.h>
+
 #include <array>
 #include <cerrno>
 #include <cstdio>
@@ -32,6 +34,11 @@
 #include "client/crashpad_info.h"
 #include "client/simple_string_dictionary.h"
 #include "crashomon_internal.h"
+
+// Forward declaration so DoInit can verify interposition at runtime.
+// NOLINTNEXTLINE(bugprone-reserved-identifier, cert-dcl37-c, cert-dcl51-cpp, readability-identifier-naming)
+extern "C" [[noreturn]] void __assert_fail(const char* assertion, const char* file,
+                                            unsigned int line, const char* func) noexcept;
 
 namespace crashomon {
 namespace {
@@ -195,6 +202,22 @@ int DoInit(const ResolvedConfig& cfg) {
     crashomon::WriteTerminateAnnotation(abi::__cxa_current_exception_type());
     std::abort();
   });
+
+  // Verify that the dynamic linker resolved __assert_fail to our definition.
+  // Fails silently when libcrashomon.so is linked explicitly (not via LD_PRELOAD)
+  // and libc appeared first in the DSO load order.
+  {
+    void* const resolved = dlsym(RTLD_DEFAULT, "__assert_fail");
+    // NOLINTNEXTLINE(cppcoreguidelines-pro-type-reinterpret-cast)
+    void* const ours = reinterpret_cast<void*>(&__assert_fail);
+    if (resolved != nullptr && resolved != ours) {
+      std::fputs("crashomon: warning: __assert_fail interposition failed — "
+                 "assert() failures will not include message text. "
+                 "Use LD_PRELOAD or link libcrashomon.a instead.\n",
+                 stderr);
+    }
+  }
+
   return 0;
 }
 
