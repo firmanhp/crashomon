@@ -72,7 +72,7 @@ endif()
 option(CRASHOMON_ENABLE_INSTALL   "Generate crashomon install() rules"    ${_CRASHOMON_INSTALL_DEFAULT})
 option(CRASHOMON_INSTALL_CLIENT   "Install client library + header"        ON)
 option(CRASHOMON_INSTALL_WATCHERD "Install watcherd daemon + dump_syms"    ON)
-option(CRASHOMON_INSTALL_ANALYZE  "Install analyze CLI + stackwalk"        ON)
+option(CRASHOMON_INSTALL_ANALYZE  "Install analyze CLI + stackwalk"        OFF)
 # Separate build toggle: build the analyze tools (minidump_stackwalk) without
 # installing them. Useful when consuming crashomon as a subproject but still
 # needing the tool at build time.
@@ -241,7 +241,9 @@ endif()
 # Breakpad uses GN/autotools; we define our own CMake targets (vcpkg-style).
 # Source trees populated by fetch_breakpad_deps.cmake above.
 include(cmake/breakpad.cmake)
-include(cmake/rust_minidump.cmake)
+if(CRASHOMON_INSTALL_ANALYZE OR CRASHOMON_BUILD_ANALYZE)
+  include(cmake/rust_minidump.cmake)
+endif()
 include(cmake/crashomon_symbols.cmake)
 
 # spdlog — structured logging for crashomon-watcherd.
