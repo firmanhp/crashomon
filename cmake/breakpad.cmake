@@ -29,6 +29,8 @@ add_library(breakpad_processor STATIC
   "${BREAKPAD_SRC}/processor/convert_old_arm64_context.cc"
   "${BREAKPAD_SRC}/processor/dump_context.cc"
   "${BREAKPAD_SRC}/processor/dump_object.cc"
+  "${BREAKPAD_SRC}/processor/pathname_stripper.cc"
+  "${BREAKPAD_SRC}/processor/proc_maps_linux.cc"
   "${BREAKPAD_SRC}/common/linux/scoped_pipe.cc"
   "${BREAKPAD_SRC}/common/linux/scoped_tmpfile.cc"
   "${BREAKPAD_SRC}/common/path_helper.cc"
