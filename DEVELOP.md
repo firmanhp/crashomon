@@ -15,6 +15,8 @@ cmake/
   crashomon_symbols.cmake   crashomon_store_symbols() function
   fetch_breakpad_deps.cmake FetchContent population for zlib, Breakpad, LSS (shared by main build
                             and dump_syms_host/)
+  rust_minidump.cmake       ExternalProject build of minidump-stackwalk (statically linked via
+                            +crt-static; exports MINIDUMP_STACKWALK_EXECUTABLE)
   store_sym_impl.cmake      POST_BUILD cmake -P script that runs dump_syms and writes the store
   dump_syms_host/           Standalone CMake project — builds the host dump_syms binary
 bench/          Microbenchmarks (Google Benchmark, opt-in via -DENABLE_BENCHMARKS=ON)

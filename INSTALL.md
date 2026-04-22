@@ -10,10 +10,11 @@
 | C++ compiler | GCC ≥ 13 or Clang ≥ 16 | Must support C++20 |
 | Python | ≥ 3.11 | For `crashomon-syms` and `crashomon-web` |
 | `uv` | any | Python dependency management (`pip install uv`) |
+| `cargo` | any stable | Builds `minidump-stackwalk` ([install via rustup](https://rustup.rs/)) |
 | `git` | any | FetchContent clones dependencies |
 | `ninja` or `make` | any | CMake build backend |
 
-All C/C++ dependencies (Crashpad, Breakpad, Abseil, GoogleTest, Google Benchmark, zlib) are fetched automatically by CMake — **no system-level installs required** for those.
+All C/C++ dependencies (Crashpad, Breakpad, Abseil, GoogleTest, Google Benchmark, zlib) are fetched automatically by CMake — **no system-level installs required** for those. `cargo` is the only additional build-time requirement.
 
 ### Target device (runtime)
 
@@ -43,12 +44,15 @@ uv sync
 This produces:
 
 ```
-build/lib/libcrashomon.so          # LD_PRELOAD library
-build/lib/libcrashomon.a           # static library
-build/daemon/crashomon-watcherd    # watcher daemon (also hosts crash handler)
-tools/analyze/crashomon-analyze    # CLI symbolication (Python script, no build step)
-tools/syms/crashomon-syms          # symbol store management (Python script, no build step)
+build/lib/libcrashomon.so                              # LD_PRELOAD library
+build/lib/libcrashomon.a                               # static library
+build/daemon/crashomon-watcherd                        # watcher daemon (also hosts crash handler)
+build/rust_minidump_target/release/minidump-stackwalk  # symbolication engine (statically linked)
+tools/analyze/crashomon-analyze                        # CLI symbolication (Python script, no build step)
+tools/syms/crashomon-syms                              # symbol store management (Python script, no build step)
 ```
+
+`minidump-stackwalk` is built from the [rust-minidump](https://github.com/rust-minidump/rust-minidump) crate with `RUSTFLAGS=-C target-feature=+crt-static`, producing a fully statically linked binary with no glibc version requirement. It can be copied to any x86-64 Linux target without installing runtime libraries.
 
 ### Optional build flags
 
@@ -301,9 +305,9 @@ crashomon-analyze --symbols=my_service.sym --minidump=crash.dmp
 # Raw unsymbolicated tombstone from a minidump (no symbol store needed)
 crashomon-analyze --minidump=crash.dmp
 
-# Override tool path if not in PATH
+# Override tool path (default: searches PATH, then libexec/crashomon/)
 crashomon-analyze --store=... --minidump=... \
-    --stackwalk-binary=/path/to/minidump_stackwalk
+    --stackwalk-binary=/path/to/minidump-stackwalk
 ```
 
 ---

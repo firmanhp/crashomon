@@ -18,19 +18,22 @@ endif()
 
 include(ExternalProject)
 
+# +crt-static: link glibc, libm, and libgcc statically — fully self-contained,
+# no glibc version floor on the target.
 ExternalProject_Add(rust_minidump_build
   GIT_REPOSITORY https://github.com/rust-minidump/rust-minidump.git
   GIT_TAG        v0.26.1
   GIT_SHALLOW    TRUE
   CONFIGURE_COMMAND ""
   BUILD_COMMAND
+    ${CMAKE_COMMAND} -E env
+      "RUSTFLAGS=-C target-feature=+crt-static"
     ${CARGO} build --release --bin minidump-stackwalk
     --target-dir ${CMAKE_BINARY_DIR}/rust_minidump_target
   BUILD_IN_SOURCE   TRUE
   INSTALL_COMMAND   ""
   BUILD_BYPRODUCTS
     ${CMAKE_BINARY_DIR}/rust_minidump_target/release/minidump-stackwalk
-  # Cargo manages its own change detection; always re-run on cmake --build.
   BUILD_ALWAYS      FALSE
 )
 
