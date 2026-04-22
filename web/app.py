@@ -9,7 +9,7 @@ import secrets
 import shutil
 from pathlib import Path
 
-from flask import Flask, abort, flash, redirect, render_template, request, url_for
+from flask import Flask, abort, flash, redirect, render_template, request, send_file, url_for
 from flask_wtf.csrf import CSRFProtect
 from werkzeug.utils import secure_filename
 
@@ -179,6 +179,21 @@ def create_app(
         if sym_dir.is_dir():
             shutil.rmtree(sym_dir)
         return "", 204
+
+    @app.get("/symbols/<module>/<build_id>/<filename>")
+    def serve_symbol(module: str, build_id: str, filename: str) -> object:
+        """Tecken-protocol symbol file endpoint.
+
+        Serves Breakpad .sym files at the path layout expected by
+        minidump-stackwalk --symbols-url.
+        """
+        store = app.config["SYMBOL_STORE"]
+        candidate = (store / module / build_id / filename).resolve()
+        if not str(candidate).startswith(str(store.resolve())):
+            abort(400)
+        if not candidate.is_file():
+            abort(404)
+        return send_file(candidate, mimetype="text/plain")
 
     @app.post("/api/symbols/upload")
     @csrf.exempt

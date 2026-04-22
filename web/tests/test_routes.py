@@ -5,10 +5,7 @@ from __future__ import annotations
 import io
 import textwrap
 
-import pytest
-
 from web import models, symbol_store
-
 
 SAMPLE_SYM = textwrap.dedent("""\
     MODULE Linux x86_64 AABBCCDD0011223344556677889900AA0 my_service
@@ -216,6 +213,28 @@ def test_delete_symbol_via_http_delete(client, app):
 def test_delete_symbol_nonexistent_is_ok(client):
     resp = client.delete("/symbols/no_module/DEADBEEF")
     assert resp.status_code == 204
+
+
+# ---------------------------------------------------------------------------
+# Tecken symbol server: /symbols/<module>/<build_id>/<filename>
+# ---------------------------------------------------------------------------
+
+
+def test_serve_symbol_returns_sym_content(client, app):
+    symbol_store.add_sym_text(app.config["SYMBOL_STORE"], SAMPLE_SYM)
+    resp = client.get("/symbols/my_service/AABBCCDD0011223344556677889900AA0/my_service.sym")
+    assert resp.status_code == 200
+    assert b"MODULE Linux x86_64" in resp.data
+
+
+def test_serve_symbol_missing_returns_404(client):
+    resp = client.get("/symbols/no_module/DEADBEEF/no_module.sym")
+    assert resp.status_code == 404
+
+
+def test_serve_symbol_path_traversal_rejected(client):
+    resp = client.get("/symbols/../../../etc/passwd/x/x.sym")
+    assert resp.status_code in (400, 404)
 
 
 # ---------------------------------------------------------------------------
