@@ -11,9 +11,9 @@ def analyze_minidump(
     store_path: str | Path,
     dmp_path: str | Path,
     *,
-    stackwalk: str = "minidump_stackwalk",
+    stackwalk: str = "minidump-stackwalk",
 ) -> str:
-    """Run minidump_stackwalk against a symbol store and return the output.
+    """Run minidump-stackwalk against a symbol store and return the output.
 
     Raises RuntimeError on failure (binary not found, timeout, no output).
     """

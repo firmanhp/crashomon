@@ -8,7 +8,6 @@
 # Targets defined:
 #   breakpad_libdisasm  — vendored x86 disassembler (STATIC)
 #   breakpad_processor  — minidump parsing library (STATIC); used by watcherd
-#   minidump_stackwalk  — symbolication CLI tool (EXECUTABLE)
 #   breakpad_dump_syms  — DWARF → .sym extraction tool (EXECUTABLE)
 #
 # Consumers link breakpad_processor into their own targets. The tool executables
@@ -65,23 +64,6 @@ target_link_libraries(breakpad_processor
     ZLIB::ZLIB
 )
 
-# ── minidump_stackwalk ─────────────────────────────────────────────────────────
-# CLI tool: symbolicates a minidump against a Breakpad symbol store.
-# Used by crashomon-analyze and crashomon-web as a subprocess.
-# Skipped when neither the analyze install component nor the explicit build
-# toggle is requested — avoids compiling Breakpad's stackwalk sources in
-# subproject / embedder configurations that only need the client + watcherd.
-
-if(CRASHOMON_INSTALL_ANALYZE OR CRASHOMON_BUILD_ANALYZE)
-  add_executable(minidump_stackwalk
-    "${BREAKPAD_SRC}/processor/minidump_stackwalk.cc"
-  )
-  target_compile_options(minidump_stackwalk PRIVATE -w)
-  target_include_directories(minidump_stackwalk PRIVATE "${BREAKPAD_SRC}")
-  target_link_libraries(minidump_stackwalk PRIVATE breakpad_processor)
-  target_link_options(minidump_stackwalk PRIVATE -static-libstdc++ -static-libgcc)
-endif()
-
 # ── breakpad_dump_syms ─────────────────────────────────────────────────────────
 # CLI tool: extracts DWARF debug info from ELF binaries into Breakpad .sym files.
 # Used by crashomon_store_symbols() as a POST_BUILD step.
@@ -123,11 +105,9 @@ target_include_directories(breakpad_synth_minidump PUBLIC "${BREAKPAD_SRC}")
 #
 # breakpad_dump_syms is excluded: it is a pre-built IMPORTED binary and has
 # no link step against the outer build's zlibstatic.
-foreach(_bp_tgt IN ITEMS breakpad_processor minidump_stackwalk)
-  if(TARGET ${_bp_tgt} AND TARGET zlibstatic)
-    add_dependencies(${_bp_tgt} zlibstatic)
-  endif()
-endforeach()
+if(TARGET breakpad_processor AND TARGET zlibstatic)
+  add_dependencies(breakpad_processor zlibstatic)
+endif()
 
 # ── Thread support (required by Threads::Threads) ──────────────────────────────
 find_package(Threads REQUIRED)

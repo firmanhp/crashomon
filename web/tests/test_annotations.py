@@ -11,7 +11,7 @@ from tools.analyze.log_parser import ParsedFrame, ParsedThread, ParsedTombstone
 from tools.analyze.symbolizer import format_symbolicated, read_minidump_annotations
 
 # ---------------------------------------------------------------------------
-# Helpers
+# read_minidump_annotations — binary reader for CrashpadInfo stream
 # ---------------------------------------------------------------------------
 
 
@@ -22,21 +22,17 @@ def _utf8_str(s: str) -> bytes:
 
 
 def _build_annotated_minidump(abort_msg: str, term_type: str = "") -> bytes:
-    """Build a minimal valid MDMP binary with a CrashpadInfo stream.
-
-    Layout mirrors the C++ BuildAnnotatedMinidump helper in
-    tombstone/test/test_minidump_reader.cpp.
-    """
-    mdmp_signature = 0x504d444d
-    mdmp_version = 0xa793
+    """Build a minimal valid MDMP binary with a CrashpadInfo stream."""
+    mdmp_signature = 0x504D444D
+    mdmp_version = 0xA793
     crashpad_stream_type = 0x43500007
 
     header_size = 32
     dir_entry_size = 12
-    crashpad_header_size = 52  # version(4)+report_id(16)+client_id(16)+2×LOCATION(8)
+    crashpad_header_size = 52
 
     num_entries = 1 if not term_type else 2
-    dict_rva = header_size + dir_entry_size + crashpad_header_size  # 96
+    dict_rva = header_size + dir_entry_size + crashpad_header_size
     dict_bytes = 4 + num_entries * 8
     strings_rva = dict_rva + dict_bytes
 
@@ -57,38 +53,34 @@ def _build_annotated_minidump(abort_msg: str, term_type: str = "") -> bytes:
         total_strings += str_total(key1) + str_total(term_type)
     stream_size = crashpad_header_size + dict_bytes + total_strings
 
-    stream_rva = header_size + dir_entry_size  # 44
+    stream_rva = header_size + dir_entry_size
 
     buf = bytearray()
     buf += struct.pack("<I", mdmp_signature)
     buf += struct.pack("<I", mdmp_version)
-    buf += struct.pack("<I", 1)           # stream_count
-    buf += struct.pack("<I", header_size) # stream_directory_rva (32)
-    buf += struct.pack("<I", 0)           # checksum
-    buf += struct.pack("<I", 0)           # time_date_stamp
-    buf += b"\x00" * 8                   # flags (uint64)
+    buf += struct.pack("<I", 1)
+    buf += struct.pack("<I", header_size)
+    buf += struct.pack("<I", 0)
+    buf += struct.pack("<I", 0)
+    buf += b"\x00" * 8
 
-    # Directory entry.
     buf += struct.pack("<I", crashpad_stream_type)
     buf += struct.pack("<I", stream_size)
     buf += struct.pack("<I", stream_rva)
 
-    # MinidumpCrashpadInfo header.
-    buf += struct.pack("<I", 1)           # version
-    buf += b"\x00" * 16                  # report_id
-    buf += b"\x00" * 16                  # client_id
-    buf += struct.pack("<I", dict_bytes)  # annotations.DataSize
-    buf += struct.pack("<I", dict_rva)    # annotations.RVA
-    buf += struct.pack("<I", 0)           # module_list.DataSize
-    buf += struct.pack("<I", 0)           # module_list.RVA
+    buf += struct.pack("<I", 1)
+    buf += b"\x00" * 16
+    buf += b"\x00" * 16
+    buf += struct.pack("<I", dict_bytes)
+    buf += struct.pack("<I", dict_rva)
+    buf += struct.pack("<I", 0)
+    buf += struct.pack("<I", 0)
 
-    # SimpleStringDictionary.
     buf += struct.pack("<I", num_entries)
     buf += struct.pack("<II", key0_rva, val0_rva)
     if term_type:
         buf += struct.pack("<II", key1_rva, val1_rva)
 
-    # Strings.
     buf += _utf8_str(key0)
     buf += _utf8_str(val0)
     if term_type:
@@ -110,11 +102,6 @@ def abort_and_type_dmp(tmp_path: Path) -> Path:
     p = tmp_path / "abort_and_type.dmp"
     p.write_bytes(_build_annotated_minidump("unhandled C++ exception", "std::logic_error"))
     return p
-
-
-# ---------------------------------------------------------------------------
-# read_minidump_annotations
-# ---------------------------------------------------------------------------
 
 
 def test_read_annotations_abort_message_only(abort_only_dmp: Path) -> None:
@@ -185,9 +172,7 @@ def test_format_symbolicated_no_abort_message_no_line() -> None:
 
 
 def test_format_symbolicated_abort_message_after_signal_line() -> None:
-    out = format_symbolicated(
-        _make_tombstone(abort_msg="test msg"), {}
-    )
+    out = format_symbolicated(_make_tombstone(abort_msg="test msg"), {})
     sig_pos = out.find("signal 6")
     abort_pos = out.find("Abort message:")
     assert sig_pos != -1

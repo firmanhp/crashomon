@@ -1,9 +1,9 @@
 cmake_minimum_required(VERSION 3.25)
 project(dump_syms_host C CXX)
 
-# Standalone build for the Breakpad host tools: dump_syms and minidump_stackwalk.
+# Standalone build for the Breakpad dump_syms host tool.
 # Build this once on a machine with a host C++ compiler, then ship the resulting
-# binaries in the SDK toolchain and point CRASHOMON_DUMP_SYMS_EXECUTABLE at dump_syms.
+# binary in the SDK toolchain and point CRASHOMON_DUMP_SYMS_EXECUTABLE at it.
 #
 # Usage:
 #   cmake -B build -S cmake/dump_syms_host/
@@ -64,16 +64,6 @@ target_include_directories(breakpad_processor PUBLIC "${BREAKPAD_SRC}")
 target_link_libraries(breakpad_processor PRIVATE breakpad_libdisasm Threads::Threads zlibstatic)
 add_dependencies(breakpad_processor zlibstatic)
 
-# ── minidump_stackwalk executable ──────────────────────────────────────────────
-
-add_executable(minidump_stackwalk
-  "${BREAKPAD_SRC}/processor/minidump_stackwalk.cc"
-)
-target_compile_options(minidump_stackwalk PRIVATE -w)
-target_include_directories(minidump_stackwalk PRIVATE "${BREAKPAD_SRC}")
-target_link_libraries(minidump_stackwalk PRIVATE breakpad_processor)
-target_link_options(minidump_stackwalk PRIVATE -static-libstdc++ -static-libgcc)
-
 # ── dump_syms executable ───────────────────────────────────────────────────────
 # Sources are explicit (no glob) to avoid pulling in test/platform-specific files.
 
@@ -116,4 +106,4 @@ target_link_options(dump_syms PRIVATE -static-libstdc++ -static-libgcc)
 # ── Install ────────────────────────────────────────────────────────────────────
 
 include(GNUInstallDirs)
-install(TARGETS dump_syms minidump_stackwalk RUNTIME DESTINATION ${CMAKE_INSTALL_BINDIR})
+install(TARGETS dump_syms RUNTIME DESTINATION ${CMAKE_INSTALL_BINDIR})

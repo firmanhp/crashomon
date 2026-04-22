@@ -241,6 +241,7 @@ endif()
 # Breakpad uses GN/autotools; we define our own CMake targets (vcpkg-style).
 # Source trees populated by fetch_breakpad_deps.cmake above.
 include(cmake/breakpad.cmake)
+include(cmake/rust_minidump.cmake)
 include(cmake/crashomon_symbols.cmake)
 
 # spdlog — structured logging for crashomon-watcherd.
@@ -313,7 +314,7 @@ if(CRASHOMON_ENABLE_INSTALL)
     install(PROGRAMS tools/analyze/crashomon-analyze
       DESTINATION ${CMAKE_INSTALL_BINDIR}
       COMPONENT analyze)
-    install(PROGRAMS $<TARGET_FILE:minidump_stackwalk>
+    install(PROGRAMS ${MINIDUMP_STACKWALK_EXECUTABLE}
       DESTINATION ${CMAKE_INSTALL_LIBEXECDIR}/crashomon
       COMPONENT analyze)
   endif()

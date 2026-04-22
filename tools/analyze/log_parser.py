@@ -27,7 +27,7 @@ class ParsedTombstone:
     pid: int = 0
     crashing_tid: int = 0
     process_name: str = ""
-    signal_info: str = ""   # e.g. "SIGSEGV / SEGV_MAPERR"
+    signal_info: str = ""  # e.g. "SIGSEGV / SEGV_MAPERR"
     signal_number: int = 0
     signal_code: int = 0
     fault_addr: int = 0

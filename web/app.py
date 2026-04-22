@@ -21,7 +21,7 @@ def create_app(
     symbol_store_path: str | None = None,
     db_path: str | None = None,
     dump_syms: str = "dump_syms",
-    stackwalk: str = "minidump_stackwalk",
+    stackwalk: str = "minidump-stackwalk",
     testing: bool = False,
 ) -> Flask:
     """Create and configure the Flask application."""
@@ -30,8 +30,7 @@ def create_app(
     app.config["SECRET_KEY"] = os.environ.get("SECRET_KEY", secrets.token_hex(32))
     csrf = CSRFProtect(app)
     app.config["SYMBOL_STORE"] = Path(
-        symbol_store_path
-        or os.environ.get("CRASHOMON_SYMBOL_STORE", "/var/crashomon/symbols")
+        symbol_store_path or os.environ.get("CRASHOMON_SYMBOL_STORE", "/var/crashomon/symbols")
     )
     app.config["DB_PATH"] = Path(
         db_path or os.environ.get("CRASHOMON_DB", "/var/crashomon/crashes.db")

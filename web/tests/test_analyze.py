@@ -1,10 +1,10 @@
-"""Tests for tools.analyze mode functions and symbolizer.parse_stackwalk_machine."""
+"""Tests for tools.analyze mode functions and symbolizer.parse_stackwalk_json."""
 
 from __future__ import annotations
 
+import json
 import os
 import shutil
-import textwrap
 from pathlib import Path
 from unittest.mock import MagicMock, patch
 
@@ -16,88 +16,216 @@ from tools.analyze.analyze import (
     mode_raw_tombstone,
     mode_sym_file_minidump,
 )
-from tools.analyze.symbolizer import format_raw_tombstone, parse_stackwalk_machine
+from tools.analyze.log_parser import ParsedFrame, ParsedThread, ParsedTombstone
+from tools.analyze.symbolizer import format_raw_tombstone, parse_stackwalk_json
 
 # ---------------------------------------------------------------------------
-# Helpers
+# JSON fixture — matches real minidump-stackwalk --json output structure
 # ---------------------------------------------------------------------------
 
-_MACHINE_OUTPUT = textwrap.dedent("""\
-    OS|Linux|0.0.0 Linux #1 SMP
-    CPU|amd64|family 6|4
-    GPU|UNKNOWN|0
-    Crash|SIGSEGV|0x0000000000000004|0
-    Module|my_service||my_service|DEADBEEF0|0x400000|0x410000|1
-    Module|libc.so||libc.so|AABBCCDD0|0x7f000000|0x7f100000|0
-    0|0|my_service||||0x1000
-    0|1|libc.so||||0x2000
-    1|0|libc.so||||0x3000
-""")
+_JSON_OUTPUT: dict = {
+    "status": "OK",
+    "pid": 1234,
+    "main_module": 0,
+    "crash_info": {
+        "type": "SIGSEGV",
+        "address": "0x0000000000000004",
+        "crashing_thread": 0,
+        "assertion": None,
+    },
+    "modules": [
+        {
+            "filename": "my_service",
+            "base_addr": "0x0000000000400000",
+            "end_addr": "0x0000000000410000",
+            "debug_id": "DEADBEEF0",
+            "loaded_symbols": False,
+            "missing_symbols": False,
+        },
+        {
+            "filename": "libc.so",
+            "base_addr": "0x00007f0000000000",
+            "end_addr": "0x00007f0000100000",
+            "debug_id": "AABBCCDD0",
+            "loaded_symbols": False,
+            "missing_symbols": False,
+        },
+    ],
+    "thread_count": 2,
+    "threads": [
+        {
+            "thread_id": 100,
+            "thread_name": None,
+            "frames": [
+                {
+                    "frame": 0,
+                    "module": "my_service",
+                    "module_offset": "0x0000000000001000",
+                    "offset": "0x0000000000401000",
+                    "function": None,
+                    "file": None,
+                    "line": None,
+                    "missing_symbols": True,
+                    "trust": "context",
+                },
+                {
+                    "frame": 1,
+                    "module": "libc.so",
+                    "module_offset": "0x0000000000002000",
+                    "offset": "0x00007f0000002000",
+                    "function": None,
+                    "file": None,
+                    "line": None,
+                    "missing_symbols": True,
+                    "trust": "scan",
+                },
+            ],
+        },
+        {
+            "thread_id": 101,
+            "thread_name": "worker",
+            "frames": [
+                {
+                    "frame": 0,
+                    "module": "libc.so",
+                    "module_offset": "0x0000000000003000",
+                    "offset": "0x00007f0000003000",
+                    "function": None,
+                    "file": None,
+                    "line": None,
+                    "missing_symbols": True,
+                    "trust": "scan",
+                },
+            ],
+        },
+    ],
+    "unloaded_modules": [],
+}
+
+_JSON_OUTPUT_WITH_SYMBOLS: dict = {
+    **_JSON_OUTPUT,
+    "threads": [
+        {
+            **_JSON_OUTPUT["threads"][0],
+            "frames": [
+                {
+                    **_JSON_OUTPUT["threads"][0]["frames"][0],
+                    "function": "main",
+                    "file": "src/main.cpp",
+                    "line": 42,
+                    "missing_symbols": False,
+                },
+                _JSON_OUTPUT["threads"][0]["frames"][1],
+            ],
+        },
+        _JSON_OUTPUT["threads"][1],
+    ],
+}
+
+_JSON_STR = json.dumps(_JSON_OUTPUT)
+_JSON_STR_WITH_SYMBOLS = json.dumps(_JSON_OUTPUT_WITH_SYMBOLS)
+
+_SYM_CONTENT = "MODULE Linux x86_64 DEADBEEF0 my_service\nFILE 0 main.cpp\nFUNC 0 10 0 main\n"
 
 
 # ---------------------------------------------------------------------------
-# parse_stackwalk_machine
+# parse_stackwalk_json
 # ---------------------------------------------------------------------------
 
 
-def test_parse_machine_crash_signal():
-    t, _, _ = parse_stackwalk_machine(_MACHINE_OUTPUT)
+def test_parse_json_pid():
+    t, _ = parse_stackwalk_json(_JSON_OUTPUT)
+    assert t.pid == 1234
+
+
+def test_parse_json_signal_info():
+    t, _ = parse_stackwalk_json(_JSON_OUTPUT)
     assert t.signal_info == "SIGSEGV"
 
 
-def test_parse_machine_signal_number_derived_from_name():
-    t, _, _ = parse_stackwalk_machine(_MACHINE_OUTPUT)
-    assert t.signal_number == 11  # SIGSEGV = 11
-
-
-def test_parse_machine_signal_number_compound_crash_reason():
-    # Breakpad formats crash_reason as "SIGSEGV /SEGV_MAPERR" (space-slash, no trailing space).
-    output = _MACHINE_OUTPUT.replace("Crash|SIGSEGV|", "Crash|SIGSEGV /SEGV_MAPERR|")
-    t, _, _ = parse_stackwalk_machine(output)
+def test_parse_json_signal_number():
+    t, _ = parse_stackwalk_json(_JSON_OUTPUT)
     assert t.signal_number == 11
-    assert t.signal_info == "SIGSEGV /SEGV_MAPERR"
 
 
-def test_parse_machine_fault_addr():
-    t, _, _ = parse_stackwalk_machine(_MACHINE_OUTPUT)
+def test_parse_json_fault_addr():
+    t, _ = parse_stackwalk_json(_JSON_OUTPUT)
     assert t.fault_addr == 4
 
 
-def test_parse_machine_crashing_thread_first():
-    t, _, _ = parse_stackwalk_machine(_MACHINE_OUTPUT)
+def test_parse_json_process_name():
+    t, _ = parse_stackwalk_json(_JSON_OUTPUT)
+    assert t.process_name == "my_service"
+
+
+def test_parse_json_crashing_thread_first():
+    t, _ = parse_stackwalk_json(_JSON_OUTPUT)
     assert t.threads[0].is_crashing
+    assert t.threads[0].tid == 100
 
 
-def test_parse_machine_thread_count():
-    t, _, _ = parse_stackwalk_machine(_MACHINE_OUTPUT)
+def test_parse_json_crashing_tid_on_tombstone():
+    t, _ = parse_stackwalk_json(_JSON_OUTPUT)
+    assert t.crashing_tid == 100
+
+
+def test_parse_json_thread_count():
+    t, _ = parse_stackwalk_json(_JSON_OUTPUT)
     assert len(t.threads) == 2
 
 
-def test_parse_machine_frame_count():
-    t, _, _ = parse_stackwalk_machine(_MACHINE_OUTPUT)
+def test_parse_json_frame_count():
+    t, _ = parse_stackwalk_json(_JSON_OUTPUT)
     assert len(t.threads[0].frames) == 2
     assert len(t.threads[1].frames) == 1
 
 
-def test_parse_machine_frame_module():
-    t, _, _ = parse_stackwalk_machine(_MACHINE_OUTPUT)
+def test_parse_json_frame_module():
+    t, _ = parse_stackwalk_json(_JSON_OUTPUT)
     assert t.threads[0].frames[0].module_path == "my_service"
     assert t.threads[0].frames[1].module_path == "libc.so"
 
 
-def test_parse_machine_frame_offset():
-    t, _, _ = parse_stackwalk_machine(_MACHINE_OUTPUT)
+def test_parse_json_frame_offset():
+    t, _ = parse_stackwalk_json(_JSON_OUTPUT)
     assert t.threads[0].frames[0].module_offset == 0x1000
 
 
-def test_parse_machine_empty_raises():
-    with pytest.raises(ValueError):
-        parse_stackwalk_machine("")
+def test_parse_json_thread_name():
+    t, _ = parse_stackwalk_json(_JSON_OUTPUT)
+    assert t.threads[1].name == "worker"
 
 
-def test_parse_machine_no_frames_raises():
+def test_parse_json_null_thread_name_becomes_empty():
+    t, _ = parse_stackwalk_json(_JSON_OUTPUT)
+    assert t.threads[0].name == ""
+
+
+def test_parse_json_symbol_populated():
+    t, syms = parse_stackwalk_json(_JSON_OUTPUT_WITH_SYMBOLS)
+    assert (100, 0) in syms
+    assert syms[(100, 0)].function == "main"
+
+
+def test_parse_json_symbol_source_location():
+    t, syms = parse_stackwalk_json(_JSON_OUTPUT_WITH_SYMBOLS)
+    assert syms[(100, 0)].source_file == "src/main.cpp"
+    assert syms[(100, 0)].source_line == 42
+
+
+def test_parse_json_unsymbolicated_frame_not_in_table():
+    t, syms = parse_stackwalk_json(_JSON_OUTPUT)
+    assert (100, 0) not in syms
+
+
+def test_parse_json_missing_threads_raises():
     with pytest.raises(ValueError):
-        parse_stackwalk_machine("OS|Linux|0.0.0\nCrash|SIGSEGV|0x0|0\n")
+        parse_stackwalk_json({})
+
+
+def test_parse_json_empty_threads_raises():
+    with pytest.raises(ValueError):
+        parse_stackwalk_json({"threads": []})
 
 
 # ---------------------------------------------------------------------------
@@ -105,21 +233,33 @@ def test_parse_machine_no_frames_raises():
 # ---------------------------------------------------------------------------
 
 
+def _make_simple_tombstone() -> ParsedTombstone:
+    t = ParsedTombstone(
+        pid=1,
+        crashing_tid=1,
+        process_name="my_service",
+        signal_info="SIGSEGV",
+        signal_number=11,
+        fault_addr=4,
+    )
+    thread = ParsedThread(tid=1, is_crashing=True)
+    thread.frames = [ParsedFrame(index=0, module_offset=0x1000, module_path="my_service")]
+    t.threads = [thread]
+    return t
+
+
 def test_format_raw_tombstone_contains_sep():
-    t, _, _ = parse_stackwalk_machine(_MACHINE_OUTPUT)
-    out = format_raw_tombstone(t)
+    out = format_raw_tombstone(_make_simple_tombstone())
     assert "*** *** ***" in out
 
 
 def test_format_raw_tombstone_contains_signal():
-    t, _, _ = parse_stackwalk_machine(_MACHINE_OUTPUT)
-    out = format_raw_tombstone(t)
+    out = format_raw_tombstone(_make_simple_tombstone())
     assert "SIGSEGV" in out
 
 
 def test_format_raw_tombstone_contains_frame():
-    t, _, _ = parse_stackwalk_machine(_MACHINE_OUTPUT)
-    out = format_raw_tombstone(t)
+    out = format_raw_tombstone(_make_simple_tombstone())
     assert "my_service" in out
 
 
@@ -130,12 +270,19 @@ def test_format_raw_tombstone_contains_frame():
 
 def test_mode_minidump_store_passes_args():
     with patch("tools.analyze.analyze.subprocess.run") as mock_run:
-        mock_run.return_value = MagicMock(stdout=_MACHINE_OUTPUT, returncode=0)
-        result = mode_minidump_store("/sym/store", "crash.dmp", "minidump_stackwalk")
-    # First call is machine mode (-m), second is human mode (no -m).
-    cmd = mock_run.call_args_list[0][0][0]
-    assert cmd == ["minidump_stackwalk", "-m", "crash.dmp", "/sym/store"]
+        mock_run.return_value = MagicMock(stdout=_JSON_STR, returncode=0)
+        result = mode_minidump_store("/sym/store", "crash.dmp", "minidump-stackwalk")
+    assert mock_run.call_count == 1
+    cmd = mock_run.call_args[0][0]
+    assert cmd == ["minidump-stackwalk", "--json", "crash.dmp", "--symbols-path", "/sym/store"]
     assert "*** *** ***" in result
+
+
+def test_mode_minidump_store_single_subprocess_call():
+    with patch("tools.analyze.analyze.subprocess.run") as mock_run:
+        mock_run.return_value = MagicMock(stdout=_JSON_STR, returncode=0)
+        mode_minidump_store("/store", "crash.dmp", "minidump-stackwalk")
+    assert mock_run.call_count == 1
 
 
 def test_mode_minidump_store_missing_binary_raises():
@@ -150,7 +297,16 @@ def test_mode_minidump_store_empty_output_raises():
     with patch("tools.analyze.analyze.subprocess.run") as mock_run:
         mock_run.return_value = MagicMock(stdout="", returncode=1)
         with pytest.raises(RuntimeError, match="no output"):
-            mode_minidump_store("/store", "crash.dmp", "minidump_stackwalk")
+            mode_minidump_store("/store", "crash.dmp", "minidump-stackwalk")
+
+
+def test_mode_minidump_store_invalid_json_raises():
+    import json
+
+    with patch("tools.analyze.analyze.subprocess.run") as mock_run:
+        mock_run.return_value = MagicMock(stdout="not json at all", returncode=0)
+        with pytest.raises(json.JSONDecodeError):
+            mode_minidump_store("/store", "crash.dmp", "minidump-stackwalk")
 
 
 # ---------------------------------------------------------------------------
@@ -158,30 +314,21 @@ def test_mode_minidump_store_empty_output_raises():
 # ---------------------------------------------------------------------------
 
 
-_SYM_CONTENT = (
-    "MODULE Linux x86_64 DEADBEEF0 my_service\n"
-    "FILE 0 main.cpp\n"
-    "FUNC 0 10 0 main\n"
-)
-
-
 def test_mode_sym_file_minidump_creates_temp_store(tmp_path):
     sym_file = tmp_path / "my_service.sym"
     sym_file.write_text(_SYM_CONTENT)
 
     with patch("tools.analyze.analyze.subprocess.run") as mock_run:
-        mock_run.return_value = MagicMock(stdout=_MACHINE_OUTPUT, returncode=0)
-        result = mode_sym_file_minidump(str(sym_file), "crash.dmp", "minidump_stackwalk")
+        mock_run.return_value = MagicMock(stdout=_JSON_STR, returncode=0)
+        result = mode_sym_file_minidump(str(sym_file), "crash.dmp", "minidump-stackwalk")
 
-    assert "*** *** ***" in result
-    # First call is machine mode (-m), second is human mode (no -m).
-    cmd = mock_run.call_args_list[0][0][0]
-    assert cmd[0] == "minidump_stackwalk"
-    assert cmd[1] == "-m"
+    assert mock_run.call_count == 1
+    cmd = mock_run.call_args[0][0]
+    assert cmd[0] == "minidump-stackwalk"
+    assert cmd[1] == "--json"
     assert cmd[2] == "crash.dmp"
-    # store path is a temp dir that no longer exists (cleaned up)
-    # Temp dir is cleaned up after the call — just verify the command structure.
-    assert len(cmd) == 4
+    assert cmd[3] == "--symbols-path"
+    assert "*** *** ***" in result
 
 
 def test_mode_sym_file_minidump_missing_sym_raises(tmp_path):
@@ -194,15 +341,14 @@ def test_mode_sym_file_minidump_missing_sym_raises(tmp_path):
 # ---------------------------------------------------------------------------
 
 
-def test_mode_raw_tombstone_uses_machine_flag():
+def test_mode_raw_tombstone_uses_json_flag():
     with patch("tools.analyze.analyze.subprocess.run") as mock_run:
-        mock_run.return_value = MagicMock(stdout=_MACHINE_OUTPUT, returncode=0)
-        result = mode_raw_tombstone("crash.dmp", "minidump_stackwalk")
+        mock_run.return_value = MagicMock(stdout=_JSON_STR, returncode=0)
+        result = mode_raw_tombstone("crash.dmp", "minidump-stackwalk")
 
-    # First call is machine mode (-m), second is human mode (no -m).
-    cmd = mock_run.call_args_list[0][0][0]
-    assert "-m" in cmd
-    assert "crash.dmp" in cmd
+    assert mock_run.call_count == 1
+    cmd = mock_run.call_args[0][0]
+    assert cmd == ["minidump-stackwalk", "--json", "crash.dmp"]
     assert "*** *** ***" in result
 
 
@@ -220,19 +366,14 @@ def test_mode_raw_tombstone_missing_binary_raises():
 
 
 def test_extract_sysroot_symbols_populates_store(tmp_path: Path) -> None:
-    """Verify _extract_sysroot_symbols finds a library and stores its .sym file."""
-    # This test requires dump_syms and a real ELF — skip if not available.
     dump_syms = shutil.which("breakpad_dump_syms") or shutil.which("dump_syms")
     if dump_syms is None:
         pytest.skip("dump_syms not found")
 
-    # Use the test binary itself as a stand-in for a sysroot library.
-    # Create a mock sysroot layout: sysroot/usr/lib/<binary>
     sysroot = tmp_path / "sysroot"
     lib_dir = sysroot / "usr" / "lib"
     lib_dir.mkdir(parents=True)
 
-    # Find any ELF with debug info in the build tree.
     build_dir = Path(os.environ.get("BUILD_DIR", "build"))
     candidates = list(build_dir.glob("examples/crashomon-example-segfault"))
     if not candidates:
@@ -254,12 +395,10 @@ def test_extract_sysroot_symbols_populates_store(tmp_path: Path) -> None:
 
 
 def test_extract_sysroot_symbols_missing_module_is_silent(tmp_path: Path) -> None:
-    """Modules not found in the sysroot print a message but do not raise."""
     sysroot = tmp_path / "sysroot"
     (sysroot / "usr" / "lib").mkdir(parents=True)
     store = tmp_path / "store"
 
-    # Should complete without raising even though the module is absent.
     _extract_sysroot_symbols(
         {"/usr/lib/libnonexistent.so.1"},
         sysroot,
@@ -271,7 +410,6 @@ def test_extract_sysroot_symbols_missing_module_is_silent(tmp_path: Path) -> Non
 
 
 def test_extract_sysroot_symbols_dump_syms_failure_is_silent(tmp_path: Path) -> None:
-    """When dump_syms fails for a library, extraction continues silently."""
     sysroot = tmp_path / "sysroot"
     lib_dir = sysroot / "usr" / "lib"
     lib_dir.mkdir(parents=True)

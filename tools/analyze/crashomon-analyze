@@ -4,13 +4,13 @@
 Modes:
   crashomon-analyze --store=<dir> --minidump=<file.dmp>
       Symbolicate a Breakpad minidump using a symbol store.
-      Delegates to minidump_stackwalk; build IDs in the minidump auto-match
+      Delegates to minidump-stackwalk --json; build IDs in the minidump auto-match
       to .sym files in the store.
 
   crashomon-analyze --symbols=<file.sym> --minidump=<file.dmp>
       Symbolicate a minidump using a single explicit .sym file.
       The file is installed into a temporary Breakpad store layout and
-      minidump_stackwalk is invoked against it.
+      minidump-stackwalk is invoked against it.
 
   crashomon-analyze --minidump=<file.dmp>
       Print a raw (unsymbolicated) Android-style tombstone from a minidump.
@@ -21,7 +21,7 @@ Modes:
       .sym files are cached in the store so subsequent runs skip conversion.
 
 Options:
-  --stackwalk-binary=<path>   Path to minidump_stackwalk (default: minidump_stackwalk)
+  --stackwalk-binary=<path>   Path to minidump-stackwalk (default: minidump-stackwalk)
   --dump-syms-binary=<path>   Path to dump_syms (required for --sysroot; default: dump_syms)
 """
 
@@ -58,7 +58,7 @@ def _build_parser() -> argparse.ArgumentParser:
         help="Path to dump_syms (needed for --sysroot lazy extraction)",
     )
     parser.add_argument(
-        "--stackwalk-binary", metavar="PATH", default="minidump_stackwalk"
+        "--stackwalk-binary", metavar="PATH", default="minidump-stackwalk"
     )
     return parser
 
