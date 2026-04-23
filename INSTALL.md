@@ -65,7 +65,7 @@ tools/analyze/crashomon-analyze                        # CLI symbolication (Pyth
 tools/syms/crashomon-syms                              # symbol store management (Python script, no build step)
 ```
 
-`minidump-stackwalk` is built from the [rust-minidump](https://github.com/rust-minidump/rust-minidump) crate with `RUSTFLAGS=-C target-feature=+crt-static`, producing a fully statically linked binary with no glibc version requirement. It can be copied to any x86-64 Linux target without installing runtime libraries.
+`minidump-stackwalk` is built from the [rust-minidump](https://github.com/rust-minidump/rust-minidump) crate. On `x86_64-unknown-linux-gnu` hosts the binary links glibc dynamically; for a fully static binary use the `x86_64-unknown-linux-musl` Rust target (`rustup target add x86_64-unknown-linux-musl`). Either way it can be copied to any x86-64 Linux target that has a compatible glibc.
 
 ### Optional build flags
 
@@ -75,8 +75,8 @@ cmake -B build-asan  -DENABLE_ASAN=ON  && cmake --build build-asan
 cmake -B build-tsan  -DENABLE_TSAN=ON  && cmake --build build-tsan
 cmake -B build-ubsan -DENABLE_UBSAN=ON && cmake --build build-ubsan
 
-# Enable microbenchmarks
-cmake -B build -DENABLE_BENCHMARKS=ON && cmake --build build
+# Enable tests and benchmarks
+cmake -B build -DENABLE_TESTS=ON -DCRASHOMON_DUMP_SYMS_EXECUTABLE="$(pwd)/_dump_syms_build/dump_syms" && cmake --build build
 
 # Static analysis (requires clang-tidy)
 cmake -B build-tidy -DENABLE_CLANG_TIDY=ON && cmake --build build-tidy
@@ -331,11 +331,16 @@ See [web/README.md](web/README.md) for setup and development details.
 
 ### Start the server
 
+The default paths (`/var/crashomon/symbols`, `/var/crashomon/crashes.db`) require
+root on most systems. Override with environment variables for local development:
+
 ```bash
-# Development
+# Development (non-root)
+CRASHOMON_SYMBOL_STORE=/tmp/crashomon-symbols \
+CRASHOMON_DB=/tmp/crashomon.db \
 uv run flask --app web.app:create_app run --debug
 
-# Production (gunicorn)
+# Production (gunicorn, run as a user that owns /var/crashomon)
 uv run gunicorn "web.app:create_app()" -b 0.0.0.0:5000
 ```
 

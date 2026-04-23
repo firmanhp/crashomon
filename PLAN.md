@@ -77,8 +77,8 @@ Exception: zlib (system library, required by Breakpad: `find_package(ZLIB REQUIR
 # Build all (C/C++ components)
 cmake -B build && cmake --build build
 
-# With benchmarks
-cmake -B build -DENABLE_BENCHMARKS=ON && cmake --build build
+# With tests and benchmarks
+cmake -B build -DENABLE_TESTS=ON -DCRASHOMON_DUMP_SYMS_EXECUTABLE="$(pwd)/_dump_syms_build/dump_syms" && cmake --build build
 
 # Run unit tests
 ctest --test-dir build
