@@ -62,8 +62,8 @@ struct MinidumpInfo {
   std::vector<ModuleInfo> modules;
 
   std::string minidump_path;
-  std::string abort_message;  // Crashpad "abort_message" annotation; empty if absent
-  std::string terminate_type; // Crashpad "terminate_type" annotation; empty if absent
+  std::string abort_message;   // Crashpad "abort_message" annotation; empty if absent
+  std::string terminate_type;  // Crashpad "terminate_type" annotation; empty if absent
 };
 
 // Parse a Breakpad minidump file and populate MinidumpInfo.

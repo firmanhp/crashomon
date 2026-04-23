@@ -51,8 +51,7 @@ std::string FormatProbableCause(uint32_t signal_number, uint64_t fault_addr, uin
       if (fault_addr == 0) {
         return "null pointer dereference";
       }
-      return absl::StrCat("null pointer dereference — access at offset 0x",
-                          absl::Hex(fault_addr));
+      return absl::StrCat("null pointer dereference — access at offset 0x", absl::Hex(fault_addr));
     }
     if (fault_addr == prog_ctr) {
       return "execute fault — non-executable memory at pc "
@@ -101,9 +100,9 @@ std::string FormatTombstone(const MinidumpInfo& info) {
   out << kTopSeparator << "\n";
 
   // Process / thread header.
-  const std::string& thread_name =
-      (!info.threads.empty() && !info.threads[0].name.empty()) ? info.threads[0].name
-                                                                : info.process_name;
+  const std::string& thread_name = (!info.threads.empty() && !info.threads[0].name.empty())
+                                       ? info.threads[0].name
+                                       : info.process_name;
   out << "process: " << info.process_name << " (pid " << info.pid << ")  "
       << "thread: " << thread_name << " (tid " << info.crashing_tid << ")\n";
 
@@ -121,8 +120,7 @@ std::string FormatTombstone(const MinidumpInfo& info) {
   // Probable cause — emitted only when unambiguous.
   if (!info.threads.empty() && info.threads[0].is_crashing) {
     const uint64_t stack_ptr = ExtractStackPtr(info.threads[0].registers);
-    const uint64_t prog_ctr =
-        info.threads[0].frames.empty() ? 0 : info.threads[0].frames[0].pc;
+    const uint64_t prog_ctr = info.threads[0].frames.empty() ? 0 : info.threads[0].frames[0].pc;
     const std::string cause =
         FormatProbableCause(info.signal_number, info.fault_addr, prog_ctr, stack_ptr);
     if (!cause.empty()) {
@@ -141,15 +139,14 @@ std::string FormatTombstone(const MinidumpInfo& info) {
   out << "timestamp: " << info.timestamp << "\n";
 
   // Single crashing-thread PC line.
-  if (!info.threads.empty() && info.threads[0].is_crashing &&
-      !info.threads[0].frames.empty()) {
+  if (!info.threads.empty() && info.threads[0].is_crashing && !info.threads[0].frames.empty()) {
     out << "\n";
     const auto& frame = info.threads[0].frames[0];
     if (frame.module_path.empty()) {
       out << std::format("pc 0x{:016x}  ???\n", frame.pc);
     } else if (!frame.build_id.empty()) {
-      out << std::format("pc 0x{:016x}  {} (BuildId: {})\n", frame.module_offset,
-                         frame.module_path, frame.build_id);
+      out << std::format("pc 0x{:016x}  {} (BuildId: {})\n", frame.module_offset, frame.module_path,
+                         frame.build_id);
     } else {
       out << std::format("pc 0x{:016x}  {}\n", frame.module_offset, frame.module_path);
     }

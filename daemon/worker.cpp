@@ -65,9 +65,8 @@ void ExportMinidump(const std::string& src_path, std::string_view export_path,
   std::array<char, timestamp_buf_len> timestamp{};
   std::strftime(timestamp.data(), timestamp.size(), "%Y%m%d%H%M%S", &tm_buf);
 
-  const std::filesystem::path dst =
-      std::filesystem::path(std::string(export_path)) /
-      (name + "_" + timestamp.data() + "_" + bid + ".crashdump");
+  const std::filesystem::path dst = std::filesystem::path(std::string(export_path)) /
+                                    (name + "_" + timestamp.data() + "_" + bid + ".crashdump");
   std::error_code err;
   std::filesystem::copy_file(src_path, dst, std::filesystem::copy_options::overwrite_existing, err);
   if (err) {
@@ -83,8 +82,7 @@ void ExportMinidump(const std::string& src_path, std::string_view export_path,
 namespace crashomon {
 
 void ProcessNewMinidump(const std::string& path, WorkerState& state,
-                        const DiskManagerConfig& prune_cfg,
-                        std::string_view export_path) {
+                        const DiskManagerConfig& prune_cfg, std::string_view export_path) {
   auto info_or = ReadMinidump(path);
   if (!info_or.ok()) {
     spdlog::error("crashomon-watcherd: failed to read minidump '{}': {}", path,

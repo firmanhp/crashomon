@@ -68,8 +68,8 @@ struct ResolvedConfig {
 // the annotations pointer is null.  Heap allocation (std::format/std::string)
 // is permissible here: __assert_fail fires in thread context, not an async
 // signal handler.
-void WriteAssertAnnotation(const char* assertion, const char* file,
-                            unsigned int line, const char* func) noexcept;
+void WriteAssertAnnotation(const char* assertion, const char* file, unsigned int line,
+                           const char* func) noexcept;
 
 // Writes terminate_type (demangled exception class name) and abort_message.
 // Pass abi::__cxa_current_exception_type() for exc_type; pass nullptr when

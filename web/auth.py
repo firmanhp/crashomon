@@ -65,7 +65,7 @@ def _check_basic(header: str, expected_user: str, expected_pass: str) -> bool:
     if colon < 0:
         return False
     user = decoded[:colon]
-    password = decoded[colon + 1:]
+    password = decoded[colon + 1 :]
     user_ok = secrets.compare_digest(user, expected_user)
     pass_ok = secrets.compare_digest(password, expected_pass)
     return user_ok and pass_ok

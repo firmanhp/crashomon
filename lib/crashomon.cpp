@@ -9,11 +9,11 @@
 
 #include "crashomon.h"
 
+#include <cxxabi.h>
+#include <dlfcn.h>
 #include <sys/socket.h>
 #include <sys/un.h>
 #include <unistd.h>
-
-#include <dlfcn.h>
 
 #include <array>
 #include <cerrno>
@@ -21,7 +21,6 @@
 #include <cstdlib>
 #include <cstring>
 #include <ctime>
-#include <cxxabi.h>
 #include <exception>
 #include <format>
 #include <memory>
@@ -36,9 +35,10 @@
 #include "crashomon_internal.h"
 
 // Forward declaration so DoInit can verify interposition at runtime.
-// NOLINTNEXTLINE(bugprone-reserved-identifier, cert-dcl37-c, cert-dcl51-cpp, readability-identifier-naming)
+// NOLINTNEXTLINE(bugprone-reserved-identifier, cert-dcl37-c, cert-dcl51-cpp,
+// readability-identifier-naming)
 extern "C" [[noreturn]] void __assert_fail(const char* assertion, const char* file,
-                                            unsigned int line, const char* func) noexcept;
+                                           unsigned int line, const char* func) noexcept;
 
 namespace crashomon {
 namespace {
@@ -211,10 +211,11 @@ int DoInit(const ResolvedConfig& cfg) {
     // NOLINTNEXTLINE(cppcoreguidelines-pro-type-reinterpret-cast)
     void* const ours = reinterpret_cast<void*>(&__assert_fail);
     if (resolved != nullptr && resolved != ours) {
-      std::fputs("crashomon: warning: __assert_fail interposition failed — "
-                 "assert() failures will not include message text. "
-                 "Use LD_PRELOAD or link libcrashomon.a instead.\n",
-                 stderr);
+      std::fputs(
+          "crashomon: warning: __assert_fail interposition failed — "
+          "assert() failures will not include message text. "
+          "Use LD_PRELOAD or link libcrashomon.a instead.\n",
+          stderr);
     }
   }
 
@@ -239,14 +240,11 @@ __attribute__((destructor)) void AutoShutdown() {
 
 }  // namespace
 
-void WriteAssertAnnotation(const char* assertion, const char* file,
-                            unsigned int line, const char* func) noexcept {
+void WriteAssertAnnotation(const char* assertion, const char* file, unsigned int line,
+                           const char* func) noexcept {
   const std::string msg =
-      std::format("assertion failed: '{}' ({}:{}, {})",
-                  assertion != nullptr ? assertion : "?",
-                  file != nullptr ? file : "?",
-                  line,
-                  func != nullptr ? func : "?");
+      std::format("assertion failed: '{}' ({}:{}, {})", assertion != nullptr ? assertion : "?",
+                  file != nullptr ? file : "?", line, func != nullptr ? func : "?");
   crashomon_set_abort_message(msg.c_str());
 }
 
@@ -255,8 +253,7 @@ void WriteTerminateAnnotation(const std::type_info* exc_type) noexcept {
     int status = 0;
     // NOLINTNEXTLINE(cppcoreguidelines-no-malloc, cppcoreguidelines-owning-memory)
     auto demangled = std::unique_ptr<char, decltype(&std::free)>(
-        abi::__cxa_demangle(exc_type->name(), nullptr, nullptr, &status),
-        std::free);
+        abi::__cxa_demangle(exc_type->name(), nullptr, nullptr, &status), std::free);
     const char* type_name =
         (status == 0 && demangled != nullptr) ? demangled.get() : exc_type->name();
     crashomon_set_tag("terminate_type", type_name);
@@ -271,10 +268,10 @@ void WriteTerminateAnnotation(const std::type_info* exc_type) noexcept {
 // Override glibc's __assert_fail so assert() failures are captured as annotations
 // before SIGABRT fires. The dynamic linker resolves this definition first when
 // libcrashomon.so is LD_PRELOAD'd.
-// NOLINTNEXTLINE(bugprone-reserved-identifier, cert-dcl37-c, cert-dcl51-cpp, readability-identifier-naming)
+// NOLINTNEXTLINE(bugprone-reserved-identifier, cert-dcl37-c, cert-dcl51-cpp,
+// readability-identifier-naming)
 extern "C" [[noreturn]] void __assert_fail(const char* assertion, const char* file,
-                                            unsigned int line,
-                                            const char* func) noexcept {
+                                           unsigned int line, const char* func) noexcept {
   crashomon::WriteAssertAnnotation(assertion, file, line, func);
   std::abort();
 }

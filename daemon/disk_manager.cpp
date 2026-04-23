@@ -129,8 +129,8 @@ absl::Status RemoveCrashReport(const CrashReport& report, uint64_t& total_bytes,
         absl::StrCat("Failed to remove ", report.dmp_path.string(), ": ", err.message()));
   }
   total_bytes -= report.size;
-  spdlog::info("crashomon-watcherd: pruned {} ({} bytes, reason: {})",
-               report.dmp_path.string(), report.size, reason);
+  spdlog::info("crashomon-watcherd: pruned {} ({} bytes, reason: {})", report.dmp_path.string(),
+               report.size, reason);
 
   std::error_code meta_err;
   std::filesystem::remove(report.meta_path, meta_err);
@@ -140,8 +140,7 @@ absl::Status RemoveCrashReport(const CrashReport& report, uint64_t& total_bytes,
 // Prune Crashpad pending/ directory entries (each report is a .dmp + .meta pair).
 // Files are deleted oldest-first until total size is within max_bytes and all
 // files are within max_age_seconds. No-op if both limits are zero.
-absl::Status PrunePendingDir(const std::string& dir, uint64_t max_bytes,
-                             uint32_t max_age_seconds) {
+absl::Status PrunePendingDir(const std::string& dir, uint64_t max_bytes, uint32_t max_age_seconds) {
   if (max_bytes == 0 && max_age_seconds == 0) {
     return absl::OkStatus();
   }

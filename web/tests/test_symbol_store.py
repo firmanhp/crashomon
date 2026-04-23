@@ -9,7 +9,6 @@ import pytest
 
 from web import symbol_store
 
-
 SAMPLE_SYM = textwrap.dedent("""\
     MODULE Linux x86_64 AABBCCDD0011223344556677889900AA0 my_service
     FILE 0 src/main.cpp
@@ -18,7 +17,9 @@ SAMPLE_SYM = textwrap.dedent("""\
 """)
 
 
-def _alt_sym(build_id: str = "AABBCCDD0011223344556677889900AA0", module: str = "my_service") -> str:
+def _alt_sym(
+    build_id: str = "AABBCCDD0011223344556677889900AA0", module: str = "my_service"
+) -> str:
     return SAMPLE_SYM.replace("AABBCCDD0011223344556677889900AA0", build_id).replace(
         "my_service", module
     )
@@ -110,7 +111,9 @@ def test_list_symbols_multiple_modules(tmp_symbol_store):
 
 def test_list_symbols_multiple_build_ids(tmp_symbol_store):
     symbol_store.add_sym_text(tmp_symbol_store, SAMPLE_SYM)
-    symbol_store.add_sym_text(tmp_symbol_store, _alt_sym(build_id="1122334455667788990011223344556600"))
+    symbol_store.add_sym_text(
+        tmp_symbol_store, _alt_sym(build_id="1122334455667788990011223344556600")
+    )
     entries = symbol_store.list_symbols(tmp_symbol_store)
     assert len(entries) == 2
 

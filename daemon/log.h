@@ -18,8 +18,8 @@
 namespace crashomon {
 
 inline void InitLogging() {
-  auto logger = std::make_shared<spdlog::logger>(
-      "watcherd", std::make_shared<spdlog::sinks::stderr_sink_mt>());
+  auto logger = std::make_shared<spdlog::logger>("watcherd",
+                                                 std::make_shared<spdlog::sinks::stderr_sink_mt>());
   spdlog::set_default_logger(logger);
 
   if (std::getenv("JOURNAL_STREAM") != nullptr) {

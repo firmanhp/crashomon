@@ -263,7 +263,8 @@ TEST(TombstoneFormatterTest, ProbableCauseNullDerefWithOffset) {
   info.fault_addr = 0x40;  // small offset — still in null page
   // NOLINTEND(cppcoreguidelines-avoid-magic-numbers,readability-magic-numbers)
   auto tomb = FormatTombstone(info);
-  EXPECT_NE(tomb.find("probable cause: null pointer dereference — access at offset"), std::string::npos);
+  EXPECT_NE(tomb.find("probable cause: null pointer dereference — access at offset"),
+            std::string::npos);
 }
 
 TEST(TombstoneFormatterTest, ProbableCauseAbort) {
@@ -289,14 +290,13 @@ TEST(TombstoneFormatterTest, AbortMessageOnlyPrintsAbortMessageLine) {
   MinidumpInfo info = MakeInfo();
   info.abort_message = "assertion failed: 'count >= 0' (counter.cpp:17, tick())";
   auto tomb = FormatTombstone(info);
-  EXPECT_NE(tomb.find(
-                "Abort message: 'assertion failed: 'count >= 0' (counter.cpp:17, tick())'"),
+  EXPECT_NE(tomb.find("Abort message: 'assertion failed: 'count >= 0' (counter.cpp:17, tick())'"),
             std::string::npos);
 }
 
 TEST(TombstoneFormatterTest, AbortMessageWithTerminateTypeCombinesBoth) {
   MinidumpInfo info = MakeInfo();
-  info.abort_message  = "unhandled C++ exception";
+  info.abort_message = "unhandled C++ exception";
   info.terminate_type = "std::logic_error";
   auto tomb = FormatTombstone(info);
   EXPECT_NE(tomb.find("Abort message: 'std::logic_error: unhandled C++ exception'"),
@@ -312,7 +312,7 @@ TEST(TombstoneFormatterTest, AbortMessageAppearsAfterSignalLine) {
   MinidumpInfo info = MakeInfo();
   info.abort_message = "test msg";
   auto tomb = FormatTombstone(info);
-  const size_t sig_pos   = tomb.find("signal 11");
+  const size_t sig_pos = tomb.find("signal 11");
   const size_t abort_pos = tomb.find("Abort message:");
   ASSERT_NE(sig_pos, std::string::npos);
   ASSERT_NE(abort_pos, std::string::npos);

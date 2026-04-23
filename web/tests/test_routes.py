@@ -105,16 +105,26 @@ def test_crashes_list_shows_entry(client, app):
 
 
 def test_crashes_filter_by_process(client, app):
-    models.insert_crash(app.config["DB_PATH"], ts="2026-03-28T10:00:00Z", process="svc_a", signal="SIGSEGV", report="r")
-    models.insert_crash(app.config["DB_PATH"], ts="2026-03-28T11:00:00Z", process="svc_b", signal="SIGABRT", report="r")
+    db = app.config["DB_PATH"]
+    models.insert_crash(
+        db, ts="2026-03-28T10:00:00Z", process="svc_a", signal="SIGSEGV", report="r"
+    )
+    models.insert_crash(
+        db, ts="2026-03-28T11:00:00Z", process="svc_b", signal="SIGABRT", report="r"
+    )
     resp = client.get("/crashes?process=svc_a")
     assert b"svc_a" in resp.data
     assert b"svc_b" not in resp.data
 
 
 def test_crashes_filter_by_signal(client, app):
-    models.insert_crash(app.config["DB_PATH"], ts="2026-03-28T10:00:00Z", process="svc_a", signal="SIGSEGV", report="r")
-    models.insert_crash(app.config["DB_PATH"], ts="2026-03-28T11:00:00Z", process="svc_b", signal="SIGABRT", report="r")
+    db = app.config["DB_PATH"]
+    models.insert_crash(
+        db, ts="2026-03-28T10:00:00Z", process="svc_a", signal="SIGSEGV", report="r"
+    )
+    models.insert_crash(
+        db, ts="2026-03-28T11:00:00Z", process="svc_b", signal="SIGABRT", report="r"
+    )
     resp = client.get("/crashes?signal=SIGABRT")
     assert b"SIGABRT" in resp.data
     assert b"SIGSEGV" not in resp.data
@@ -205,9 +215,12 @@ def test_delete_symbol_via_http_delete(client, app):
     symbol_store.add_sym_text(app.config["SYMBOL_STORE"], SAMPLE_SYM)
     resp = client.delete("/symbols/my_service/AABBCCDD0011223344556677889900AA0")
     assert resp.status_code == 204
-    assert symbol_store.find_sym(
-        app.config["SYMBOL_STORE"], "my_service", "AABBCCDD0011223344556677889900AA0"
-    ) is None
+    assert (
+        symbol_store.find_sym(
+            app.config["SYMBOL_STORE"], "my_service", "AABBCCDD0011223344556677889900AA0"
+        )
+        is None
+    )
 
 
 def test_delete_symbol_nonexistent_is_ok(client):

@@ -287,25 +287,24 @@ void AppendUtf8String(std::string& buf, const std::string& str) {
 
 // Builds a minimal valid MDMP binary with a CrashpadInfo stream (type 0x43500007)
 // containing abort_message (and optionally terminate_type).
-std::string BuildAnnotatedMinidump(const std::string& abort_msg,
-                                   const std::string& term_type) {
-  static constexpr uint32_t kMdmpSignature      = 0x504d444dU;
-  static constexpr uint32_t kMdmpVersion        = 0xa793U;
-  static constexpr uint32_t kCrashpadInfoType   = 0x43500007U;
-  static constexpr uint32_t kHeaderSize         = 32U;
-  static constexpr uint32_t kDirEntrySize       = 12U;
-  static constexpr uint32_t kCrashpadHdrSize    = 52U;
-  static constexpr uint32_t kFlagsBytes         = 8U;
-  static constexpr uint32_t kUuidBytes          = 16U;
-  static constexpr uint32_t kDirRva             = kHeaderSize;
-  static constexpr uint32_t kStreamRva          = kDirRva + kDirEntrySize;
-  static constexpr uint32_t kStrLenFieldSize    = 4U;
-  static constexpr uint32_t kDictCountSize      = 4U;
-  static constexpr uint32_t kDictEntrySize      = 8U;
+std::string BuildAnnotatedMinidump(const std::string& abort_msg, const std::string& term_type) {
+  static constexpr uint32_t kMdmpSignature = 0x504d444dU;
+  static constexpr uint32_t kMdmpVersion = 0xa793U;
+  static constexpr uint32_t kCrashpadInfoType = 0x43500007U;
+  static constexpr uint32_t kHeaderSize = 32U;
+  static constexpr uint32_t kDirEntrySize = 12U;
+  static constexpr uint32_t kCrashpadHdrSize = 52U;
+  static constexpr uint32_t kFlagsBytes = 8U;
+  static constexpr uint32_t kUuidBytes = 16U;
+  static constexpr uint32_t kDirRva = kHeaderSize;
+  static constexpr uint32_t kStreamRva = kDirRva + kDirEntrySize;
+  static constexpr uint32_t kStrLenFieldSize = 4U;
+  static constexpr uint32_t kDictCountSize = 4U;
+  static constexpr uint32_t kDictEntrySize = 8U;
 
   const uint32_t num_entries = term_type.empty() ? 1U : 2U;
-  const uint32_t dict_rva    = kStreamRva + kCrashpadHdrSize;
-  const uint32_t dict_bytes  = kDictCountSize + num_entries * kDictEntrySize;
+  const uint32_t dict_rva = kStreamRva + kCrashpadHdrSize;
+  const uint32_t dict_bytes = kDictCountSize + num_entries * kDictEntrySize;
   const uint32_t strings_rva = dict_rva + dict_bytes;
 
   auto str_total = [](const std::string& str) -> uint32_t {
@@ -313,7 +312,7 @@ std::string BuildAnnotatedMinidump(const std::string& abort_msg,
   };
 
   constexpr std::string_view key_abort = "abort_message";
-  constexpr std::string_view key_type  = "terminate_type";
+  constexpr std::string_view key_type = "terminate_type";
 
   const uint32_t key0_rva = strings_rva;
   const uint32_t val0_rva = key0_rva + str_total(std::string(key_abort));
@@ -332,10 +331,10 @@ std::string BuildAnnotatedMinidump(const std::string& abort_msg,
   // MDMP header.
   AppendU32(buf, kMdmpSignature);
   AppendU32(buf, kMdmpVersion);
-  AppendU32(buf, 1U);           // stream_count
-  AppendU32(buf, kDirRva);      // stream_directory_rva
-  AppendU32(buf, 0U);           // checksum
-  AppendU32(buf, 0U);           // time_date_stamp
+  AppendU32(buf, 1U);             // stream_count
+  AppendU32(buf, kDirRva);        // stream_directory_rva
+  AppendU32(buf, 0U);             // checksum
+  AppendU32(buf, 0U);             // time_date_stamp
   buf.append(kFlagsBytes, '\0');  // flags (uint64_t)
 
   // Directory entry.
@@ -344,13 +343,13 @@ std::string BuildAnnotatedMinidump(const std::string& abort_msg,
   AppendU32(buf, kStreamRva);
 
   // MinidumpCrashpadInfo header.
-  AppendU32(buf, 1U);               // version
-  buf.append(kUuidBytes, '\0');     // report_id
-  buf.append(kUuidBytes, '\0');     // client_id
-  AppendU32(buf, dict_bytes);       // simple_annotations.DataSize
-  AppendU32(buf, dict_rva);         // simple_annotations.RVA
-  AppendU32(buf, 0U);               // module_list.DataSize
-  AppendU32(buf, 0U);               // module_list.RVA
+  AppendU32(buf, 1U);            // version
+  buf.append(kUuidBytes, '\0');  // report_id
+  buf.append(kUuidBytes, '\0');  // client_id
+  AppendU32(buf, dict_bytes);    // simple_annotations.DataSize
+  AppendU32(buf, dict_rva);      // simple_annotations.RVA
+  AppendU32(buf, 0U);            // module_list.DataSize
+  AppendU32(buf, 0U);            // module_list.RVA
 
   // SimpleStringDictionary.
   AppendU32(buf, num_entries);
@@ -375,7 +374,9 @@ std::string BuildAnnotatedMinidump(const std::string& abort_msg,
 std::string WriteTmpFile(const std::string& buf) {
   std::string tmpl = "/tmp/crashomon_annot_XXXXXX";
   const int tmp_fd = mkstemp(tmpl.data());
-  if (tmp_fd < 0) { return {}; }
+  if (tmp_fd < 0) {
+    return {};
+  }
   // NOLINTNEXTLINE(misc-include-cleaner) — write() comes via <unistd.h> which is included.
   [[maybe_unused]] const ssize_t unused = ::write(tmp_fd, buf.data(), buf.size());
   ::close(tmp_fd);
@@ -388,8 +389,7 @@ std::string WriteTmpFile(const std::string& buf) {
 
 TEST(MinidumpReaderAnnotationTest, ExtractsAbortMessageFromCrashpadStream) {
   const std::string dmp = annot_helpers::WriteTmpFile(
-      annot_helpers::BuildAnnotatedMinidump(
-          "assertion failed: 'x > 0' (main.cpp:7, run())", ""));
+      annot_helpers::BuildAnnotatedMinidump("assertion failed: 'x > 0' (main.cpp:7, run())", ""));
   ASSERT_FALSE(dmp.empty());
   auto result = ReadMinidump(dmp);
   ::unlink(dmp.c_str());
@@ -410,8 +410,8 @@ TEST(MinidumpReaderAnnotationTest, ExtractsBothAbortMessageAndTerminateType) {
 }
 
 TEST(MinidumpReaderAnnotationTest, AbortMessageOnlyOneEntry) {
-  const std::string dmp = annot_helpers::WriteTmpFile(
-      annot_helpers::BuildAnnotatedMinidump("msg", ""));
+  const std::string dmp =
+      annot_helpers::WriteTmpFile(annot_helpers::BuildAnnotatedMinidump("msg", ""));
   ASSERT_FALSE(dmp.empty());
   auto result = ReadMinidump(dmp);
   ::unlink(dmp.c_str());

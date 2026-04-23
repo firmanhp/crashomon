@@ -60,9 +60,7 @@ def add_binary(
         raise RuntimeError(f"dump_syms timed out for {binary}") from exc
 
     if result.returncode != 0 or not result.stdout:
-        raise RuntimeError(
-            f"dump_syms failed for {binary} (exit {result.returncode})"
-        )
+        raise RuntimeError(f"dump_syms failed for {binary} (exit {result.returncode})")
 
     return add_sym_text(store_path, result.stdout)
 

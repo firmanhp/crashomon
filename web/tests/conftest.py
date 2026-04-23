@@ -4,8 +4,8 @@ from __future__ import annotations
 
 import pytest
 
-from web.app import create_app
 from web import models
+from web.app import create_app
 
 
 @pytest.fixture

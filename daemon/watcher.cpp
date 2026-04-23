@@ -112,8 +112,8 @@ bool EnsureDbDirs(const std::string& db_path, const std::string& new_dir,
 struct WatcherFds {
   base::ScopedFD listen_fd;
   base::ScopedFD inotify_fd;
-  base::ScopedFD server_fd;  // released into ExceptionHandlerServer on thread start
-  base::ScopedFD client_fd;  // shared via SCM_RIGHTS; reset() triggers server shutdown
+  base::ScopedFD server_fd;   // released into ExceptionHandlerServer on thread start
+  base::ScopedFD client_fd;   // shared via SCM_RIGHTS; reset() triggers server shutdown
   int inotify_watch_fd = -1;  // descriptor for inotify_rm_watch, not an OS fd
 };
 
@@ -161,8 +161,7 @@ std::optional<WatcherFds> InitWatcherFds(const std::string& socket_path,
   // Watch db_path/pending/ for IN_MOVED_TO — Crashpad writes minidumps to
   // new/<uuid>.dmp then atomically renames to pending/<uuid>.dmp.  The file is
   // fully written and ready to read only after the rename completes.
-  fds.inotify_watch_fd =
-      inotify_add_watch(fds.inotify_fd.get(), pending_dir.c_str(), IN_MOVED_TO);
+  fds.inotify_watch_fd = inotify_add_watch(fds.inotify_fd.get(), pending_dir.c_str(), IN_MOVED_TO);
   if (fds.inotify_watch_fd < 0) {
     perror("inotify_add_watch");
     return std::nullopt;
@@ -174,8 +173,8 @@ std::optional<WatcherFds> InitWatcherFds(const std::string& socket_path,
 
 // Poll loop: accept new client connections and enqueue newly written minidumps
 // until g_stop is set by a signal.  Blocks until shutdown is requested.
-void RunEventLoop(const WatcherFds& fds, pid_t handler_pid,
-                  crashomon::WorkerState& worker_state, std::string_view pending_dir) {
+void RunEventLoop(const WatcherFds& fds, pid_t handler_pid, crashomon::WorkerState& worker_state,
+                  std::string_view pending_dir) {
   // Buffer sized for kInotifyEventBufferCount events with maximum-length names.
   constexpr size_t buf_size = sizeof(struct inotify_event) + NAME_MAX + 1;
   std::array<char, buf_size * kInotifyEventBufferCount> buf{};

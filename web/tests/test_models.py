@@ -4,10 +4,7 @@ from __future__ import annotations
 
 import sqlite3
 
-import pytest
-
 from web import models
-
 
 # ---------------------------------------------------------------------------
 # Schema
@@ -80,51 +77,75 @@ def test_get_crashes_empty(tmp_db):
 
 
 def test_get_crashes_returns_list(tmp_db):
-    models.insert_crash(tmp_db, ts="2026-03-28T10:00:00Z", process="svc_a", signal="SIGSEGV", report="r")
-    models.insert_crash(tmp_db, ts="2026-03-28T11:00:00Z", process="svc_b", signal="SIGABRT", report="r")
+    models.insert_crash(
+        tmp_db, ts="2026-03-28T10:00:00Z", process="svc_a", signal="SIGSEGV", report="r"
+    )
+    models.insert_crash(
+        tmp_db, ts="2026-03-28T11:00:00Z", process="svc_b", signal="SIGABRT", report="r"
+    )
     rows = models.get_crashes(tmp_db)
     assert len(rows) == 2
 
 
 def test_get_crashes_ordered_desc(tmp_db):
-    models.insert_crash(tmp_db, ts="2026-03-28T10:00:00Z", process="svc", signal="SIGSEGV", report="r1")
-    models.insert_crash(tmp_db, ts="2026-03-29T10:00:00Z", process="svc", signal="SIGSEGV", report="r2")
+    models.insert_crash(
+        tmp_db, ts="2026-03-28T10:00:00Z", process="svc", signal="SIGSEGV", report="r1"
+    )
+    models.insert_crash(
+        tmp_db, ts="2026-03-29T10:00:00Z", process="svc", signal="SIGSEGV", report="r2"
+    )
     rows = models.get_crashes(tmp_db)
     assert rows[0]["ts"] > rows[1]["ts"]
 
 
 def test_get_crashes_filter_process(tmp_db):
-    models.insert_crash(tmp_db, ts="2026-03-28T10:00:00Z", process="svc_a", signal="SIGSEGV", report="r")
-    models.insert_crash(tmp_db, ts="2026-03-28T11:00:00Z", process="svc_b", signal="SIGABRT", report="r")
+    models.insert_crash(
+        tmp_db, ts="2026-03-28T10:00:00Z", process="svc_a", signal="SIGSEGV", report="r"
+    )
+    models.insert_crash(
+        tmp_db, ts="2026-03-28T11:00:00Z", process="svc_b", signal="SIGABRT", report="r"
+    )
     rows = models.get_crashes(tmp_db, process="svc_a")
     assert len(rows) == 1
     assert rows[0]["process"] == "svc_a"
 
 
 def test_get_crashes_filter_signal(tmp_db):
-    models.insert_crash(tmp_db, ts="2026-03-28T10:00:00Z", process="svc_a", signal="SIGSEGV", report="r")
-    models.insert_crash(tmp_db, ts="2026-03-28T11:00:00Z", process="svc_b", signal="SIGABRT", report="r")
+    models.insert_crash(
+        tmp_db, ts="2026-03-28T10:00:00Z", process="svc_a", signal="SIGSEGV", report="r"
+    )
+    models.insert_crash(
+        tmp_db, ts="2026-03-28T11:00:00Z", process="svc_b", signal="SIGABRT", report="r"
+    )
     rows = models.get_crashes(tmp_db, signal="SIGABRT")
     assert len(rows) == 1
     assert rows[0]["signal"] == "SIGABRT"
 
 
 def test_get_crashes_filter_both(tmp_db):
-    models.insert_crash(tmp_db, ts="2026-03-28T10:00:00Z", process="svc_a", signal="SIGSEGV", report="r")
-    models.insert_crash(tmp_db, ts="2026-03-28T11:00:00Z", process="svc_a", signal="SIGABRT", report="r")
+    models.insert_crash(
+        tmp_db, ts="2026-03-28T10:00:00Z", process="svc_a", signal="SIGSEGV", report="r"
+    )
+    models.insert_crash(
+        tmp_db, ts="2026-03-28T11:00:00Z", process="svc_a", signal="SIGABRT", report="r"
+    )
     rows = models.get_crashes(tmp_db, process="svc_a", signal="SIGSEGV")
     assert len(rows) == 1
 
 
 def test_get_crashes_limit(tmp_db):
     for i in range(5):
-        models.insert_crash(tmp_db, ts=f"2026-03-28T0{i}:00:00Z", process="svc", signal="SIGSEGV", report="r")
+        models.insert_crash(
+            tmp_db, ts=f"2026-03-28T0{i}:00:00Z", process="svc", signal="SIGSEGV", report="r"
+        )
     assert len(models.get_crashes(tmp_db, limit=3)) == 3
 
 
 def test_get_crashes_offset(tmp_db):
     for i in range(4):
-        models.insert_crash(tmp_db, ts=f"2026-03-28T0{i}:00:00Z", process="svc", signal="SIGSEGV", report="r")
+        models.insert_crash(
+            tmp_db, ts=f"2026-03-28T0{i}:00:00Z", process="svc", signal="SIGSEGV", report="r"
+        )
     all_rows = models.get_crashes(tmp_db)
     offset_rows = models.get_crashes(tmp_db, offset=2, limit=50)
     assert len(offset_rows) == 2
@@ -132,7 +153,9 @@ def test_get_crashes_offset(tmp_db):
 
 
 def test_get_crashes_list_cols(tmp_db):
-    models.insert_crash(tmp_db, ts="2026-03-28T10:00:00Z", process="svc", signal="SIGSEGV", report="r")
+    models.insert_crash(
+        tmp_db, ts="2026-03-28T10:00:00Z", process="svc", signal="SIGSEGV", report="r"
+    )
     row = models.get_crashes(tmp_db)[0]
     # List view should NOT include full report (only detail view does)
     assert "id" in row
@@ -170,8 +193,12 @@ def test_get_frequency_empty(tmp_db):
 
 def test_get_frequency_counts(tmp_db):
     for _ in range(3):
-        models.insert_crash(tmp_db, ts="2026-03-28T10:00:00Z", process="svc_a", signal="SIGSEGV", report="r")
-    models.insert_crash(tmp_db, ts="2026-03-28T10:00:00Z", process="svc_b", signal="SIGABRT", report="r")
+        models.insert_crash(
+            tmp_db, ts="2026-03-28T10:00:00Z", process="svc_a", signal="SIGSEGV", report="r"
+        )
+    models.insert_crash(
+        tmp_db, ts="2026-03-28T10:00:00Z", process="svc_b", signal="SIGABRT", report="r"
+    )
     freq = models.get_frequency(tmp_db)
     assert freq[0]["process"] == "svc_a"
     assert freq[0]["count"] == 3
@@ -180,9 +207,13 @@ def test_get_frequency_counts(tmp_db):
 
 
 def test_get_frequency_sorted_desc(tmp_db):
-    models.insert_crash(tmp_db, ts="2026-03-28T10:00:00Z", process="rare", signal="SIGSEGV", report="r")
+    models.insert_crash(
+        tmp_db, ts="2026-03-28T10:00:00Z", process="rare", signal="SIGSEGV", report="r"
+    )
     for _ in range(5):
-        models.insert_crash(tmp_db, ts="2026-03-28T10:00:00Z", process="common", signal="SIGSEGV", report="r")
+        models.insert_crash(
+            tmp_db, ts="2026-03-28T10:00:00Z", process="common", signal="SIGSEGV", report="r"
+        )
     freq = models.get_frequency(tmp_db)
     assert freq[0]["process"] == "common"
 
@@ -249,12 +280,20 @@ def test_get_crash_groups_empty(tmp_db):
 
 def test_get_crash_groups_excludes_no_signature(tmp_db):
     # Reports without frames produce empty signature and are excluded.
-    models.insert_crash(tmp_db, ts="2026-03-28T10:00:00Z", process="svc", signal="SIGSEGV", report="no frames")
+    models.insert_crash(
+        tmp_db, ts="2026-03-28T10:00:00Z", process="svc", signal="SIGSEGV", report="no frames"
+    )
     assert models.get_crash_groups(tmp_db) == []
 
 
 def test_get_crash_groups_returns_group(tmp_db):
-    models.insert_crash(tmp_db, ts="2026-03-28T10:00:00Z", process="svc", signal="SIGSEGV", report=_REPORT_WITH_FRAMES)
+    models.insert_crash(
+        tmp_db,
+        ts="2026-03-28T10:00:00Z",
+        process="svc",
+        signal="SIGSEGV",
+        report=_REPORT_WITH_FRAMES,
+    )
     groups = models.get_crash_groups(tmp_db)
     assert len(groups) == 1
     row = groups[0]
@@ -268,7 +307,9 @@ def test_get_crash_groups_returns_group(tmp_db):
 
 def test_get_crash_groups_count(tmp_db):
     for ts in ("2026-03-28T10:00:00Z", "2026-03-28T11:00:00Z", "2026-03-28T12:00:00Z"):
-        models.insert_crash(tmp_db, ts=ts, process="svc", signal="SIGSEGV", report=_REPORT_WITH_FRAMES)
+        models.insert_crash(
+            tmp_db, ts=ts, process="svc", signal="SIGSEGV", report=_REPORT_WITH_FRAMES
+        )
     groups = models.get_crash_groups(tmp_db)
     assert len(groups) == 1
     assert groups[0]["count"] == 3
@@ -277,14 +318,24 @@ def test_get_crash_groups_count(tmp_db):
 def test_get_crash_groups_sorted_by_count_desc(tmp_db):
     for _ in range(3):
         models.insert_crash(
-            tmp_db, ts="2026-03-28T10:00:00Z", process="svc_a", signal="SIGSEGV", report=_REPORT_WITH_FRAMES
+            tmp_db,
+            ts="2026-03-28T10:00:00Z",
+            process="svc_a",
+            signal="SIGSEGV",
+            report=_REPORT_WITH_FRAMES,
         )
-    models.insert_crash(tmp_db, ts="2026-03-28T10:00:00Z", process="svc_b", signal="SIGABRT", report=(
-        "backtrace:\n"
-        " 0  /usr/bin/svc_b + 0xaaaa\n"
-        " 1  /usr/lib/other.so + 0xbbbb\n"
-        " 2  /usr/lib/another.so + 0xcccc\n"
-    ))
+    models.insert_crash(
+        tmp_db,
+        ts="2026-03-28T10:00:00Z",
+        process="svc_b",
+        signal="SIGABRT",
+        report=(
+            "backtrace:\n"
+            " 0  /usr/bin/svc_b + 0xaaaa\n"
+            " 1  /usr/lib/other.so + 0xbbbb\n"
+            " 2  /usr/lib/another.so + 0xcccc\n"
+        ),
+    )
     groups = models.get_crash_groups(tmp_db)
     assert groups[0]["count"] >= groups[1]["count"]
 
@@ -299,9 +350,15 @@ def test_get_daily_counts_empty(tmp_db):
 
 
 def test_get_daily_counts_returns_dates(tmp_db):
-    models.insert_crash(tmp_db, ts="2026-03-28T10:00:00Z", process="svc", signal="SIGSEGV", report="r")
-    models.insert_crash(tmp_db, ts="2026-03-28T12:00:00Z", process="svc", signal="SIGSEGV", report="r")
-    models.insert_crash(tmp_db, ts="2026-03-29T10:00:00Z", process="svc", signal="SIGSEGV", report="r")
+    models.insert_crash(
+        tmp_db, ts="2026-03-28T10:00:00Z", process="svc", signal="SIGSEGV", report="r"
+    )
+    models.insert_crash(
+        tmp_db, ts="2026-03-28T12:00:00Z", process="svc", signal="SIGSEGV", report="r"
+    )
+    models.insert_crash(
+        tmp_db, ts="2026-03-29T10:00:00Z", process="svc", signal="SIGSEGV", report="r"
+    )
     counts = models.get_daily_counts(tmp_db)
     assert len(counts) == 2
     dates = [r["date"] for r in counts]
@@ -310,8 +367,12 @@ def test_get_daily_counts_returns_dates(tmp_db):
 
 
 def test_get_daily_counts_ordered_oldest_first(tmp_db):
-    models.insert_crash(tmp_db, ts="2026-03-28T10:00:00Z", process="svc", signal="SIGSEGV", report="r")
-    models.insert_crash(tmp_db, ts="2026-03-30T10:00:00Z", process="svc", signal="SIGSEGV", report="r")
+    models.insert_crash(
+        tmp_db, ts="2026-03-28T10:00:00Z", process="svc", signal="SIGSEGV", report="r"
+    )
+    models.insert_crash(
+        tmp_db, ts="2026-03-30T10:00:00Z", process="svc", signal="SIGSEGV", report="r"
+    )
     counts = models.get_daily_counts(tmp_db)
     assert counts[0]["date"] < counts[-1]["date"]
 

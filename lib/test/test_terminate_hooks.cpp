@@ -20,7 +20,8 @@ class TerminateHooksTest : public ::testing::Test {
   void TearDown() override {
     crashpad::CrashpadInfo::GetCrashpadInfo()->set_simple_annotations(nullptr);
   }
-  // NOLINTNEXTLINE(cppcoreguidelines-non-private-member-variables-in-classes, misc-non-private-member-variables-in-classes, readability-identifier-naming)
+  // NOLINTNEXTLINE(cppcoreguidelines-non-private-member-variables-in-classes,
+  // misc-non-private-member-variables-in-classes, readability-identifier-naming)
   std::unique_ptr<crashpad::SimpleStringDictionary> dict_;
 };
 
@@ -59,8 +60,7 @@ TEST_F(TerminateHooksTest, TerminateAnnotation_UnknownTypeSetsNonEmptyTypeName) 
 
 TEST_F(TerminateHooksTest, TerminateAnnotation_NoActiveExceptionWritesFallback) {
   crashomon::WriteTerminateAnnotation(nullptr);
-  EXPECT_STREQ(dict_->GetValueForKey("abort_message"),
-               "terminate called without active exception");
+  EXPECT_STREQ(dict_->GetValueForKey("abort_message"), "terminate called without active exception");
   EXPECT_EQ(dict_->GetValueForKey("terminate_type"), nullptr);
 }
 

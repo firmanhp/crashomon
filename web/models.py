@@ -112,9 +112,7 @@ def get_crashes(
 def get_crash(db_path: str | Path, crash_id: int) -> dict | None:
     """Return full crash record or None."""
     with _connect(db_path) as conn:
-        row = conn.execute(
-            "SELECT * FROM crashes WHERE id = ?", (crash_id,)
-        ).fetchone()
+        row = conn.execute("SELECT * FROM crashes WHERE id = ?", (crash_id,)).fetchone()
     return dict(row) if row else None
 
 
@@ -126,10 +124,7 @@ def delete_crash(db_path: str | Path, crash_id: int) -> None:
 
 def get_frequency(db_path: str | Path) -> list[dict]:
     """Return per-process crash counts, sorted by count desc."""
-    sql = (
-        "SELECT process, COUNT(*) as count FROM crashes "
-        "GROUP BY process ORDER BY count DESC"
-    )
+    sql = "SELECT process, COUNT(*) as count FROM crashes GROUP BY process ORDER BY count DESC"
     with _connect(db_path) as conn:
         rows = conn.execute(sql).fetchall()
     return [dict(r) for r in rows]

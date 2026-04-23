@@ -189,10 +189,14 @@ foreach(_cp_tgt IN ITEMS
 endforeach()
 unset(_cp_tgt_type)
 
-# Establish build ordering: zlibstatic must be built before crashpad_handler links.
-if(TARGET crashpad_handler)
-  add_dependencies(crashpad_handler zlibstatic)
-endif()
+# Establish build ordering: zlibstatic must be built before any Crashpad target that
+# links it (crashpad_handler and crashpad_client both pull in libz.a transitively).
+foreach(_cp_zlib_dep crashpad_handler crashpad_client)
+  if(TARGET ${_cp_zlib_dep})
+    add_dependencies(${_cp_zlib_dep} zlibstatic)
+  endif()
+endforeach()
+unset(_cp_zlib_dep)
 
 # GoogleTest for unit tests (only when ENABLE_TESTS=ON)
 if(ENABLE_TESTS)

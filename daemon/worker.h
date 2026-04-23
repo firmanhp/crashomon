@@ -40,8 +40,7 @@ struct WorkerState {
 // Pruning is unconditional — it runs even when the dump is unreadable, so a
 // full disk that produces partial writes doesn't wedge the pruning cycle.
 void ProcessNewMinidump(const std::string& path, WorkerState& state,
-                        const DiskManagerConfig& prune_cfg,
-                        std::string_view export_path);
+                        const DiskManagerConfig& prune_cfg, std::string_view export_path);
 
 // Worker thread entry point: dequeues and processes minidumps from `state`
 // until state.stop is true and the queue is empty.
