@@ -5,6 +5,7 @@ requires-python = ">=3.11"
 dependencies = [
     "flask>=3.0",
     "flask-wtf>=1.2",
+    "gunicorn>=21.2",
 ]
 
 [project.optional-dependencies]
