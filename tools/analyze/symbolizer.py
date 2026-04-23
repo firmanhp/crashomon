@@ -99,6 +99,7 @@ def parse_stackwalk_json(data: dict) -> tuple[ParsedTombstone, SymbolTable]:
                 index=frame_idx,
                 module_offset=offset,
                 module_path=frame_data.get("module") or "",
+                trust=frame_data.get("trust") or "",
             )
             thread.frames.append(frame)
             func = frame_data.get("function")
@@ -136,7 +137,12 @@ def _emit_stack_trace_section(
     out: list[str],
     addr_w: int,
 ) -> None:
+    scan_start: int | None = None
     for frame in thread.frames:
+        if frame.trust == "scan":
+            scan_start = frame.index
+            break
+
         module = frame.module_path or "???"
         addr = f"0x{frame.module_offset:0{addr_w}x}"
         sym = symbols.get((thread.tid, frame.index))
@@ -154,6 +160,13 @@ def _emit_stack_trace_section(
             out.append(f"    #{frame.index:02d} pc {addr}  {module}  {trailing}\n")
         else:
             out.append(f"    #{frame.index:02d} pc {addr}  {module}\n")
+
+    if scan_start is not None:
+        scan_count = sum(1 for f in thread.frames if f.index >= scan_start)
+        out.append(
+            f"    ({scan_count} frame{'s' if scan_count != 1 else ''} omitted"
+            f" — recovered by stack scan, unreliable)\n"
+        )
 
 
 def _tombstone_addr_width(tombstone: ParsedTombstone) -> int:

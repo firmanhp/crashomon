@@ -12,6 +12,7 @@ class ParsedFrame:
     module_path: str = ""
     trailing: str = ""  # already-symbolicated text preserved verbatim
     build_id: str = ""  # GNU build ID hex (lowercase), from (BuildId: ...) suffix
+    trust: str = ""  # frame recovery method: "context", "cfi", "frame_pointer", "scan", ""
 
 
 @dataclass
