@@ -7,7 +7,8 @@
 #
 # Targets defined:
 #   breakpad_processor  — minidump parsing library (STATIC); used by watcherd
-#   breakpad_dump_syms  — DWARF → .sym extraction tool (EXECUTABLE)
+#   breakpad_dump_syms  — DWARF → .sym extraction tool (EXECUTABLE, IMPORTED)
+#                         Only defined when CRASHOMON_DUMP_SYMS_EXECUTABLE is set.
 #
 # Consumers link breakpad_processor into their own targets. The tool executables
 # are built as part of the project (installed alongside other binaries).
@@ -52,8 +53,19 @@ target_link_libraries(breakpad_processor PRIVATE Threads::Threads)
 # CLI tool: extracts DWARF debug info from ELF binaries into Breakpad .sym files.
 # Used by crashomon_store_symbols() as a POST_BUILD step.
 #
-# dump_syms must be a pre-built host binary — set CRASHOMON_DUMP_SYMS_EXECUTABLE
-# to its path.  See cmake/dump_syms_host/ for the build recipe.
+# dump_syms is a host tool — it reads the binaries you built and must run on the
+# build machine, not the target. Build it once with the host compiler via the
+# standalone sub-project, then pass the result here:
+#
+#   cmake -B _dump_syms_build -S cmake/dump_syms_host/
+#   cmake --build _dump_syms_build
+#   cmake -B build -DCRASHOMON_DUMP_SYMS_EXECUTABLE=$(pwd)/_dump_syms_build/dump_syms
+#
+# For cross-compilation this step is required; for native builds it is only
+# needed if you use crashomon_store_symbols(). See INSTALL.md §Cross-compilation.
+#
+# When CRASHOMON_DUMP_SYMS_EXECUTABLE is not set, the breakpad_dump_syms target
+# is not defined and install rules that reference it are skipped.
 
 set(CRASHOMON_DUMP_SYMS_EXECUTABLE "" CACHE FILEPATH
   "Path to the pre-built host dump_syms binary.")

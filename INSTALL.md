@@ -32,14 +32,26 @@ The watcher daemon uses ≤ 20 MB RSS at idle.
 
 ## Building
 
+`dump_syms` is a host tool that extracts DWARF debug info from ELF binaries into Breakpad `.sym` files. It must be built separately with the host compiler before the main build, whether you are cross-compiling or building natively:
+
 ```bash
-# Configure + build all C/C++ targets
-cmake -B build
+# Build dump_syms for the host (once per machine)
+cmake -B _dump_syms_build -S cmake/dump_syms_host/
+cmake --build _dump_syms_build -j$(nproc)
+# Produces: _dump_syms_build/dump_syms
+```
+
+Then configure and build the main project, passing the result in:
+
+```bash
+cmake -B build -DCRASHOMON_DUMP_SYMS_EXECUTABLE="$(pwd)/_dump_syms_build/dump_syms"
 cmake --build build -j$(nproc)
 
 # Install Python deps (web UI + syms script)
 uv sync
 ```
+
+If you do not need `crashomon_store_symbols()` (e.g. you are only building the client library and watcherd without symbol extraction), you can omit `CRASHOMON_DUMP_SYMS_EXECUTABLE`. Configure and build will succeed; `dump_syms` will not be installed.
 
 This produces:
 
@@ -47,6 +59,7 @@ This produces:
 build/lib/libcrashomon.so                              # LD_PRELOAD library
 build/lib/libcrashomon.a                               # static library
 build/daemon/crashomon-watcherd                        # watcher daemon (also hosts crash handler)
+_dump_syms_build/dump_syms                             # DWARF → .sym extraction tool (host binary)
 build/rust_minidump_target/release/minidump-stackwalk  # symbolication engine (statically linked)
 tools/analyze/crashomon-analyze                        # CLI symbolication (Python script, no build step)
 tools/syms/crashomon-syms                              # symbol store management (Python script, no build step)

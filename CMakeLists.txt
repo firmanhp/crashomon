@@ -307,9 +307,11 @@ if(CRASHOMON_ENABLE_INSTALL)
     install(TARGETS crashomon_watcherd
       RUNTIME DESTINATION ${CMAKE_INSTALL_BINDIR}
       COMPONENT watcherd)
-    install(PROGRAMS $<TARGET_FILE:breakpad_dump_syms>
-      DESTINATION ${CMAKE_INSTALL_LIBEXECDIR}/crashomon
-      COMPONENT watcherd)
+    if(TARGET breakpad_dump_syms)
+      install(PROGRAMS $<TARGET_FILE:breakpad_dump_syms>
+        DESTINATION ${CMAKE_INSTALL_LIBEXECDIR}/crashomon
+        COMPONENT watcherd)
+    endif()
   endif()
 
   if(CRASHOMON_INSTALL_ANALYZE)
