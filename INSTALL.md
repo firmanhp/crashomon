@@ -56,16 +56,35 @@ If you do not need `crashomon_store_symbols()` (e.g. you are only building the c
 This produces:
 
 ```
-build/lib/libcrashomon.so                              # LD_PRELOAD library
-build/lib/libcrashomon.a                               # static library
-build/daemon/crashomon-watcherd                        # watcher daemon (also hosts crash handler)
-_dump_syms_build/dump_syms                             # DWARF → .sym extraction tool (host binary)
-build/rust_minidump_target/release/minidump-stackwalk  # symbolication engine (statically linked)
-tools/analyze/crashomon-analyze                        # CLI symbolication (Python script, no build step)
-tools/syms/crashomon-syms                              # symbol store management (Python script, no build step)
+build/lib/libcrashomon.so       # LD_PRELOAD library
+build/lib/libcrashomon.a        # static library
+build/daemon/crashomon-watcherd # watcher daemon (also hosts crash handler)
+_dump_syms_build/dump_syms      # DWARF → .sym extraction tool (host binary)
+tools/analyze/crashomon-analyze # CLI symbolication (Python script, no build step)
+tools/syms/crashomon-syms       # symbol store management (Python script, no build step)
 ```
 
-`minidump-stackwalk` is built from the [rust-minidump](https://github.com/rust-minidump/rust-minidump) crate. On `x86_64-unknown-linux-gnu` hosts the binary links glibc dynamically; for a fully static binary use the `x86_64-unknown-linux-musl` Rust target (`rustup target add x86_64-unknown-linux-musl`). Either way it can be copied to any x86-64 Linux target that has a compatible glibc.
+### Building `minidump-stackwalk` (required for symbolication)
+
+`minidump-stackwalk` is the symbolication engine used by `crashomon-analyze` and `crashomon-web`. It is built from the [rust-minidump](https://github.com/rust-minidump/rust-minidump) crate and requires `cargo`. It is **not** built by default — pass `-DCRASHOMON_BUILD_ANALYZE=ON`:
+
+```bash
+cmake -B build -DCRASHOMON_DUMP_SYMS_EXECUTABLE="$(pwd)/_dump_syms_build/dump_syms" \
+               -DCRASHOMON_BUILD_ANALYZE=ON
+cmake --build build -j$(nproc)
+# Produces: build/rust_minidump_target/release/minidump-stackwalk
+```
+
+On `x86_64-unknown-linux-gnu` (glibc) hosts the binary links glibc dynamically. For a fully static binary use the `x86_64-unknown-linux-musl` Rust target:
+
+```bash
+rustup target add x86_64-unknown-linux-musl
+cmake -B build -DCRASHOMON_BUILD_ANALYZE=ON \
+               -DCRASHOMON_DUMP_SYMS_EXECUTABLE="$(pwd)/_dump_syms_build/dump_syms"
+cmake --build build -j$(nproc)
+```
+
+Either binary can be copied to any compatible x86-64 Linux host. To make it available to `crashomon-analyze` and `crashomon-web`, either add it to `PATH` or pass `--stackwalk-binary=` / bind-mount it into the Docker container.
 
 ### Optional build flags
 
