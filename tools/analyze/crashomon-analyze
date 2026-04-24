@@ -60,6 +60,12 @@ def _build_parser() -> argparse.ArgumentParser:
     parser.add_argument(
         "--stackwalk-binary", metavar="PATH", default="minidump-stackwalk"
     )
+    parser.add_argument(
+        "--show-trust",
+        action="store_true",
+        default=False,
+        help="Annotate every frame with its recovery method (context/cfi/frame_pointer/scan)",
+    )
     return parser
 
 
@@ -84,13 +90,20 @@ def main() -> int:
                 args.minidump,
                 _resolve_binary(args.stackwalk_binary),
                 _resolve_binary(args.dump_syms_binary),
+                args.show_trust,
             )
         elif args.store and args.minidump:
-            output = mode_minidump_store(args.store, args.minidump, _resolve_binary(args.stackwalk_binary))
+            output = mode_minidump_store(
+                args.store, args.minidump, _resolve_binary(args.stackwalk_binary), args.show_trust
+            )
         elif args.symbols and args.minidump:
-            output = mode_sym_file_minidump(args.symbols, args.minidump, _resolve_binary(args.stackwalk_binary))
+            output = mode_sym_file_minidump(
+                args.symbols, args.minidump, _resolve_binary(args.stackwalk_binary), args.show_trust
+            )
         elif args.minidump:
-            output = mode_raw_tombstone(args.minidump, _resolve_binary(args.stackwalk_binary))
+            output = mode_raw_tombstone(
+                args.minidump, _resolve_binary(args.stackwalk_binary), args.show_trust
+            )
         else:
             print("crashomon-analyze: no valid mode specified.", file=sys.stderr)
             parser.print_usage(sys.stderr)

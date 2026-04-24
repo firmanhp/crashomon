@@ -136,6 +136,7 @@ def _emit_stack_trace_section(
     symbols: SymbolTable,
     out: list[str],
     addr_w: int,
+    show_trust: bool = False,
 ) -> None:
     for frame in thread.frames:
         module = frame.module_path or "???"
@@ -151,11 +152,15 @@ def _emit_stack_trace_section(
         elif frame.trailing:
             trailing = frame.trailing
 
-        heuristic = " [HEURISTIC]" if frame.trust == "scan" else ""
-        if trailing:
-            out.append(f"    #{frame.index:02d} pc {addr}  {module}  {trailing}{heuristic}\n")
+        if show_trust:
+            suffix = f" [trust:{frame.trust}]" if frame.trust else ""
         else:
-            out.append(f"    #{frame.index:02d} pc {addr}  {module}{heuristic}\n")
+            suffix = " [HEURISTIC]" if frame.trust == "scan" else ""
+
+        if trailing:
+            out.append(f"    #{frame.index:02d} pc {addr}  {module}  {trailing}{suffix}\n")
+        else:
+            out.append(f"    #{frame.index:02d} pc {addr}  {module}{suffix}\n")
 
 
 def _tombstone_addr_width(tombstone: ParsedTombstone) -> int:
@@ -166,7 +171,11 @@ def _tombstone_addr_width(tombstone: ParsedTombstone) -> int:
     return 8
 
 
-def format_symbolicated(tombstone: ParsedTombstone, symbols: SymbolTable) -> str:
+def format_symbolicated(
+    tombstone: ParsedTombstone,
+    symbols: SymbolTable,
+    show_trust: bool = False,
+) -> str:
     """Format a ParsedTombstone with resolved symbols into tombstone text."""
     addr_w = _tombstone_addr_width(tombstone)
     out: list[str] = []
@@ -202,14 +211,14 @@ def format_symbolicated(tombstone: ParsedTombstone, symbols: SymbolTable) -> str
 
     if tombstone.threads and tombstone.threads[0].is_crashing:
         out.append("\nbacktrace:\n")
-        _emit_stack_trace_section(tombstone.threads[0], symbols, out, addr_w)
+        _emit_stack_trace_section(tombstone.threads[0], symbols, out, addr_w, show_trust)
 
     for thread in tombstone.threads[1:]:
         if thread.name:
             out.append(f"\n--- --- --- thread {thread.tid} ({thread.name}) --- --- ---\n")
         else:
             out.append(f"\n--- --- --- thread {thread.tid} --- --- ---\n")
-        _emit_stack_trace_section(thread, symbols, out, addr_w)
+        _emit_stack_trace_section(thread, symbols, out, addr_w, show_trust)
 
     if tombstone.minidump_path:
         out.append(f"\nminidump saved to: {tombstone.minidump_path}\n")
@@ -218,9 +227,9 @@ def format_symbolicated(tombstone: ParsedTombstone, symbols: SymbolTable) -> str
     return "".join(out)
 
 
-def format_raw_tombstone(tombstone: ParsedTombstone) -> str:
+def format_raw_tombstone(tombstone: ParsedTombstone, show_trust: bool = False) -> str:
     """Format a ParsedTombstone without symbol information."""
-    return format_symbolicated(tombstone, {})
+    return format_symbolicated(tombstone, {}, show_trust)
 
 
 # ---------------------------------------------------------------------------

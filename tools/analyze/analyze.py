@@ -60,15 +60,15 @@ def _apply_annotations(tombstone: ParsedTombstone, dmp: str) -> None:
     tombstone.terminate_type = annotations.get("terminate_type", "")
 
 
-def mode_minidump_store(store: str, dmp: str, stackwalk: str) -> str:
+def mode_minidump_store(store: str, dmp: str, stackwalk: str, show_trust: bool = False) -> str:
     """Mode 1: symbolicate a minidump against a symbol store."""
     data = _run_stackwalk_json(stackwalk, dmp, [store])
     tombstone, symbols = parse_stackwalk_json(data)
     _apply_annotations(tombstone, dmp)
-    return format_symbolicated(tombstone, symbols)
+    return format_symbolicated(tombstone, symbols, show_trust)
 
 
-def mode_sym_file_minidump(sym_file: str, dmp: str, stackwalk: str) -> str:
+def mode_sym_file_minidump(sym_file: str, dmp: str, stackwalk: str, show_trust: bool = False) -> str:
     """Mode 3: symbolicate a minidump using a single explicit .sym file.
 
     Installs the .sym into a temporary Breakpad store layout and invokes
@@ -84,15 +84,15 @@ def mode_sym_file_minidump(sym_file: str, dmp: str, stackwalk: str) -> str:
         data = _run_stackwalk_json(stackwalk, dmp, [tmp])
     tombstone, symbols = parse_stackwalk_json(data)
     _apply_annotations(tombstone, dmp)
-    return format_symbolicated(tombstone, symbols)
+    return format_symbolicated(tombstone, symbols, show_trust)
 
 
-def mode_raw_tombstone(dmp: str, stackwalk: str) -> str:
+def mode_raw_tombstone(dmp: str, stackwalk: str, show_trust: bool = False) -> str:
     """Mode 4: format a raw (unsymbolicated) tombstone from a minidump."""
     data = _run_stackwalk_json(stackwalk, dmp, [])
     tombstone, _symbols = parse_stackwalk_json(data)
     _apply_annotations(tombstone, dmp)
-    return format_raw_tombstone(tombstone)
+    return format_raw_tombstone(tombstone, show_trust)
 
 
 def _extract_sysroot_symbols(
@@ -157,7 +157,7 @@ def _extract_sysroot_symbols(
 
 
 def mode_minidump_sysroot(
-    store: str, sysroot: str, dmp: str, stackwalk: str, dump_syms: str
+    store: str, sysroot: str, dmp: str, stackwalk: str, dump_syms: str, show_trust: bool = False
 ) -> str:
     """Mode 5: symbolicate a minidump using both a symbol store and a sysroot.
 
@@ -193,4 +193,4 @@ def mode_minidump_sysroot(
     data = _run_stackwalk_json(stackwalk, dmp, [store])
     tombstone, symbols = parse_stackwalk_json(data)
     _apply_annotations(tombstone, dmp)
-    return format_symbolicated(tombstone, symbols)
+    return format_symbolicated(tombstone, symbols, show_trust)
