@@ -238,6 +238,7 @@ optimization level does not affect stack-trace quality.  If symbols are missing,
 ## Actual observed output
 
 Pre-captured traces from all cases are in [`sample_traces.md`](sample_traces.md).
+Conclusions and practical recommendations are in [`takeaways.md`](takeaways.md).
 Each entry includes the real `crashomon-analyze --show-trust` output, the
 compiler flags, symbol record counts, and annotations explaining surprising
 behaviour (missing frames, unexpected trust values, scan noise).
