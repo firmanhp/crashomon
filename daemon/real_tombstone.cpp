@@ -1,10 +1,9 @@
 // daemon/real_tombstone.cpp — production ITombstone implementation.
 // Not compiled into the test binary; tests use MockTombstone instead.
 
-#include "daemon/worker.h"
-
 #include "daemon/tombstone/minidump_reader.h"
 #include "daemon/tombstone/tombstone_formatter.h"
+#include "daemon/worker.h"
 
 namespace crashomon {
 

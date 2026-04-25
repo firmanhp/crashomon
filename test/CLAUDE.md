@@ -8,7 +8,7 @@ Unit test sources and their CMake configuration live alongside the module they t
 | Component | Sources | CMake |
 |---|---|---|
 | `lib/` | `lib/test/test_crashomon.cpp`, `test_tags.cpp`, `test_connect_retry.cpp`, `test_terminate_hooks.cpp` | `lib/test/CMakeLists.txt` |
-| `tombstone/` | `tombstone/test/test_tombstone_formatter.cpp`, `test_minidump_reader.cpp`, `test_register_extract.cpp` | `tombstone/test/CMakeLists.txt` |
+| `daemon/tombstone/` | `daemon/tombstone/test/test_tombstone_formatter.cpp`, `test_minidump_reader.cpp`, `test_register_extract.cpp` | `daemon/tombstone/test/CMakeLists.txt` |
 | `daemon/` | `daemon/test/test_disk_manager.cpp`, `test_worker.cpp` | `daemon/test/CMakeLists.txt` |
 | `web/` | `web/tests/test_log_parser.py`, `test_analyze.py`, `test_annotations.py` | pytest (no CMake) |
 
@@ -48,12 +48,12 @@ There are three CTest binaries, each defined in its component's `test/CMakeLists
 | `lib/test/test_connect_retry.cpp` | Retry timing, socket-appears-early, and timeout paths |
 | `lib/test/test_terminate_hooks.cpp` | `WriteTerminateAnnotation`, `WriteAssertAnnotation` |
 
-**`crashomon_tombstone_tests`** (`tombstone/test/CMakeLists.txt`):
+**`crashomon_tombstone_tests`** (`daemon/tombstone/test/CMakeLists.txt`):
 | File | Key test patterns |
 |---|---|
-| `tombstone/test/test_tombstone_formatter.cpp` | Builds `MinidumpInfo` structs by hand; asserts string output |
-| `tombstone/test/test_minidump_reader.cpp` | Error-path tests + fixture-based tests against real `.dmp` files |
-| `tombstone/test/test_register_extract.cpp` | AMD64 and ARM64 GPR extraction with synthetic context structs |
+| `daemon/tombstone/test/test_tombstone_formatter.cpp` | Builds `MinidumpInfo` structs by hand; asserts string output |
+| `daemon/tombstone/test/test_minidump_reader.cpp` | Error-path tests + fixture-based tests against synthetic `.dmp` files |
+| `daemon/tombstone/test/test_register_extract.cpp` | AMD64 and ARM64 GPR extraction with synthetic context structs |
 
 **`crashomon_daemon_tests`** (`daemon/test/CMakeLists.txt`):
 | File | Key test patterns |
@@ -65,9 +65,9 @@ There are three CTest binaries, each defined in its component's `test/CMakeLists
 
 ## Fixture files
 
-Synthetic fixtures are generated at build time by `tombstone/test/gen_synthetic_fixtures.cpp`
+Synthetic fixtures are generated at build time by `daemon/tombstone/test/gen_synthetic_fixtures.cpp`
 (built as the `gen_synthetic_fixtures` CMake target, run via a custom command in
-`tombstone/test/CMakeLists.txt`). Outputs land in `build/tombstone/test/fixtures/`.
+`daemon/tombstone/test/CMakeLists.txt`). Outputs land in `build/daemon/tombstone/test/fixtures/`.
 
 `test_minidump_reader.cpp` finds fixtures via:
 1. `CRASHOMON_FIXTURES_DIR` environment variable (set automatically by `gtest_discover_tests`)
@@ -144,7 +144,7 @@ test/stress_test.sh [BUILD_DIR] [-n TOTAL] [-b BATCH] [-p PAUSE] [-t TIMEOUT]
 Add to the existing `test_<module>.cpp` in the component's `test/` directory.
 If adding a new source file, add its path to the appropriate `CMakeLists.txt`:
 - `lib/test/CMakeLists.txt` for client library tests
-- `tombstone/test/CMakeLists.txt` for tombstone tests
+- `daemon/tombstone/test/CMakeLists.txt` for tombstone tests
 - `daemon/test/CMakeLists.txt` for daemon tests
 
 ### Important constraints

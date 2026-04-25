@@ -16,9 +16,9 @@
 #include "absl/status/status.h"
 #include "absl/status/statusor.h"
 #include "absl/strings/str_cat.h"
+#include "daemon/tombstone/register_extract.h"
 #include "google_breakpad/common/minidump_format.h"
 #include "google_breakpad/processor/minidump.h"
-#include "daemon/tombstone/register_extract.h"
 
 namespace crashomon {
 namespace {

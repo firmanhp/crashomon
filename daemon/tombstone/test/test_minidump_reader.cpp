@@ -14,8 +14,8 @@
 #include <filesystem>
 #include <string>
 
-#include "gtest/gtest.h"
 #include "daemon/tombstone/minidump_reader.h"
+#include "gtest/gtest.h"
 
 namespace crashomon {
 namespace {
@@ -431,7 +431,7 @@ TEST(MinidumpReaderAnnotationTest, AnnotationFieldsEmptyWhenCrashpadStreamAbsent
 
   std::string buf;
   buf.reserve(mdmp_header_size);
-  annot_helpers::AppendU32(buf, mdmp_signature);   // MDMP signature
+  annot_helpers::AppendU32(buf, mdmp_signature);    // MDMP signature
   annot_helpers::AppendU32(buf, mdmp_version);      // version
   annot_helpers::AppendU32(buf, 0U);                // stream_count = 0
   annot_helpers::AppendU32(buf, mdmp_header_size);  // stream_directory_rva (unused)

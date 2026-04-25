@@ -22,10 +22,10 @@
 #include <vector>
 
 #include "daemon/disk_manager.h"
+#include "daemon/tombstone/minidump_reader.h"
 #include "daemon/worker.h"
 #include "gmock/gmock.h"
 #include "gtest/gtest.h"
-#include "daemon/tombstone/minidump_reader.h"
 
 namespace crashomon {
 namespace {

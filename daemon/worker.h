@@ -70,7 +70,7 @@ void ProcessNewMinidump(const std::string& path, WorkerState& state,
 
 // Worker thread entry point: dequeues and processes minidumps from `state`
 // until state.stop is true and the queue is empty.
-void RunWorker(WorkerState& state, const DiskManagerConfig& prune_cfg,
-               std::string_view export_path, ITombstone& tombstone);
+void RunWorker(WorkerState& state, const DiskManagerConfig& prune_cfg, std::string_view export_path,
+               ITombstone& tombstone);
 
 }  // namespace crashomon

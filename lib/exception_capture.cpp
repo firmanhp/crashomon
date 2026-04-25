@@ -3,11 +3,11 @@
 // Compiled with -fexceptions (per set_source_files_properties in CMakeLists.txt)
 // so that try/catch is available.  All other crashomon sources use -fno-exceptions.
 
-#include "crashomon_internal.h"
-
-#include <cstdio>
 #include <cstddef>
+#include <cstdio>
 #include <exception>
+
+#include "crashomon_internal.h"
 
 namespace crashomon {
 

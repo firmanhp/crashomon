@@ -5,12 +5,12 @@
 
 // breakpad_types.h defines uint128_struct; must precede the CPU-specific
 // headers that reference it.
+#include "daemon/tombstone/register_extract.h"
 #include "google_breakpad/common/breakpad_types.h"
 #include "google_breakpad/common/minidump_cpu_amd64.h"
 #include "google_breakpad/common/minidump_cpu_arm64.h"
 #include "google_breakpad/processor/minidump.h"  // IWYU pragma: keep
 #include "gtest/gtest.h"
-#include "daemon/tombstone/register_extract.h"
 
 namespace crashomon {
 namespace {

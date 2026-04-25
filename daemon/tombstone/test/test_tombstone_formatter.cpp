@@ -4,9 +4,9 @@
 #include <cstdint>
 #include <string>
 
-#include "gtest/gtest.h"
 #include "daemon/tombstone/minidump_reader.h"
 #include "daemon/tombstone/tombstone_formatter.h"
+#include "gtest/gtest.h"
 
 namespace crashomon {
 namespace {

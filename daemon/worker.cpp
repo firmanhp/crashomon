@@ -115,8 +115,8 @@ void ProcessNewMinidump(const std::string& path, WorkerState& state,
   }
 }
 
-void RunWorker(WorkerState& state, const DiskManagerConfig& prune_cfg,
-               std::string_view export_path, ITombstone& tombstone) {
+void RunWorker(WorkerState& state, const DiskManagerConfig& prune_cfg, std::string_view export_path,
+               ITombstone& tombstone) {
   while (true) {
     std::string path;
     {

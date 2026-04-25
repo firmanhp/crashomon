@@ -5,7 +5,7 @@
 ```
 lib/            libcrashomon.so — C++20 implementation, C-compatible public header
 daemon/         crashomon-watcherd — inotify watcher, tombstone formatter, disk manager
-tombstone/      shared C++ library: minidump reader + tombstone formatter (used by daemon + tests)
+  daemon/tombstone/  minidump reader + tombstone formatter library (daemon-internal)
 tools/
   analyze/      crashomon-analyze — CLI symbolication (Python 3.11 package)
   syms/         crashomon-syms — symbol store management (Python)
@@ -43,11 +43,11 @@ systemd/        systemd unit files + drop-in snippets
 ```bash
 # C/C++ — check
 clang-format --dry-run --Werror \
-  $(find lib daemon tombstone tools/analyze -name '*.c' -o -name '*.cpp' -o -name '*.h')
+  $(find lib daemon tools/analyze -name '*.c' -o -name '*.cpp' -o -name '*.h')
 
 # C/C++ — fix in place
 clang-format -i \
-  $(find lib daemon tombstone tools/analyze -name '*.c' -o -name '*.cpp' -o -name '*.h')
+  $(find lib daemon tools/analyze -name '*.c' -o -name '*.cpp' -o -name '*.h')
 
 # Python
 uv run ruff check web/ tools/analyze/ tools/syms/
@@ -105,9 +105,11 @@ test/integration_test.sh build
 test/test_symbol_store.sh build
 ```
 
-### Fixture-based tests (require real minidumps)
+### Fixture-based tests
 
-The `MinidumpReader` tests need real `.dmp` files. Run once to populate `test/fixtures/`:
+`MinidumpReader` tests use synthetic `.dmp` files generated automatically at build time by the `gen_synthetic_fixtures` CMake target. No extra step is needed — the tests are covered by the normal `ctest` run above.
+
+For additional coverage against real crash minidumps (optional), generate live fixtures once:
 
 ```bash
 test/gen_fixtures.sh build
