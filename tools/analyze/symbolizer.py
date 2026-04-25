@@ -200,14 +200,14 @@ def format_symbolicated(
             f" fault addr 0x{tombstone.fault_addr:x}\n"
         )
 
-    if tombstone.timestamp:
-        out.append(f"timestamp: {tombstone.timestamp}\n")
-
     if tombstone.abort_message:
         if tombstone.terminate_type:
             out.append(f"Abort message: '{tombstone.terminate_type}: {tombstone.abort_message}'\n")
         else:
             out.append(f"Abort message: '{tombstone.abort_message}'\n")
+
+    if tombstone.timestamp:
+        out.append(f"timestamp: {tombstone.timestamp}\n")
 
     if tombstone.threads and tombstone.threads[0].is_crashing:
         out.append("\nbacktrace:\n")

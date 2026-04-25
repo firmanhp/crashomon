@@ -70,4 +70,15 @@ TEST_F(TerminateHooksTest, TerminateAnnotation_NullAnnotationsIsNoOp) {
   // Must not crash.
 }
 
+TEST_F(TerminateHooksTest, TerminateAnnotation_WhatMsgUsedAsAbortMessage) {
+  crashomon::WriteTerminateAnnotation(&typeid(std::runtime_error), "count must be non-negative");
+  EXPECT_STREQ(dict_->GetValueForKey("abort_message"), "count must be non-negative");
+  EXPECT_STREQ(dict_->GetValueForKey("terminate_type"), "std::runtime_error");
+}
+
+TEST_F(TerminateHooksTest, TerminateAnnotation_EmptyWhatMsgFallsBackToDefault) {
+  crashomon::WriteTerminateAnnotation(&typeid(std::runtime_error), "");
+  EXPECT_STREQ(dict_->GetValueForKey("abort_message"), "unhandled C++ exception");
+}
+
 }  // namespace

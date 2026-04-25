@@ -117,6 +117,14 @@ std::string FormatTombstone(const MinidumpInfo& info) {
         << " (" << code_name << "), fault addr " << hex_addr << "\n";
   }
 
+  if (!info.abort_message.empty()) {
+    if (!info.terminate_type.empty()) {
+      out << "Abort message: '" << info.terminate_type << ": " << info.abort_message << "'\n";
+    } else {
+      out << "Abort message: '" << info.abort_message << "'\n";
+    }
+  }
+
   // Probable cause — emitted only when unambiguous.
   if (!info.threads.empty() && info.threads[0].is_crashing) {
     const uint64_t stack_ptr = ExtractStackPtr(info.threads[0].registers);
@@ -125,14 +133,6 @@ std::string FormatTombstone(const MinidumpInfo& info) {
         FormatProbableCause(info.signal_number, info.fault_addr, prog_ctr, stack_ptr);
     if (!cause.empty()) {
       out << "probable cause: " << cause << "\n";
-    }
-  }
-
-  if (!info.abort_message.empty()) {
-    if (!info.terminate_type.empty()) {
-      out << "Abort message: '" << info.terminate_type << ": " << info.abort_message << "'\n";
-    } else {
-      out << "Abort message: '" << info.abort_message << "'\n";
     }
   }
 

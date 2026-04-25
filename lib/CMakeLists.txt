@@ -4,11 +4,19 @@
 
 add_library(crashomon_client SHARED
   crashomon.cpp
+  exception_capture.cpp
 )
 
 add_library(crashomon_client_static STATIC
   crashomon.cpp
+  exception_capture.cpp
 )
+
+# exception_capture.cpp uses try/catch to inspect in-flight exceptions, so it
+# must be compiled with exception support even though all other sources use
+# -fno-exceptions.  The per-file -fexceptions flag overrides the global flag
+# (last flag wins for GCC/Clang).
+set_source_files_properties(exception_capture.cpp PROPERTIES COMPILE_OPTIONS "-fexceptions")
 set_target_properties(crashomon_client_static PROPERTIES OUTPUT_NAME crashomon)
 
 foreach(target crashomon_client crashomon_client_static)

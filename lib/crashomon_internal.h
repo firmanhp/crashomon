@@ -63,17 +63,23 @@ struct ResolvedConfig {
   return resolved;
 }
 
-// Formats an assert() failure annotation and writes it to abort_message.
-// Safe to call before DoInit() — crashomon_set_abort_message is a no-op when
-// the annotations pointer is null.  Heap allocation (std::format/std::string)
-// is permissible here: __assert_fail fires in thread context, not an async
-// signal handler.
+// Formats an assert() failure annotation and writes it to abort_message using
+// a 512-byte stack buffer (no heap allocation).  Safe to call before DoInit()
+// — crashomon_set_abort_message is a no-op when the annotations pointer is null.
 void WriteAssertAnnotation(const char* assertion, const char* file, unsigned int line,
                            const char* func) noexcept;
 
+// Captures e.what() from the current in-flight exception into buf.
+// No-op when there is no active exception or the exception is not a
+// std::exception subclass.  Implemented in exception_capture.cpp, compiled
+// with -fexceptions, so try/catch is available there.
+void CaptureCurrentExceptionMessage(char* buf, size_t buf_size) noexcept;
+
 // Writes terminate_type (demangled exception class name) and abort_message.
 // Pass abi::__cxa_current_exception_type() for exc_type; pass nullptr when
-// there is no active exception.
-void WriteTerminateAnnotation(const std::type_info* exc_type) noexcept;
+// there is no active exception.  what_msg (if non-null and non-empty) is used
+// as the abort_message; otherwise "unhandled C++ exception" is the fallback.
+void WriteTerminateAnnotation(const std::type_info* exc_type,
+                              const char* what_msg = nullptr) noexcept;
 
 }  // namespace crashomon

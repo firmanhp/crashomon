@@ -319,5 +319,21 @@ TEST(TombstoneFormatterTest, AbortMessageAppearsAfterSignalLine) {
   EXPECT_GT(abort_pos, sig_pos);
 }
 
+TEST(TombstoneFormatterTest, AbortMessageAppearsBeforeProbableCause) {
+  // SIGABRT always produces a probable cause line; verify Abort message comes first.
+  MinidumpInfo info = MakeInfo();
+  info.signal_number = kTestSigAbrt;
+  info.signal_info = "SIGABRT";
+  info.signal_code = 0;
+  info.fault_addr = 0;
+  info.abort_message = "assertion failed: 'x > 0'";
+  auto tomb = FormatTombstone(info);
+  const size_t abort_pos = tomb.find("Abort message:");
+  const size_t cause_pos = tomb.find("probable cause:");
+  ASSERT_NE(abort_pos, std::string::npos);
+  ASSERT_NE(cause_pos, std::string::npos);
+  EXPECT_LT(abort_pos, cause_pos);
+}
+
 }  // namespace
 }  // namespace crashomon

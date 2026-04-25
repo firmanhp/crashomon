@@ -171,10 +171,13 @@ def test_format_symbolicated_no_abort_message_no_line() -> None:
     assert "Abort message:" not in out
 
 
-def test_format_symbolicated_abort_message_after_signal_line() -> None:
+def test_format_symbolicated_abort_message_after_signal_before_timestamp() -> None:
     out = format_symbolicated(_make_tombstone(abort_msg="test msg"), {})
     sig_pos = out.find("signal 6")
     abort_pos = out.find("Abort message:")
+    ts_pos = out.find("timestamp:")
     assert sig_pos != -1
     assert abort_pos != -1
+    assert ts_pos != -1
     assert abort_pos > sig_pos
+    assert abort_pos < ts_pos

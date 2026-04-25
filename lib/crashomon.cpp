@@ -22,7 +22,6 @@
 #include <cstring>
 #include <ctime>
 #include <exception>
-#include <format>
 #include <memory>
 #include <mutex>
 #include <string>
@@ -199,7 +198,10 @@ int DoInit(const ResolvedConfig& cfg) {
   crashpad::CrashpadInfo::GetCrashpadInfo()->set_simple_annotations(&annotations);
 
   std::set_terminate([]() noexcept {
-    crashomon::WriteTerminateAnnotation(abi::__cxa_current_exception_type());
+    constexpr size_t what_buf_size = 512;
+    std::array<char, what_buf_size> what_buf{};
+    crashomon::CaptureCurrentExceptionMessage(what_buf.data(), what_buf_size);
+    crashomon::WriteTerminateAnnotation(abi::__cxa_current_exception_type(), what_buf.data());
     std::abort();
   });
 
@@ -242,13 +244,16 @@ __attribute__((destructor)) void AutoShutdown() {
 
 void WriteAssertAnnotation(const char* assertion, const char* file, unsigned int line,
                            const char* func) noexcept {
-  const std::string msg =
-      std::format("assertion failed: '{}' ({}:{}, {})", assertion != nullptr ? assertion : "?",
-                  file != nullptr ? file : "?", line, func != nullptr ? func : "?");
-  crashomon_set_abort_message(msg.c_str());
+  constexpr size_t buf_size = 512;
+  std::array<char, buf_size> buf{};
+  // NOLINTNEXTLINE(cppcoreguidelines-pro-type-vararg)
+  std::snprintf(buf.data(), buf_size, "assertion failed: '%s' (%s:%u, %s)",
+                assertion != nullptr ? assertion : "?", file != nullptr ? file : "?", line,
+                func != nullptr ? func : "?");
+  crashomon_set_abort_message(buf.data());
 }
 
-void WriteTerminateAnnotation(const std::type_info* exc_type) noexcept {
+void WriteTerminateAnnotation(const std::type_info* exc_type, const char* what_msg) noexcept {
   if (exc_type != nullptr) {
     int status = 0;
     // NOLINTNEXTLINE(cppcoreguidelines-no-malloc, cppcoreguidelines-owning-memory)
@@ -257,7 +262,8 @@ void WriteTerminateAnnotation(const std::type_info* exc_type) noexcept {
     const char* type_name =
         (status == 0 && demangled != nullptr) ? demangled.get() : exc_type->name();
     crashomon_set_tag("terminate_type", type_name);
-    crashomon_set_abort_message("unhandled C++ exception");
+    const bool has_msg = (what_msg != nullptr && *what_msg != '\0');
+    crashomon_set_abort_message(has_msg ? what_msg : "unhandled C++ exception");
   } else {
     crashomon_set_abort_message("terminate called without active exception");
   }

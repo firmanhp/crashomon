@@ -78,8 +78,16 @@ target_link_libraries(crashomon_client_tests
 )
 
 # lib/crashomon.cpp compiled directly so tests can #include internal headers.
+# exception_capture.cpp is compiled with -fexceptions (see set_source_files_properties
+# in lib/CMakeLists.txt); include it here so CaptureCurrentExceptionMessage resolves.
 target_sources(crashomon_client_tests PRIVATE
   ${PROJECT_SOURCE_DIR}/lib/crashomon.cpp
+  ${PROJECT_SOURCE_DIR}/lib/exception_capture.cpp
+)
+
+set_source_files_properties(
+  ${PROJECT_SOURCE_DIR}/lib/exception_capture.cpp
+  PROPERTIES COMPILE_OPTIONS "-fexceptions"
 )
 
 target_include_directories(crashomon_client_tests

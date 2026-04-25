@@ -420,5 +420,33 @@ TEST(MinidumpReaderAnnotationTest, AbortMessageOnlyOneEntry) {
   EXPECT_TRUE(result->terminate_type.empty());
 }
 
+TEST(MinidumpReaderAnnotationTest, AnnotationFieldsEmptyWhenCrashpadStreamAbsent) {
+  // Build a minimal valid MDMP header with 0 streams.
+  // ExtractCrashpadAnnotations should find no CrashpadInfo stream and leave both
+  // fields at their default empty values.
+  constexpr uint32_t mdmp_signature = 0x504d444dU;
+  constexpr uint32_t mdmp_version = 0xa793U;
+  constexpr uint32_t mdmp_header_size = 32U;
+  constexpr size_t flags_bytes = 8U;
+
+  std::string buf;
+  buf.reserve(mdmp_header_size);
+  annot_helpers::AppendU32(buf, mdmp_signature);   // MDMP signature
+  annot_helpers::AppendU32(buf, mdmp_version);      // version
+  annot_helpers::AppendU32(buf, 0U);                // stream_count = 0
+  annot_helpers::AppendU32(buf, mdmp_header_size);  // stream_directory_rva (unused)
+  annot_helpers::AppendU32(buf, 0U);                // checksum
+  annot_helpers::AppendU32(buf, 0U);                // time_date_stamp
+  buf.append(flags_bytes, '\0');                    // flags (uint64_t)
+
+  const std::string dmp = annot_helpers::WriteTmpFile(buf);
+  ASSERT_FALSE(dmp.empty());
+  auto result = ReadMinidump(dmp);
+  ::unlink(dmp.c_str());
+  ASSERT_TRUE(result.ok()) << result.status();
+  EXPECT_TRUE(result->abort_message.empty());
+  EXPECT_TRUE(result->terminate_type.empty());
+}
+
 }  // namespace
 }  // namespace crashomon
