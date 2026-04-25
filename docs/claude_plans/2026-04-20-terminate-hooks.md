@@ -40,7 +40,7 @@
 - Create: `lib/test/test_terminate_hooks.cpp`
 - Modify: `test/CMakeLists.txt`
 
-- [ ] **Step 1: Add `WriteAssertAnnotation` declaration to `crashomon_internal.h`**
+- [x] **Step 1: Add `WriteAssertAnnotation` declaration to `crashomon_internal.h`**
 
   Open `lib/crashomon_internal.h`. After the `#include "crashomon.h"` line (line 16) and before `namespace crashomon {`, add:
 
@@ -63,7 +63,7 @@
   void WriteTerminateAnnotation(const std::type_info* ti) noexcept;
   ```
 
-- [ ] **Step 2: Register `test_terminate_hooks.cpp` in CMakeLists**
+- [x] **Step 2: Register `test_terminate_hooks.cpp` in CMakeLists**
 
   Open `test/CMakeLists.txt`. Find the `set(CLIENT_TEST_SOURCES` block (line 62). Add the new file:
 
@@ -76,7 +76,7 @@
   )
   ```
 
-- [ ] **Step 3: Write failing test**
+- [x] **Step 3: Write failing test**
 
   Create `lib/test/test_terminate_hooks.cpp`:
 
@@ -135,7 +135,7 @@
   }  // namespace
   ```
 
-- [ ] **Step 4: Run test to verify it fails**
+- [x] **Step 4: Run test to verify it fails**
 
   ```bash
   cmake -B build -DENABLE_TESTS=ON \
@@ -145,7 +145,7 @@
 
   Expected: compile error — `crashomon::WriteAssertAnnotation` undefined.
 
-- [ ] **Step 5: Implement `WriteAssertAnnotation` and `__assert_fail` override in `crashomon.cpp`**
+- [x] **Step 5: Implement `WriteAssertAnnotation` and `__assert_fail` override in `crashomon.cpp`**
 
   Add includes near the top of `lib/crashomon.cpp` (after existing `#include` block):
 
@@ -200,7 +200,7 @@
   }
   ```
 
-- [ ] **Step 6: Run test to verify it passes**
+- [x] **Step 6: Run test to verify it passes**
 
   ```bash
   cmake --build build --target crashomon_client_tests && \
@@ -209,7 +209,7 @@
 
   Expected: `AssertAnnotation_*` tests PASS.
 
-- [ ] **Step 7: Commit**
+- [x] **Step 7: Commit**
 
   ```bash
   git add lib/crashomon_internal.h lib/crashomon.cpp \
@@ -225,7 +225,7 @@
 - Modify: `lib/crashomon.cpp`
 - Modify: `lib/test/test_terminate_hooks.cpp`
 
-- [ ] **Step 1: Write failing tests for `WriteTerminateAnnotation`**
+- [x] **Step 1: Write failing tests for `WriteTerminateAnnotation`**
 
   Append inside the anonymous namespace in `lib/test/test_terminate_hooks.cpp` (before the closing `}  // namespace`):
 
@@ -260,7 +260,7 @@
   }
   ```
 
-- [ ] **Step 2: Run tests to verify they fail**
+- [x] **Step 2: Run tests to verify they fail**
 
   ```bash
   cmake --build build --target crashomon_client_tests && \
@@ -274,7 +274,7 @@
   Expected output includes: TerminateAnnotation_* lines
   ```
 
-- [ ] **Step 3: Install terminate handler in `DoInit()`**
+- [x] **Step 3: Install terminate handler in `DoInit()`**
 
   In `lib/crashomon.cpp`, at the end of `DoInit()` just before `return 0;`, add:
 
@@ -287,7 +287,7 @@
 
   Add `#include <exception>` to the include block at the top of `crashomon.cpp` (if not already present).
 
-- [ ] **Step 4: Run all client tests to verify they pass**
+- [x] **Step 4: Run all client tests to verify they pass**
 
   ```bash
   cmake --build build --target crashomon_client_tests && \
@@ -296,7 +296,7 @@
 
   Expected: all tests PASS (including pre-existing ones).
 
-- [ ] **Step 5: Commit**
+- [x] **Step 5: Commit**
 
   ```bash
   git add lib/crashomon.cpp lib/test/test_terminate_hooks.cpp
@@ -312,7 +312,7 @@
 - Modify: `tombstone/minidump_reader.cpp`
 - Modify: `tombstone/test/test_minidump_reader.cpp`
 
-- [ ] **Step 1: Write failing test — build annotated minidump binary, call `ReadMinidump`, assert fields**
+- [x] **Step 1: Write failing test — build annotated minidump binary, call `ReadMinidump`, assert fields**
 
   Open `tombstone/test/test_minidump_reader.cpp`. Before the `// ── Error-path tests` comment block, add the helper function and two tests:
 
@@ -486,7 +486,7 @@
 
   Note: the `#include <cstring>` and `#include <unistd.h>` are already in the file.
 
-- [ ] **Step 2: Run test to verify it fails**
+- [x] **Step 2: Run test to verify it fails**
 
   ```bash
   cmake --build build --target crashomon_daemon_tests 2>&1 | tail -10
@@ -494,7 +494,7 @@
 
   Expected: compile error — `abort_message` field not found on `MinidumpInfo`.
 
-- [ ] **Step 3: Add `abort_message` and `terminate_type` fields to `MinidumpInfo`**
+- [x] **Step 3: Add `abort_message` and `terminate_type` fields to `MinidumpInfo`**
 
   Open `tombstone/minidump_reader.h`. In the `MinidumpInfo` struct (after `minidump_path`), add:
 
@@ -503,7 +503,7 @@
   std::string terminate_type; // Crashpad "terminate_type" annotation; empty if absent
   ```
 
-- [ ] **Step 4: Implement `ExtractCrashpadAnnotations` in `minidump_reader.cpp`**
+- [x] **Step 4: Implement `ExtractCrashpadAnnotations` in `minidump_reader.cpp`**
 
   Add includes at the top of `tombstone/minidump_reader.cpp` (after existing includes):
 
@@ -582,7 +582,7 @@
   }
   ```
 
-- [ ] **Step 5: Call `ExtractCrashpadAnnotations` from `ReadMinidump`**
+- [x] **Step 5: Call `ExtractCrashpadAnnotations` from `ReadMinidump`**
 
   In `tombstone/minidump_reader.cpp`, inside `ReadMinidump`, after the `ExtractThreadName(raw, info);` call and before `return info;`, add:
 
@@ -590,7 +590,7 @@
   ExtractCrashpadAnnotations(path, info);
   ```
 
-- [ ] **Step 6: Run tests to verify they pass**
+- [x] **Step 6: Run tests to verify they pass**
 
   ```bash
   cmake --build build --target crashomon_daemon_tests && \
@@ -603,7 +603,7 @@
   ctest --test-dir build --output-on-failure
   ```
 
-- [ ] **Step 7: Commit**
+- [x] **Step 7: Commit**
 
   ```bash
   git add tombstone/minidump_reader.h tombstone/minidump_reader.cpp \
@@ -619,7 +619,7 @@
 - Modify: `tombstone/tombstone_formatter.cpp`
 - Modify: `tombstone/test/test_tombstone_formatter.cpp`
 
-- [ ] **Step 1: Write failing tests**
+- [x] **Step 1: Write failing tests**
 
   Open `tombstone/test/test_tombstone_formatter.cpp`. Append before the final closing `}  // namespace`:
 
@@ -661,7 +661,7 @@
   }
   ```
 
-- [ ] **Step 2: Run tests to verify they fail**
+- [x] **Step 2: Run tests to verify they fail**
 
   ```bash
   cmake --build build --target crashomon_daemon_tests && \
@@ -670,7 +670,7 @@
 
   Expected: FAILs (no `Abort message:` line yet).
 
-- [ ] **Step 3: Implement `Abort message:` emission in `tombstone_formatter.cpp`**
+- [x] **Step 3: Implement `Abort message:` emission in `tombstone_formatter.cpp`**
 
   Open `tombstone/tombstone_formatter.cpp`. In `FormatTombstone`, after the signal-line block (just after the `out << "signal …"` lines, before the probable-cause block), add:
 
@@ -685,7 +685,7 @@
   }
   ```
 
-- [ ] **Step 4: Run all daemon tests**
+- [x] **Step 4: Run all daemon tests**
 
   ```bash
   cmake --build build --target crashomon_daemon_tests && \
@@ -694,7 +694,7 @@
 
   Expected: all tests PASS (4 new + existing).
 
-- [ ] **Step 5: Commit**
+- [x] **Step 5: Commit**
 
   ```bash
   git add tombstone/tombstone_formatter.cpp \
@@ -711,7 +711,7 @@
 - Modify: `tools/analyze/symbolizer.py`
 - Create: `web/tests/test_annotations.py`
 
-- [ ] **Step 1: Write failing pytest**
+- [x] **Step 1: Write failing pytest**
 
   Create `web/tests/test_annotations.py`:
 
@@ -867,7 +867,7 @@
       assert result == {}
   ```
 
-- [ ] **Step 2: Run test to verify it fails**
+- [x] **Step 2: Run test to verify it fails**
 
   ```bash
   pytest web/tests/test_annotations.py -v 2>&1 | head -20
@@ -875,7 +875,7 @@
 
   Expected: `ImportError` — `read_minidump_annotations` not yet defined.
 
-- [ ] **Step 3: Add `abort_message` and `terminate_type` fields to `ParsedTombstone`**
+- [x] **Step 3: Add `abort_message` and `terminate_type` fields to `ParsedTombstone`**
 
   Open `tools/analyze/log_parser.py`. In the `ParsedTombstone` dataclass, add after `minidump_path`:
 
@@ -884,7 +884,7 @@
   terminate_type: str = ""
   ```
 
-- [ ] **Step 4: Implement `read_minidump_annotations` in `symbolizer.py`**
+- [x] **Step 4: Implement `read_minidump_annotations` in `symbolizer.py`**
 
   Open `tools/analyze/symbolizer.py`. After the `read_minidump_thread_names` function (end of file), add:
 
@@ -961,7 +961,7 @@
           return {}
   ```
 
-- [ ] **Step 5: Run tests to verify they pass**
+- [x] **Step 5: Run tests to verify they pass**
 
   ```bash
   pytest web/tests/test_annotations.py -v
@@ -969,7 +969,7 @@
 
   Expected: all 4 annotation-reader tests PASS.
 
-- [ ] **Step 6: Commit**
+- [x] **Step 6: Commit**
 
   ```bash
   git add tools/analyze/log_parser.py tools/analyze/symbolizer.py \
@@ -986,7 +986,7 @@
 - Modify: `tools/analyze/analyze.py`
 - Modify: `web/tests/test_annotations.py`
 
-- [ ] **Step 1: Write failing tests**
+- [x] **Step 1: Write failing tests**
 
   Append to `web/tests/test_annotations.py`:
 
@@ -1048,7 +1048,7 @@
       assert abort_pos > sig_pos
   ```
 
-- [ ] **Step 2: Run tests to verify they fail**
+- [x] **Step 2: Run tests to verify they fail**
 
   ```bash
   pytest web/tests/test_annotations.py::test_format_symbolicated_emits_abort_message_line -v
@@ -1056,7 +1056,7 @@
 
   Expected: FAIL — `Abort message:` not yet emitted.
 
-- [ ] **Step 3: Update `format_symbolicated` in `symbolizer.py`**
+- [x] **Step 3: Update `format_symbolicated` in `symbolizer.py`**
 
   Open `tools/analyze/symbolizer.py`. In `format_symbolicated`, after the `if tombstone.timestamp:` block and before the `if tombstone.threads and tombstone.threads[0].is_crashing:` block, add:
 
@@ -1070,7 +1070,7 @@
           out.append(f"Abort message: '{tombstone.abort_message}'\n")
   ```
 
-- [ ] **Step 4: Wire `read_minidump_annotations` into `_apply_minidump_metadata` in `analyze.py`**
+- [x] **Step 4: Wire `read_minidump_annotations` into `_apply_minidump_metadata` in `analyze.py`**
 
   Open `tools/analyze/analyze.py`. Update the import at the top:
 
@@ -1095,7 +1095,7 @@
   tombstone.terminate_type = annotations.get("terminate_type", "")
   ```
 
-- [ ] **Step 5: Run all Python tests**
+- [x] **Step 5: Run all Python tests**
 
   ```bash
   pytest web/tests/ -v 2>&1 | tail -20
@@ -1103,7 +1103,7 @@
 
   Expected: all tests PASS (new + pre-existing).
 
-- [ ] **Step 6: Commit**
+- [x] **Step 6: Commit**
 
   ```bash
   git add tools/analyze/symbolizer.py tools/analyze/analyze.py \
@@ -1115,7 +1115,7 @@
 
 ## Final verification
 
-- [ ] **Run full C++ test suite**
+- [x] **Run full C++ test suite**
 
   ```bash
   cmake --build build && ctest --test-dir build --output-on-failure
@@ -1123,7 +1123,7 @@
 
   Expected: all tests pass (was 103 before; now includes new tests — no failures, no regressions).
 
-- [ ] **Run full Python test suite**
+- [x] **Run full Python test suite**
 
   ```bash
   pytest web/tests/ -v

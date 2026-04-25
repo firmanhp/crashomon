@@ -48,7 +48,11 @@ WATCHERD="${BUILD_DIR}/daemon/crashomon-watcherd"
 CRASHOMON_ANALYZE="${PROJECT_ROOT}/tools/analyze/crashomon-analyze"
 CRASHOMON_SYMS="${PROJECT_ROOT}/tools/syms/crashomon-syms"
 EXAMPLES_BIN="${BUILD_DIR}/examples"
-DUMP_SYMS="$(find "${BUILD_DIR}" -maxdepth 4 -name 'breakpad_dump_syms' -type f | head -1 || true)"
+# dump_syms is a host tool built separately in _dump_syms_build/ (see INSTALL.md).
+DUMP_SYMS="${PROJECT_ROOT}/_dump_syms_build/dump_syms"
+if [[ ! -f "${DUMP_SYMS}" ]]; then
+  DUMP_SYMS="$(find "${BUILD_DIR}" -maxdepth 4 -name 'dump_syms' -type f 2>/dev/null | head -1 || true)"
+fi
 STACKWALK="$(find "${BUILD_DIR}" -maxdepth 4 -name 'minidump-stackwalk' -type f | head -1 || true)"
 
 echo "=== Crashomon Integration Test ==="
