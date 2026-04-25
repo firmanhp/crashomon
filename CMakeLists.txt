@@ -278,13 +278,14 @@ endif()
 
 # ── Subdirectories ─────────────────────────────────────────────────────────────
 add_subdirectory(lib)
-add_subdirectory(tombstone)
 add_subdirectory(daemon)
 
 if(ENABLE_TESTS)
   add_subdirectory(examples)
   enable_testing()
-  add_subdirectory(test)
+  add_subdirectory(lib/test)
+  add_subdirectory(daemon/tombstone/test)
+  add_subdirectory(daemon/test)
 
   add_subdirectory(bench)
 endif()

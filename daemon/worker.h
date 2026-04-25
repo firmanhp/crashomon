@@ -19,9 +19,34 @@
 #include <string_view>
 #include <unordered_map>
 
+#include "absl/status/statusor.h"
 #include "daemon/disk_manager.h"
+#include "daemon/tombstone/minidump_reader.h"
 
 namespace crashomon {
+
+// Tombstone operations needed by the worker: read a minidump file and format
+// a tombstone string from the parsed result.  Injected so tests can mock
+// without linking crashomon_tombstone or breakpad_processor.
+class ITombstone {
+ public:
+  ITombstone() = default;
+  virtual ~ITombstone() = default;
+  ITombstone(const ITombstone&) = delete;
+  ITombstone& operator=(const ITombstone&) = delete;
+  ITombstone(ITombstone&&) = delete;
+  ITombstone& operator=(ITombstone&&) = delete;
+
+  virtual absl::StatusOr<MinidumpInfo> ReadMinidump(const std::string& path) = 0;
+  virtual std::string FormatTombstone(const MinidumpInfo& info) = 0;
+};
+
+// Production implementation backed by the real tombstone library.
+class RealTombstone : public ITombstone {
+ public:
+  absl::StatusOr<MinidumpInfo> ReadMinidump(const std::string& path) override;
+  std::string FormatTombstone(const MinidumpInfo& info) override;
+};
 
 // Shared state for the minidump processing worker thread.
 // `pending`, `cv`, and `stop` are shared between the poll loop and the worker,
@@ -40,11 +65,12 @@ struct WorkerState {
 // Pruning is unconditional — it runs even when the dump is unreadable, so a
 // full disk that produces partial writes doesn't wedge the pruning cycle.
 void ProcessNewMinidump(const std::string& path, WorkerState& state,
-                        const DiskManagerConfig& prune_cfg, std::string_view export_path);
+                        const DiskManagerConfig& prune_cfg, std::string_view export_path,
+                        ITombstone& tombstone);
 
 // Worker thread entry point: dequeues and processes minidumps from `state`
 // until state.stop is true and the queue is empty.
 void RunWorker(WorkerState& state, const DiskManagerConfig& prune_cfg,
-               std::string_view export_path);
+               std::string_view export_path, ITombstone& tombstone);
 
 }  // namespace crashomon

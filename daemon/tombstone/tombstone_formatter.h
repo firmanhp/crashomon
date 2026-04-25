@@ -7,7 +7,7 @@
 
 #include <string>
 
-#include "tombstone/minidump_reader.h"
+#include "daemon/tombstone/minidump_reader.h"
 
 namespace crashomon {
 

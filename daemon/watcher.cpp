@@ -309,8 +309,9 @@ int RunWatcher(const std::string& db_path, const std::string& socket_path,
   // holders have closed their copies.
 
   WorkerState worker_state;
+  RealTombstone tombstone;
   std::thread worker_thread(RunWorker, std::ref(worker_state), std::cref(prune_cfg),
-                            std::string_view{export_path});
+                            std::string_view{export_path}, std::ref(tombstone));
 
   // ── Event loop ────────────────────────────────────────────────────────────
 

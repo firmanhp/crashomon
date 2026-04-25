@@ -15,8 +15,6 @@
 
 #include "daemon/disk_manager.h"
 #include "spdlog/spdlog.h"
-#include "tombstone/minidump_reader.h"
-#include "tombstone/tombstone_formatter.h"
 
 namespace {
 
@@ -82,8 +80,9 @@ void ExportMinidump(const std::string& src_path, std::string_view export_path,
 namespace crashomon {
 
 void ProcessNewMinidump(const std::string& path, WorkerState& state,
-                        const DiskManagerConfig& prune_cfg, std::string_view export_path) {
-  auto info_or = ReadMinidump(path);
+                        const DiskManagerConfig& prune_cfg, std::string_view export_path,
+                        ITombstone& tombstone) {
+  auto info_or = tombstone.ReadMinidump(path);
   if (!info_or.ok()) {
     spdlog::error("crashomon-watcherd: failed to read minidump '{}': {}", path,
                   info_or.status().message());
@@ -104,7 +103,7 @@ void ProcessNewMinidump(const std::string& path, WorkerState& state,
       spdlog::info("crashomon-watcherd: suppressed duplicate crash ({})", key);
     } else {
       state.rate_limit_map[key] = now;
-      LogTombstone(FormatTombstone(info));
+      LogTombstone(tombstone.FormatTombstone(info));
       if (!export_path.empty()) {
         ExportMinidump(path, export_path, info);
       }
@@ -117,7 +116,7 @@ void ProcessNewMinidump(const std::string& path, WorkerState& state,
 }
 
 void RunWorker(WorkerState& state, const DiskManagerConfig& prune_cfg,
-               std::string_view export_path) {
+               std::string_view export_path, ITombstone& tombstone) {
   while (true) {
     std::string path;
     {
@@ -130,7 +129,7 @@ void RunWorker(WorkerState& state, const DiskManagerConfig& prune_cfg,
       state.pending.pop();
     }
     // No lock held during processing — allows the poll loop to keep enqueuing.
-    ProcessNewMinidump(path, state, prune_cfg, export_path);
+    ProcessNewMinidump(path, state, prune_cfg, export_path, tombstone);
   }
 }
 

@@ -1,10 +1,13 @@
 # crashomon-watcherd — inotify watcher daemon
 # Watches for new minidumps, formats tombstones, logs to stderr/journald.
 
+add_subdirectory(tombstone)
+
 add_executable(crashomon_watcherd
   main.cpp
   crash_socket.cpp
   disk_manager.cpp
+  real_tombstone.cpp
   watcher.cpp
   worker.cpp
 )

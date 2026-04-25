@@ -1,6 +1,6 @@
 // tombstone/register_extract.cpp — AMD64 and ARM64 GPR extraction.
 
-#include "tombstone/register_extract.h"
+#include "daemon/tombstone/register_extract.h"
 
 #include <cstdint>
 #include <string>

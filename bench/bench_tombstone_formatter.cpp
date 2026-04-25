@@ -8,8 +8,8 @@
 #include <vector>
 
 #include "benchmark/benchmark.h"
-#include "tombstone/minidump_reader.h"
-#include "tombstone/tombstone_formatter.h"
+#include "daemon/tombstone/minidump_reader.h"
+#include "daemon/tombstone/tombstone_formatter.h"
 
 namespace crashomon {
 namespace {

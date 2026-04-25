@@ -1,6 +1,6 @@
 // tombstone/tombstone_formatter.cpp — crashomon tombstone formatter
 
-#include "tombstone/tombstone_formatter.h"
+#include "daemon/tombstone/tombstone_formatter.h"
 
 #include <cstdint>
 #include <format>
@@ -11,7 +11,7 @@
 #include <vector>
 
 #include "absl/strings/str_cat.h"
-#include "tombstone/minidump_reader.h"
+#include "daemon/tombstone/minidump_reader.h"
 
 namespace crashomon {
 namespace {

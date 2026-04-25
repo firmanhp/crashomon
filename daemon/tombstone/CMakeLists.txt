@@ -1,5 +1,5 @@
 # crashomon_tombstone — minidump reader + tombstone formatter library
-# Shared by crashomon-watcherd, crashomon-analyze, and unit tests.
+# Used by crashomon-watcherd and benchmarks.
 
 add_library(crashomon_tombstone STATIC
   register_extract.cpp

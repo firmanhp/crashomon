@@ -12,7 +12,7 @@
 
 #include "absl/status/statusor.h"
 #include "benchmark/benchmark.h"
-#include "tombstone/minidump_reader.h"
+#include "daemon/tombstone/minidump_reader.h"
 
 namespace crashomon {
 namespace {

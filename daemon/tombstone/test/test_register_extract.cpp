@@ -10,7 +10,7 @@
 #include "google_breakpad/common/minidump_cpu_arm64.h"
 #include "google_breakpad/processor/minidump.h"  // IWYU pragma: keep
 #include "gtest/gtest.h"
-#include "tombstone/register_extract.h"
+#include "daemon/tombstone/register_extract.h"
 
 namespace crashomon {
 namespace {

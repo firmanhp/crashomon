@@ -1,6 +1,6 @@
 // tombstone/minidump_reader.cpp — low-level minidump reader (no stack walking)
 
-#include "tombstone/minidump_reader.h"
+#include "daemon/tombstone/minidump_reader.h"
 
 #include <sys/stat.h>  // NOLINT(misc-include-cleaner) — pulled in for struct stat; transitively available but explicitly included for clarity.
 
@@ -18,7 +18,7 @@
 #include "absl/strings/str_cat.h"
 #include "google_breakpad/common/minidump_format.h"
 #include "google_breakpad/processor/minidump.h"
-#include "tombstone/register_extract.h"
+#include "daemon/tombstone/register_extract.h"
 
 namespace crashomon {
 namespace {
