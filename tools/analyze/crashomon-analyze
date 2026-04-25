@@ -72,7 +72,19 @@ def _build_parser() -> argparse.ArgumentParser:
 def _resolve_binary(name: str) -> str:
     resolved = shutil.which(name)
     if resolved is None:
-        print(f"crashomon-analyze: {name!r} not found", file=sys.stderr)
+        print(f"crashomon-analyze: {name!r} not found on PATH", file=sys.stderr)
+        if "stackwalk" in name:
+            print(
+                "  Build it with:  cmake -B build -DCRASHOMON_BUILD_ANALYZE=ON"
+                " && cmake --build build",
+                file=sys.stderr,
+            )
+            print(
+                "  Then pass:      --stackwalk-binary=build/rust_minidump_target"
+                "/release/minidump-stackwalk",
+                file=sys.stderr,
+            )
+            print("  See INSTALL.md §'Building minidump-stackwalk'", file=sys.stderr)
         sys.exit(1)
     print(f"crashomon-analyze: using {name}: {resolved}", file=sys.stderr)
     return resolved

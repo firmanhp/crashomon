@@ -48,8 +48,8 @@ WATCHERD="${BUILD_DIR}/daemon/crashomon-watcherd"
 CRASHOMON_ANALYZE="${PROJECT_ROOT}/tools/analyze/crashomon-analyze"
 CRASHOMON_SYMS="${PROJECT_ROOT}/tools/syms/crashomon-syms"
 EXAMPLES_BIN="${BUILD_DIR}/examples"
-DUMP_SYMS="$(find "${BUILD_DIR}" -maxdepth 2 -name 'breakpad_dump_syms' -type f | head -1 || true)"
-STACKWALK="$(find "${BUILD_DIR}" -maxdepth 2 -name 'minidump_stackwalk' -type f | head -1 || true)"
+DUMP_SYMS="$(find "${BUILD_DIR}" -maxdepth 4 -name 'breakpad_dump_syms' -type f | head -1 || true)"
+STACKWALK="$(find "${BUILD_DIR}" -maxdepth 4 -name 'minidump-stackwalk' -type f | head -1 || true)"
 
 echo "=== Crashomon Integration Test ==="
 echo "Build dir: ${BUILD_DIR}"
@@ -164,11 +164,14 @@ if [[ -f "${CRASHOMON_ANALYZE}" ]]; then
       echo "  SKIP: ${name}.dmp not available"
       continue
     fi
-    output="$("${CRASHOMON_ANALYZE}" \
+    if output="$("${CRASHOMON_ANALYZE}" \
       "--store=${SYM_STORE}" \
       "--minidump=${dmp}" \
-      ${STACKWALK_ARG:+"${STACKWALK_ARG}"} 2>&1)"
-    analyze_exit=$?
+      ${STACKWALK_ARG:+"${STACKWALK_ARG}"} 2>&1)"; then
+      analyze_exit=0
+    else
+      analyze_exit=$?
+    fi
     if [[ "${analyze_exit}" -eq 0 && -n "${output}" ]]; then
       log_pass "analyze ${name}: exited 0 and produced output"
     else
