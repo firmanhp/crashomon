@@ -73,6 +73,16 @@ else
   suite_fail "integration_test.sh"
 fi
 
+# ── crashomon-syms tests ──────────────────────────────────────────────────────
+
+echo ""
+echo "-- test_syms.sh --"
+if "${SCRIPT_DIR}/test_syms.sh" 2>&1 | sed 's/^/  /'; then
+  suite_pass "test_syms.sh"
+else
+  suite_fail "test_syms.sh"
+fi
+
 # ── Summary ───────────────────────────────────────────────────────────────────
 
 echo ""

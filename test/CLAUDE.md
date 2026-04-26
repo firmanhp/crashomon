@@ -116,8 +116,33 @@ test/integration_test.sh /my/build
 Standalone smoke tests for the `dump_syms` host binary. No daemon required.
 
 ```bash
-test/test_dump_syms_smoke.sh _dump_syms_build/dump_syms build/examples/crashomon-example-segfault
+test/test_dump_syms_smoke.sh _host_toolkit/bin/dump_syms build/examples/crashomon-example-segfault
 ```
+
+Checks: exit codes, MODULE line format, build ID encoding, FUNC/FILE record presence, stripped binary handling, self-processing, and error paths.
+
+### `test_syms.sh`
+
+Comprehensive tests for `crashomon-syms`. Compiles small ELF shared libraries from committed C source fixtures (`test/fixtures/syms/`) using the system `gcc` — no crashomon build required other than `dump_syms`.
+
+```bash
+test/test_syms.sh                                          # auto-discovers tools
+test/test_syms.sh --dump-syms <path> --syms-tool <path>   # explicit paths
+```
+
+Covers all subcommands and all four sysroot scan paths:
+- `add` single + multiple binaries, store layout, MODULE line validation
+- `add --recursive`
+- `prune --keep N` (three-version scenario)
+- `--sysroot usr/lib/` (flat), with plugin subdir (recursive), `usr/lib64/`, `lib/`, `lib64/`
+- Merged-usr symlink deduplication (`lib/ → usr/lib/`)
+- Non-ELF `.so` files silently skipped; empty sysroot → non-zero exit
+- Error paths: no input, non-existent binary, `prune --keep 0`, non-directory store
+
+**Fixture sources** (`test/fixtures/syms/`) are committed C files compiled at test time:
+- `libfoo.c` — supports `VERSION` macro for distinct build IDs per prune test
+- `libbar.c` — second library for multi-binary tests
+- `plugin/libplugin.c` — in a subdirectory to exercise recursive sysroot scanning
 
 ### `test_symbol_store.sh`
 
