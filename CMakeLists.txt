@@ -73,10 +73,6 @@ option(CRASHOMON_ENABLE_INSTALL   "Generate crashomon install() rules"    ${_CRA
 option(CRASHOMON_INSTALL_CLIENT   "Install client library + header"        ON)
 option(CRASHOMON_INSTALL_WATCHERD "Install watcherd daemon + dump_syms"    ON)
 option(CRASHOMON_INSTALL_ANALYZE  "Install analyze CLI + stackwalk"        OFF)
-# Separate build toggle: build the analyze tools (minidump_stackwalk) without
-# installing them. Useful when consuming crashomon as a subproject but still
-# needing the tool at build time.
-option(CRASHOMON_BUILD_ANALYZE    "Build analyze tools without installing" OFF)
 
 # ── Compiler warnings — applied to OUR targets only via interface library ──────
 # Third-party deps (Crashpad, GoogleTest) are fetched separately and must
@@ -244,10 +240,47 @@ endif()
 # Breakpad — minidump-processor library + dump_syms + minidump_stackwalk tools.
 # Breakpad uses GN/autotools; we define our own CMake targets (vcpkg-style).
 # Source trees populated by fetch_breakpad_deps.cmake above.
-include(cmake/breakpad.cmake)
-if(CRASHOMON_INSTALL_ANALYZE OR CRASHOMON_BUILD_ANALYZE)
-  include(cmake/rust_minidump.cmake)
+
+# ── Host toolkit integration ───────────────────────────────────────────────────
+# Build the host tools once with cmake/host_toolkit/ and point CRASHOMON_HOST_TOOLKIT_DIR
+# at the resulting bin/ directory:
+#
+#   cmake -B _host_toolkit -S cmake/host_toolkit/
+#   cmake --build _host_toolkit --target host_toolkit
+#   cmake -B build -DCRASHOMON_HOST_TOOLKIT_DIR=$(pwd)/_host_toolkit/bin
+#
+# CRASHOMON_DUMP_SYMS_EXECUTABLE and MINIDUMP_STACKWALK_EXECUTABLE can also be
+# set directly to override individual tools (e.g. for cross-compilation pre-builds).
+
+set(CRASHOMON_HOST_TOOLKIT_DIR "" CACHE PATH
+  "Directory of host_toolkit outputs (dump_syms, minidump-stackwalk, crashomon-analyze).")
+set(MINIDUMP_STACKWALK_EXECUTABLE "" CACHE FILEPATH
+  "Path to minidump-stackwalk binary (auto-derived from CRASHOMON_HOST_TOOLKIT_DIR if set).")
+
+if(CRASHOMON_HOST_TOOLKIT_DIR)
+  if(NOT CRASHOMON_DUMP_SYMS_EXECUTABLE)
+    set(CRASHOMON_DUMP_SYMS_EXECUTABLE
+      "${CRASHOMON_HOST_TOOLKIT_DIR}/dump_syms"
+      CACHE FILEPATH "Path to the pre-built host dump_syms binary." FORCE)
+  endif()
+  if(NOT MINIDUMP_STACKWALK_EXECUTABLE)
+    set(MINIDUMP_STACKWALK_EXECUTABLE
+      "${CRASHOMON_HOST_TOOLKIT_DIR}/minidump-stackwalk"
+      CACHE FILEPATH "Path to the rust-minidump minidump-stackwalk binary." FORCE)
+  endif()
 endif()
+
+if(CRASHOMON_INSTALL_ANALYZE AND NOT MINIDUMP_STACKWALK_EXECUTABLE)
+  message(FATAL_ERROR
+    "CRASHOMON_INSTALL_ANALYZE=ON requires MINIDUMP_STACKWALK_EXECUTABLE to be set.\n"
+    "Build the host toolkit first:\n"
+    "  cmake -B _host_toolkit -S cmake/host_toolkit/\n"
+    "  cmake --build _host_toolkit --target host_toolkit\n"
+    "Then re-run configure with:\n"
+    "  -DCRASHOMON_HOST_TOOLKIT_DIR=<path>/_host_toolkit/bin")
+endif()
+
+include(cmake/breakpad.cmake)
 include(cmake/crashomon_symbols.cmake)
 
 # spdlog — structured logging for crashomon-watcherd.
