@@ -10,14 +10,14 @@ from unittest.mock import MagicMock, patch
 
 import pytest
 
-from tools.analyze.analyze import (
+from crashomon_tools.analyze.analyze import (
     _extract_sysroot_symbols,
     mode_minidump_store,
     mode_raw_tombstone,
     mode_sym_file_minidump,
 )
-from tools.analyze.log_parser import ParsedFrame, ParsedThread, ParsedTombstone
-from tools.analyze.symbolizer import format_raw_tombstone, parse_stackwalk_json
+from crashomon_tools.analyze.log_parser import ParsedFrame, ParsedThread, ParsedTombstone
+from crashomon_tools.analyze.symbolizer import format_raw_tombstone, parse_stackwalk_json
 
 # ---------------------------------------------------------------------------
 # JSON fixture — matches real minidump-stackwalk --json output structure
@@ -269,9 +269,9 @@ def test_format_raw_tombstone_contains_frame():
 
 
 def test_mode_minidump_store_passes_args():
-    with patch("tools.analyze.analyze.subprocess.run") as mock_run:
+    with patch("crashomon_tools.analyze.analyze.subprocess.run") as mock_run:
         mock_run.return_value = MagicMock(stdout=_JSON_STR, returncode=0)
-        result = mode_minidump_store("/sym/store", "crash.dmp", "minidump-stackwalk")
+        result = mode_minidump_store(["/sym/store"], "crash.dmp", "minidump-stackwalk")
     assert mock_run.call_count == 1
     cmd = mock_run.call_args[0][0]
     assert cmd == ["minidump-stackwalk", "--json", "crash.dmp", "--symbols-path", "/sym/store"]
@@ -279,34 +279,34 @@ def test_mode_minidump_store_passes_args():
 
 
 def test_mode_minidump_store_single_subprocess_call():
-    with patch("tools.analyze.analyze.subprocess.run") as mock_run:
+    with patch("crashomon_tools.analyze.analyze.subprocess.run") as mock_run:
         mock_run.return_value = MagicMock(stdout=_JSON_STR, returncode=0)
-        mode_minidump_store("/store", "crash.dmp", "minidump-stackwalk")
+        mode_minidump_store(["/store"], "crash.dmp", "minidump-stackwalk")
     assert mock_run.call_count == 1
 
 
 def test_mode_minidump_store_missing_binary_raises():
     with (
-        patch("tools.analyze.analyze.subprocess.run", side_effect=FileNotFoundError),
+        patch("crashomon_tools.analyze.analyze.subprocess.run", side_effect=FileNotFoundError),
         pytest.raises(RuntimeError, match="not found"),
     ):
-        mode_minidump_store("/store", "crash.dmp", "no_such_binary")
+        mode_minidump_store(["/store"], "crash.dmp", "no_such_binary")
 
 
 def test_mode_minidump_store_empty_output_raises():
-    with patch("tools.analyze.analyze.subprocess.run") as mock_run:
+    with patch("crashomon_tools.analyze.analyze.subprocess.run") as mock_run:
         mock_run.return_value = MagicMock(stdout="", returncode=1)
         with pytest.raises(RuntimeError, match="no output"):
-            mode_minidump_store("/store", "crash.dmp", "minidump-stackwalk")
+            mode_minidump_store(["/store"], "crash.dmp", "minidump-stackwalk")
 
 
 def test_mode_minidump_store_invalid_json_raises():
     import json
 
-    with patch("tools.analyze.analyze.subprocess.run") as mock_run:
+    with patch("crashomon_tools.analyze.analyze.subprocess.run") as mock_run:
         mock_run.return_value = MagicMock(stdout="not json at all", returncode=0)
         with pytest.raises(json.JSONDecodeError):
-            mode_minidump_store("/store", "crash.dmp", "minidump-stackwalk")
+            mode_minidump_store(["/store"], "crash.dmp", "minidump-stackwalk")
 
 
 # ---------------------------------------------------------------------------
@@ -318,7 +318,7 @@ def test_mode_sym_file_minidump_creates_temp_store(tmp_path):
     sym_file = tmp_path / "my_service.sym"
     sym_file.write_text(_SYM_CONTENT)
 
-    with patch("tools.analyze.analyze.subprocess.run") as mock_run:
+    with patch("crashomon_tools.analyze.analyze.subprocess.run") as mock_run:
         mock_run.return_value = MagicMock(stdout=_JSON_STR, returncode=0)
         result = mode_sym_file_minidump(str(sym_file), "crash.dmp", "minidump-stackwalk")
 
@@ -342,7 +342,7 @@ def test_mode_sym_file_minidump_missing_sym_raises(tmp_path):
 
 
 def test_mode_raw_tombstone_uses_json_flag():
-    with patch("tools.analyze.analyze.subprocess.run") as mock_run:
+    with patch("crashomon_tools.analyze.analyze.subprocess.run") as mock_run:
         mock_run.return_value = MagicMock(stdout=_JSON_STR, returncode=0)
         result = mode_raw_tombstone("crash.dmp", "minidump-stackwalk")
 
@@ -354,7 +354,7 @@ def test_mode_raw_tombstone_uses_json_flag():
 
 def test_mode_raw_tombstone_missing_binary_raises():
     with (
-        patch("tools.analyze.analyze.subprocess.run", side_effect=FileNotFoundError),
+        patch("crashomon_tools.analyze.analyze.subprocess.run", side_effect=FileNotFoundError),
         pytest.raises(RuntimeError, match="not found"),
     ):
         mode_raw_tombstone("crash.dmp", "no_such_binary")
@@ -416,7 +416,7 @@ def test_extract_sysroot_symbols_dump_syms_failure_is_silent(tmp_path: Path) -> 
     (lib_dir / "libfake.so.1").write_bytes(b"\x7fELF" + b"\x00" * 60)
     store = tmp_path / "store"
 
-    with patch("tools.analyze.analyze.subprocess.run") as mock_run:
+    with patch("crashomon_tools.syms.subprocess.run") as mock_run:
         mock_run.return_value = MagicMock(returncode=1, stdout="", stderr="")
         _extract_sysroot_symbols(
             {"/usr/lib/libfake.so.1"},

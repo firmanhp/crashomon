@@ -13,6 +13,8 @@ import sys
 import tempfile
 from pathlib import Path
 
+from crashomon_tools.syms import _run_dump_syms, _store_sym
+
 from .log_parser import ParsedTombstone
 from .symbolizer import (
     format_raw_tombstone,
@@ -60,9 +62,9 @@ def _apply_annotations(tombstone: ParsedTombstone, dmp: str) -> None:
     tombstone.terminate_type = annotations.get("terminate_type", "")
 
 
-def mode_minidump_store(store: str, dmp: str, stackwalk: str, show_trust: bool = False) -> str:
-    """Mode 1: symbolicate a minidump against a symbol store."""
-    data = _run_stackwalk_json(stackwalk, dmp, [store])
+def mode_minidump_store(stores: list[str], dmp: str, stackwalk: str, show_trust: bool = False) -> str:
+    """Mode 1: symbolicate a minidump against one or more symbol stores."""
+    data = _run_stackwalk_json(stackwalk, dmp, stores)
     tombstone, symbols = parse_stackwalk_json(data)
     _apply_annotations(tombstone, dmp)
     return format_symbolicated(tombstone, symbols, show_trust)
@@ -102,75 +104,34 @@ def _extract_sysroot_symbols(
     dump_syms: str,
 ) -> None:
     """Run dump_syms on sysroot libraries matching unresolved module names."""
-    search_dirs = [sysroot / "usr" / "lib"]
-
     for module_name in sorted(modules):
         basename = Path(module_name).name
-        in_sysroot = False
-        for search_dir in search_dirs:
-            candidate = search_dir / basename
-            if not candidate.exists():
-                continue
-            in_sysroot = True
-
-            try:
-                result = subprocess.run(
-                    [dump_syms, str(candidate.resolve())],
-                    capture_output=True,
-                    text=True,
-                    timeout=120,
-                )
-            except (FileNotFoundError, subprocess.TimeoutExpired) as exc:
-                print(f"  sysroot: dump_syms failed for {basename}: {exc}", file=sys.stderr)
-                break
-
-            if result.returncode != 0 or not result.stdout:
-                print(
-                    f"  sysroot: dump_syms failed for {basename} (exit {result.returncode})",
-                    file=sys.stderr,
-                )
-                break
-
-            first_line = result.stdout.splitlines()[0]
-            parts = first_line.split()
-            if len(parts) < 5 or parts[0] != "MODULE":
-                print(f"  sysroot: unexpected MODULE line for {basename}", file=sys.stderr)
-                break
-
-            build_id = parts[3]
-            mod_name = parts[4]
-            dest_dir = store / mod_name / build_id
-            dest_dir.mkdir(parents=True, exist_ok=True)
-            sym_file = dest_dir / f"{mod_name}.sym"
-            sym_file.write_text(result.stdout, encoding="utf-8")
-            print(
-                f"  sysroot: extracted {mod_name}/{build_id}/{mod_name}.sym",
-                file=sys.stderr,
-            )
-            break
-
-        if not in_sysroot:
-            print(
-                f"  sysroot: {module_name} not found in sysroot",
-                file=sys.stderr,
-            )
+        candidate = sysroot / "usr" / "lib" / basename
+        if not candidate.exists():
+            print(f"  sysroot: {module_name} not found in sysroot", file=sys.stderr)
+            continue
+        parsed = _run_dump_syms(dump_syms, candidate.resolve())
+        if parsed is None:
+            continue
+        mod_name, build_id, sym_text = parsed
+        _store_sym(store, mod_name, build_id, sym_text)
+        print(f"  sysroot: extracted {mod_name}/{build_id}/{mod_name}.sym", file=sys.stderr)
 
 
 def mode_minidump_sysroot(
-    store: str, sysroot: str, dmp: str, stackwalk: str, dump_syms: str, show_trust: bool = False
+    stores: list[str], sysroot: str, dmp: str, stackwalk: str, dump_syms: str, show_trust: bool = False
 ) -> str:
-    """Mode 5: symbolicate a minidump using both a symbol store and a sysroot.
+    """Mode 5: symbolicate a minidump using symbol stores and a sysroot.
 
     Runs dump_syms lazily on sysroot libraries that are referenced by the
-    minidump but missing from the store.  Generated .sym files are written
-    to the store so subsequent runs skip the conversion.
+    minidump but missing from any store. Generated .sym files are written
+    to the first store so subsequent runs skip the conversion.
     """
-    store_path = Path(store)
+    primary_store = Path(stores[0])
     sysroot_path = Path(sysroot)
-    store_path.mkdir(parents=True, exist_ok=True)
+    primary_store.mkdir(parents=True, exist_ok=True)
 
-    # First pass: discover which modules are unresolved.
-    data = _run_stackwalk_json(stackwalk, dmp, [store])
+    data = _run_stackwalk_json(stackwalk, dmp, stores)
     tombstone, symbols = parse_stackwalk_json(data)
 
     resolved_modules = {
@@ -187,10 +148,9 @@ def mode_minidump_sysroot(
     }
 
     if unresolved_modules:
-        _extract_sysroot_symbols(unresolved_modules, sysroot_path, store_path, dump_syms)
+        _extract_sysroot_symbols(unresolved_modules, sysroot_path, primary_store, dump_syms)
 
-    # Second pass with enriched store.
-    data = _run_stackwalk_json(stackwalk, dmp, [store])
+    data = _run_stackwalk_json(stackwalk, dmp, stores)
     tombstone, symbols = parse_stackwalk_json(data)
     _apply_annotations(tombstone, dmp)
     return format_symbolicated(tombstone, symbols, show_trust)

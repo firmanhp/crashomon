@@ -7,8 +7,8 @@ from pathlib import Path
 
 import pytest
 
-from tools.analyze.log_parser import ParsedFrame, ParsedThread, ParsedTombstone
-from tools.analyze.symbolizer import format_symbolicated, read_minidump_annotations
+from crashomon_tools.analyze.log_parser import ParsedFrame, ParsedThread, ParsedTombstone
+from crashomon_tools.analyze.symbolizer import format_symbolicated, read_minidump_annotations
 
 # ---------------------------------------------------------------------------
 # read_minidump_annotations — binary reader for CrashpadInfo stream

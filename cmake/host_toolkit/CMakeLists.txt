@@ -169,10 +169,24 @@ add_custom_command(
 )
 add_custom_target(host_toolkit_stage_syms DEPENDS "${_SYMS_OUT}")
 
+# ── crashomon_tools Python package staging ────────────────────────────────────
+# Staged alongside the scripts so Python's script-directory resolution finds it
+# without requiring a separate pip install step.
+set(_PYLIB_SRC "${CMAKE_CURRENT_SOURCE_DIR}/../../tools/crashomon_tools")
+set(_PYLIB_OUT "${CMAKE_BINARY_DIR}/bin/crashomon_tools")
+
+add_custom_command(
+  OUTPUT  "${_PYLIB_OUT}"
+  COMMAND ${CMAKE_COMMAND} -E copy_directory "${_PYLIB_SRC}" "${_PYLIB_OUT}"
+  DEPENDS "${_PYLIB_SRC}"
+  VERBATIM
+)
+add_custom_target(host_toolkit_stage_pylib DEPENDS "${_PYLIB_OUT}")
+
 # ── host_toolkit aggregator ───────────────────────────────────────────────────
 add_custom_target(host_toolkit
   DEPENDS dump_syms host_toolkit_stage_stackwalk host_toolkit_stage_analyze
-          host_toolkit_stage_syms
+          host_toolkit_stage_syms host_toolkit_stage_pylib
 )
 
 # ── Install ────────────────────────────────────────────────────────────────────
@@ -181,3 +195,4 @@ install(TARGETS dump_syms RUNTIME DESTINATION ${CMAKE_INSTALL_BINDIR})
 install(PROGRAMS "${_STACKWALK_SRC}" DESTINATION ${CMAKE_INSTALL_BINDIR})
 install(PROGRAMS "${_ANALYZE_SRC}"   DESTINATION ${CMAKE_INSTALL_BINDIR})
 install(PROGRAMS "${_SYMS_SRC}"      DESTINATION ${CMAKE_INSTALL_BINDIR})
+install(DIRECTORY "${_PYLIB_SRC}"    DESTINATION ${CMAKE_INSTALL_BINDIR})

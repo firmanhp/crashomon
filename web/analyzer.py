@@ -4,7 +4,7 @@ from __future__ import annotations
 
 from pathlib import Path
 
-from tools.analyze.analyze import mode_minidump_store
+from crashomon_tools.analyze.analyze import mode_minidump_store
 
 
 def analyze_minidump(
@@ -17,4 +17,4 @@ def analyze_minidump(
 
     Raises RuntimeError on failure (binary not found, timeout, no output).
     """
-    return mode_minidump_store(str(store_path), str(dmp_path), stackwalk)
+    return mode_minidump_store([str(store_path)], str(dmp_path), stackwalk)

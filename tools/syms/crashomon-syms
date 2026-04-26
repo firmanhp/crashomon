@@ -7,305 +7,31 @@ Wraps dump_syms to ingest debug binaries into the Breakpad symbol store layout:
 Usage:
   crashomon-syms add   --store <dir> [--dump-syms <path>] <binary> [<binary> ...]
   crashomon-syms add   --store <dir> [--dump-syms <path>] --recursive <dir>
+  crashomon-syms add   --store <dir> [--dump-syms <path>] --sysroot <dir>
   crashomon-syms list  --store <dir>
   crashomon-syms prune --store <dir> [--keep <n>]
+
+Installation:
+  For the host toolkit, crashomon_tools/ is staged alongside this script so
+  imports resolve automatically.  For development, run:
+    pip install -e tools/
 """
 
 from __future__ import annotations
 
-import argparse
-import os
-import shutil
-import subprocess
 import sys
 from pathlib import Path
 
 _SCRIPT_DIR = Path(__file__).resolve().parent
 
+# Source-tree fallback: package lives one level up from this script's directory.
+try:
+    import crashomon_tools  # noqa: F401
+except ImportError:
+    sys.path.insert(0, str(_SCRIPT_DIR.parent))
+    import crashomon_tools  # noqa: F401
 
-def _default_tool(name: str) -> str:
-    """Return co-located binary path if executable, else bare name for PATH lookup."""
-    candidate = _SCRIPT_DIR / name
-    if candidate.is_file() and os.access(candidate, os.X_OK):
-        return str(candidate)
-    return name
-
-
-# ---------------------------------------------------------------------------
-# Helpers
-# ---------------------------------------------------------------------------
-
-
-def _run_dump_syms(dump_syms: str, binary: Path) -> tuple[str, str, str] | None:
-    """Run dump_syms on `binary`, return (module_name, build_id, sym_text).
-
-    Returns None if dump_syms fails or the MODULE line is missing.
-    """
-    try:
-        result = subprocess.run(
-            [dump_syms, str(binary)],
-            capture_output=True,
-            text=True,
-            timeout=120,
-        )
-    except FileNotFoundError:
-        print(
-            f"crashomon-syms: dump_syms not found: {dump_syms!r}\n"
-            "  Build the project first, or pass --dump-syms <path>.",
-            file=sys.stderr,
-        )
-        return None
-    except subprocess.TimeoutExpired:
-        print(f"crashomon-syms: dump_syms timed out for {binary}", file=sys.stderr)
-        return None
-
-    if result.returncode != 0 or not result.stdout:
-        print(
-            f"crashomon-syms: dump_syms failed for {binary} "
-            f"(exit {result.returncode})",
-            file=sys.stderr,
-        )
-        if result.stderr:
-            print(result.stderr.rstrip(), file=sys.stderr)
-        return None
-
-    # First line: "MODULE Linux x86_64 <build_id> <module_name>"
-    first_line = result.stdout.splitlines()[0]
-    parts = first_line.split()
-    if len(parts) < 5 or parts[0] != "MODULE":
-        print(
-            f"crashomon-syms: unexpected MODULE line from dump_syms:\n  {first_line}",
-            file=sys.stderr,
-        )
-        return None
-
-    build_id = parts[3]
-    module_name = parts[4]
-    return module_name, build_id, result.stdout
-
-
-def _store_sym(store: Path, module_name: str, build_id: str, sym_text: str) -> Path:
-    """Write sym_text to <store>/<module_name>/<build_id>/<module_name>.sym."""
-    dest_dir = store / module_name / build_id
-    dest_dir.mkdir(parents=True, exist_ok=True)
-    dest = dest_dir / f"{module_name}.sym"
-    dest.write_text(sym_text, encoding="utf-8")
-    return dest
-
-
-def _iter_elfs(search_dir: Path) -> list[Path]:
-    """Return ELF files under search_dir (identified by magic bytes)."""
-    results = []
-    for path in search_dir.rglob("*"):
-        if not path.is_file():
-            continue
-        try:
-            with open(path, "rb") as f:
-                magic = f.read(4)
-            if magic == b"\x7fELF":
-                results.append(path)
-        except OSError:
-            continue
-    return sorted(results)
-
-
-_DEFAULT_SYSROOT_SEARCH = ("usr/lib", "usr/lib64", "lib", "lib64")
-
-
-def _iter_sysroot_elfs(sysroot: Path) -> list[Path]:
-    """Return deduplicated .so files from well-known sysroot library paths.
-
-    Scans recursively within each lib directory to pick up plugin and
-    subsystem subdirs (e.g. usr/lib/systemd/, usr/lib/pulseaudio/).
-    Resolves symlinks to handle merged-usr layouts (lib/ -> usr/lib)
-    where multiple directory entries point to the same physical file.
-    """
-    seen: set[Path] = set()
-    results: list[Path] = []
-
-    for rel in _DEFAULT_SYSROOT_SEARCH:
-        lib_dir = sysroot / rel
-        if not lib_dir.is_dir():
-            continue
-        for path in lib_dir.rglob("*"):
-            if not path.name.endswith(".so") and ".so." not in path.name:
-                continue
-            if not path.is_file():
-                continue
-            real = path.resolve()
-            if real in seen:
-                continue
-            seen.add(real)
-            try:
-                with open(real, "rb") as f:
-                    if f.read(4) == b"\x7fELF":
-                        results.append(real)
-            except OSError:
-                continue
-
-    return sorted(results)
-
-
-# ---------------------------------------------------------------------------
-# Commands
-# ---------------------------------------------------------------------------
-
-
-def cmd_add(args: argparse.Namespace) -> int:
-    store = Path(args.store)
-    store.mkdir(parents=True, exist_ok=True)
-    dump_syms: str = args.dump_syms if args.dump_syms is not None else _default_tool("dump_syms")
-
-    binaries: list[Path] = []
-    if args.sysroot:
-        binaries = _iter_sysroot_elfs(Path(args.sysroot))
-        if not binaries:
-            print(
-                f"crashomon-syms: no shared libraries found in sysroot {args.sysroot}",
-                file=sys.stderr,
-            )
-            return 1
-    elif args.recursive:
-        binaries = _iter_elfs(Path(args.recursive))
-        if not binaries:
-            print(
-                f"crashomon-syms: no ELF files found under {args.recursive}",
-                file=sys.stderr,
-            )
-            return 1
-    else:
-        if not args.binaries:
-            print("crashomon-syms add: no binaries specified.", file=sys.stderr)
-            return 1
-        binaries = [Path(b) for b in args.binaries]
-
-    errors = 0
-    for binary in binaries:
-        if not binary.exists():
-            print(f"crashomon-syms: not found: {binary}", file=sys.stderr)
-            errors += 1
-            continue
-
-        parsed = _run_dump_syms(dump_syms, binary)
-        if parsed is None:
-            errors += 1
-            continue
-
-        module_name, build_id, sym_text = parsed
-        dest = _store_sym(store, module_name, build_id, sym_text)
-        print(f"  stored: {dest.relative_to(store)}")
-
-    return 0 if errors == 0 else 1
-
-
-def cmd_list(args: argparse.Namespace) -> int:
-    store = Path(args.store)
-    if not store.is_dir():
-        print(f"crashomon-syms: not a directory: {store}", file=sys.stderr)
-        return 1
-
-    found = False
-    for module_dir in sorted(store.iterdir()):
-        if not module_dir.is_dir():
-            continue
-        for build_dir in sorted(module_dir.iterdir()):
-            if not build_dir.is_dir():
-                continue
-            sym_file = build_dir / f"{module_dir.name}.sym"
-            if sym_file.exists():
-                size_kb = sym_file.stat().st_size // 1024
-                print(f"  {module_dir.name}/{build_dir.name}  ({size_kb} KB)")
-                found = True
-
-    if not found:
-        print("  (no symbols stored)")
-    return 0
-
-
-def cmd_prune(args: argparse.Namespace) -> int:
-    store = Path(args.store)
-    if not store.is_dir():
-        print(f"crashomon-syms: not a directory: {store}", file=sys.stderr)
-        return 1
-
-    keep: int = args.keep
-    if keep < 1:
-        print("crashomon-syms: --keep must be >= 1", file=sys.stderr)
-        return 1
-
-    for module_dir in sorted(store.iterdir()):
-        if not module_dir.is_dir():
-            continue
-
-        # Collect build-ID dirs that contain a .sym file, sorted by mtime
-        # (oldest first so we delete the oldest when over limit).
-        versions: list[tuple[float, Path]] = []
-        for build_dir in module_dir.iterdir():
-            if not build_dir.is_dir():
-                continue
-            sym_file = build_dir / f"{module_dir.name}.sym"
-            if sym_file.exists():
-                versions.append((sym_file.stat().st_mtime, build_dir))
-
-        versions.sort()  # oldest first
-
-        to_delete = versions[: max(0, len(versions) - keep)]
-        for _, build_dir in to_delete:
-            print(f"  removing: {module_dir.name}/{build_dir.name}")
-            shutil.rmtree(build_dir)
-
-    return 0
-
-
-# ---------------------------------------------------------------------------
-# Entry point
-# ---------------------------------------------------------------------------
-
-
-def main() -> int:
-    parser = argparse.ArgumentParser(
-        description="Crashomon Breakpad symbol store manager"
-    )
-    sub = parser.add_subparsers(dest="command", required=True)
-
-    p_add = sub.add_parser("add", help="Ingest debug binary into symbol store")
-    p_add.add_argument("--store", required=True, metavar="DIR", help="Symbol store root")
-    p_add.add_argument(
-        "--recursive",
-        metavar="DIR",
-        help="Recursively add all ELF binaries found under DIR",
-    )
-    p_add.add_argument(
-        "--sysroot",
-        metavar="DIR",
-        help="Scan a cross-compilation sysroot for shared libraries. "
-        "Resolves symlinks to avoid duplicates from merged-usr layouts.",
-    )
-    p_add.add_argument("binaries", nargs="*", metavar="BINARY")
-    p_add.add_argument(
-        "--dump-syms",
-        default=None,
-        metavar="PATH",
-        help="Path to the dump_syms binary (default: co-located dump_syms, then PATH)",
-    )
-
-    p_list = sub.add_parser("list", help="List stored symbols")
-    p_list.add_argument("--store", required=True, metavar="DIR")
-
-    p_prune = sub.add_parser("prune", help="Remove old symbol versions, keeping latest N")
-    p_prune.add_argument("--store", required=True, metavar="DIR")
-    p_prune.add_argument(
-        "--keep",
-        type=int,
-        default=3,
-        metavar="N",
-        help="Number of most-recent versions to keep per module (default: 3)",
-    )
-
-    args = parser.parse_args()
-    dispatch = {"add": cmd_add, "list": cmd_list, "prune": cmd_prune}
-    return dispatch[args.command](args)
-
+from crashomon_tools.syms.cli import main  # noqa: E402
 
 if __name__ == "__main__":
-    sys.exit(main())
+    sys.exit(main(_SCRIPT_DIR))
