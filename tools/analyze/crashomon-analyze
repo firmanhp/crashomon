@@ -28,12 +28,15 @@ Options:
 from __future__ import annotations
 
 import argparse
+import os
 import shutil
 import sys
 from pathlib import Path
 
 # Allow running as a standalone script from any working directory.
 sys.path.insert(0, str(Path(__file__).resolve().parents[2]))
+
+_SCRIPT_DIR = Path(__file__).resolve().parent
 
 from tools.analyze.analyze import (  # noqa: E402
     mode_minidump_store,
@@ -55,10 +58,11 @@ def _build_parser() -> argparse.ArgumentParser:
     parser.add_argument("--sysroot", metavar="DIR", default="")
     parser.add_argument(
         "--dump-syms-binary", metavar="PATH", default="dump_syms",
-        help="Path to dump_syms (needed for --sysroot lazy extraction)",
+        help="Path to dump_syms (needed for --sysroot lazy extraction; default: co-located, then PATH)",
     )
     parser.add_argument(
-        "--stackwalk-binary", metavar="PATH", default="minidump-stackwalk"
+        "--stackwalk-binary", metavar="PATH", default="minidump-stackwalk",
+        help="Path to minidump-stackwalk (default: co-located, then PATH)",
     )
     parser.add_argument(
         "--show-trust",
@@ -70,6 +74,11 @@ def _build_parser() -> argparse.ArgumentParser:
 
 
 def _resolve_binary(name: str) -> str:
+    if Path(name).parent == Path("."):
+        candidate = _SCRIPT_DIR / name
+        if candidate.is_file() and os.access(candidate, os.X_OK):
+            print(f"crashomon-analyze: using {name}: {candidate}", file=sys.stderr)
+            return str(candidate)
     resolved = shutil.which(name)
     if resolved is None:
         print(f"crashomon-analyze: {name!r} not found on PATH", file=sys.stderr)

@@ -20,6 +20,16 @@ import subprocess
 import sys
 from pathlib import Path
 
+_SCRIPT_DIR = Path(__file__).resolve().parent
+
+
+def _default_tool(name: str) -> str:
+    """Return co-located binary path if executable, else bare name for PATH lookup."""
+    candidate = _SCRIPT_DIR / name
+    if candidate.is_file() and os.access(candidate, os.X_OK):
+        return str(candidate)
+    return name
+
 
 # ---------------------------------------------------------------------------
 # Helpers
@@ -144,7 +154,7 @@ def _iter_sysroot_elfs(sysroot: Path) -> list[Path]:
 def cmd_add(args: argparse.Namespace) -> int:
     store = Path(args.store)
     store.mkdir(parents=True, exist_ok=True)
-    dump_syms: str = args.dump_syms
+    dump_syms: str = args.dump_syms if args.dump_syms is not None else _default_tool("dump_syms")
 
     binaries: list[Path] = []
     if args.sysroot:
@@ -274,9 +284,9 @@ def main() -> int:
     p_add.add_argument("binaries", nargs="*", metavar="BINARY")
     p_add.add_argument(
         "--dump-syms",
-        default="dump_syms",
+        default=None,
         metavar="PATH",
-        help="Path to the dump_syms binary (default: dump_syms from PATH)",
+        help="Path to the dump_syms binary (default: co-located dump_syms, then PATH)",
     )
 
     p_list = sub.add_parser("list", help="List stored symbols")
