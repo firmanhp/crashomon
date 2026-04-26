@@ -17,7 +17,7 @@ cmake/
                             and host_toolkit/)
   store_sym_impl.cmake      POST_BUILD cmake -P script that runs dump_syms and writes the store
   host_toolkit/             Standalone CMake project — builds dump_syms, minidump-stackwalk,
-                            and stages crashomon-analyze into <build>/bin/
+                            and stages crashomon-analyze + crashomon-syms into <build>/bin/
 bench/          Microbenchmarks (Google Benchmark, opt-in via -DENABLE_BENCHMARKS=ON)
 test/           C/C++ unit tests (GoogleTest) + integration + smoke test scripts
 examples/       Example crasher programs (segfault, abort, multithread)

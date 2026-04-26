@@ -26,7 +26,8 @@ WATCHERD="${BUILD_DIR}/daemon/crashomon-watcherd"
 LIBCRASHOMON="${BUILD_DIR}/lib/libcrashomon.so"
 EXAMPLE="${BUILD_DIR}/examples/crashomon-example-segfault"
 ANALYZE="${PROJECT_ROOT}/tools/analyze/crashomon-analyze"
-SYMS="${PROJECT_ROOT}/tools/syms/crashomon-syms"
+SYMS="${PROJECT_ROOT}/_host_toolkit/bin/crashomon-syms"
+[[ ! -f "${SYMS}" ]] && SYMS="${PROJECT_ROOT}/tools/syms/crashomon-syms"
 # minidump-stackwalk: host_toolkit bin/ first, then BUILD_DIR fallback.
 STACKWALK=""
 if [[ -x "${PROJECT_ROOT}/_host_toolkit/bin/minidump-stackwalk" ]]; then

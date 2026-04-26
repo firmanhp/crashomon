@@ -11,8 +11,8 @@ set(CMAKE_CXX_STANDARD_REQUIRED ON)
 set(CMAKE_CXX_EXTENSIONS OFF)
 
 # All executables land in bin/ so CRASHOMON_HOST_TOOLKIT_DIR can point at a
-# single flat directory containing dump_syms, minidump-stackwalk, and
-# crashomon-analyze.
+# single flat directory containing dump_syms, minidump-stackwalk,
+# crashomon-analyze, and crashomon-syms.
 set(CMAKE_RUNTIME_OUTPUT_DIRECTORY "${CMAKE_BINARY_DIR}/bin")
 
 # ── Fetch Breakpad, zlib, LSS ─────────────────────────────────────────────────
@@ -156,9 +156,23 @@ add_custom_command(
 )
 add_custom_target(host_toolkit_stage_analyze DEPENDS "${_ANALYZE_OUT}")
 
+# ── crashomon-syms staging ────────────────────────────────────────────────────
+set(_SYMS_SRC "${CMAKE_CURRENT_SOURCE_DIR}/../../tools/syms/crashomon-syms")
+set(_SYMS_OUT "${CMAKE_BINARY_DIR}/bin/crashomon-syms")
+
+add_custom_command(
+  OUTPUT  "${_SYMS_OUT}"
+  COMMAND ${CMAKE_COMMAND} -E make_directory "${CMAKE_BINARY_DIR}/bin"
+  COMMAND ${CMAKE_COMMAND} -E copy "${_SYMS_SRC}" "${_SYMS_OUT}"
+  DEPENDS "${_SYMS_SRC}"
+  VERBATIM
+)
+add_custom_target(host_toolkit_stage_syms DEPENDS "${_SYMS_OUT}")
+
 # ── host_toolkit aggregator ───────────────────────────────────────────────────
 add_custom_target(host_toolkit
   DEPENDS dump_syms host_toolkit_stage_stackwalk host_toolkit_stage_analyze
+          host_toolkit_stage_syms
 )
 
 # ── Install ────────────────────────────────────────────────────────────────────
@@ -166,3 +180,4 @@ include(GNUInstallDirs)
 install(TARGETS dump_syms RUNTIME DESTINATION ${CMAKE_INSTALL_BINDIR})
 install(PROGRAMS "${_STACKWALK_SRC}" DESTINATION ${CMAKE_INSTALL_BINDIR})
 install(PROGRAMS "${_ANALYZE_SRC}"   DESTINATION ${CMAKE_INSTALL_BINDIR})
+install(PROGRAMS "${_SYMS_SRC}"      DESTINATION ${CMAKE_INSTALL_BINDIR})

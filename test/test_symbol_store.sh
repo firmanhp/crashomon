@@ -105,7 +105,8 @@ if [[ -n "${SYM_FILE}" && -f "${SYM_FILE}" ]]; then
 fi
 
 # crashomon-syms list must recognise the store.
-CRASHOMON_SYMS="${PROJECT_ROOT}/tools/syms/crashomon-syms"
+CRASHOMON_SYMS="${PROJECT_ROOT}/_host_toolkit/bin/crashomon-syms"
+[[ ! -f "${CRASHOMON_SYMS}" ]] && CRASHOMON_SYMS="${PROJECT_ROOT}/tools/syms/crashomon-syms"
 if [[ -f "${CRASHOMON_SYMS}" ]]; then
   LIST_OUTPUT="$("${CRASHOMON_SYMS}" list --store "${STORE_DIR}" 2>&1)"
   LIST_COUNT="$(echo "${LIST_OUTPUT}" | grep -c "crashomon-example-segfault" || true)"

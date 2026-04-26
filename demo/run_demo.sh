@@ -45,7 +45,8 @@ LOG_DIR="$WORK_DIR/logs"               # watcherd stdout/stderr
 # correctly on the host machine.
 DEMO_SYSROOT="$WORK_DIR/sysroot"
 
-SYMS_TOOL="$ROOT_DIR/tools/syms/crashomon-syms"
+SYMS_TOOL="$ROOT_DIR/_host_toolkit/bin/crashomon-syms"
+[[ ! -f "$SYMS_TOOL" ]] && SYMS_TOOL="$ROOT_DIR/tools/syms/crashomon-syms"
 ANALYZE_TOOL="$ROOT_DIR/tools/analyze/crashomon-analyze"
 
 # ── Terminal helpers ───────────────────────────────────────────────────────────

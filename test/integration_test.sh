@@ -45,15 +45,20 @@ check() {
 
 LIBCRASHOMON="${BUILD_DIR}/lib/libcrashomon.so"
 WATCHERD="${BUILD_DIR}/daemon/crashomon-watcherd"
-CRASHOMON_ANALYZE="${PROJECT_ROOT}/tools/analyze/crashomon-analyze"
-CRASHOMON_SYMS="${PROJECT_ROOT}/tools/syms/crashomon-syms"
+CRASHOMON_ANALYZE="${PROJECT_ROOT}/_host_toolkit/bin/crashomon-analyze"
+[[ ! -f "${CRASHOMON_ANALYZE}" ]] && CRASHOMON_ANALYZE="${PROJECT_ROOT}/tools/analyze/crashomon-analyze"
+CRASHOMON_SYMS="${PROJECT_ROOT}/_host_toolkit/bin/crashomon-syms"
+[[ ! -f "${CRASHOMON_SYMS}" ]] && CRASHOMON_SYMS="${PROJECT_ROOT}/tools/syms/crashomon-syms"
 EXAMPLES_BIN="${BUILD_DIR}/examples"
-# dump_syms is a host tool built separately in _dump_syms_build/ (see INSTALL.md).
-DUMP_SYMS="${PROJECT_ROOT}/_dump_syms_build/dump_syms"
+# dump_syms and minidump-stackwalk: host_toolkit bin/ first, then BUILD_DIR fallback.
+DUMP_SYMS="${PROJECT_ROOT}/_host_toolkit/bin/dump_syms"
 if [[ ! -f "${DUMP_SYMS}" ]]; then
   DUMP_SYMS="$(find "${BUILD_DIR}" -maxdepth 4 -name 'dump_syms' -type f 2>/dev/null | head -1 || true)"
 fi
-STACKWALK="$(find "${BUILD_DIR}" -maxdepth 4 -name 'minidump-stackwalk' -type f | head -1 || true)"
+STACKWALK="${PROJECT_ROOT}/_host_toolkit/bin/minidump-stackwalk"
+if [[ ! -f "${STACKWALK}" ]]; then
+  STACKWALK="$(find "${BUILD_DIR}" -maxdepth 4 -name 'minidump-stackwalk' -type f 2>/dev/null | head -1 || true)"
+fi
 
 echo "=== Crashomon Integration Test ==="
 echo "Build dir: ${BUILD_DIR}"

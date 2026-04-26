@@ -62,7 +62,7 @@ build/daemon/crashomon-watcherd         # watcher daemon (also hosts crash handl
 _host_toolkit/bin/dump_syms             # DWARF → .sym extraction tool (host binary)
 _host_toolkit/bin/minidump-stackwalk    # symbolication engine (host binary)
 _host_toolkit/bin/crashomon-analyze     # CLI symbolication (staged Python script)
-tools/syms/crashomon-syms               # symbol store management (Python script, no build step)
+_host_toolkit/bin/crashomon-syms        # symbol store management (staged Python script)
 ```
 
 ### Optional build flags
