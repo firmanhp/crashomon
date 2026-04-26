@@ -9,11 +9,11 @@
 # Usage:
 #   test/demo_symbolicated.sh [BUILD_DIR [DUMP_SYMS_PATH]]
 #
-# dump_syms and minidump_stackwalk are auto-discovered from _dump_syms_build/ or
-# co-located with minidump_stackwalk in BUILD_DIR. DUMP_SYMS_PATH can also be
-# supplied via the CRASHOMON_DUMP_SYMS_EXECUTABLE environment variable.
+# dump_syms and minidump-stackwalk are auto-discovered from _host_toolkit/bin/ or
+# co-located in BUILD_DIR. DUMP_SYMS_PATH can also be supplied via the
+# CRASHOMON_DUMP_SYMS_EXECUTABLE environment variable.
 # Build the host tools with:
-#   cmake -B _dump_syms_build -S cmake/dump_syms_host/ && cmake --build _dump_syms_build
+#   cmake -B _host_toolkit -S cmake/host_toolkit/ && cmake --build _host_toolkit --target host_toolkit
 
 set -euo pipefail
 
@@ -27,21 +27,23 @@ LIBCRASHOMON="${BUILD_DIR}/lib/libcrashomon.so"
 EXAMPLE="${BUILD_DIR}/examples/crashomon-example-segfault"
 ANALYZE="${PROJECT_ROOT}/tools/analyze/crashomon-analyze"
 SYMS="${PROJECT_ROOT}/tools/syms/crashomon-syms"
-# minidump_stackwalk: main build first, then host tools build.
-STACKWALK="$(find "${BUILD_DIR}" -maxdepth 2 -name 'minidump_stackwalk' -type f 2>/dev/null | head -1 || true)"
+# minidump-stackwalk: host_toolkit bin/ first, then BUILD_DIR fallback.
+STACKWALK=""
+if [[ -x "${PROJECT_ROOT}/_host_toolkit/bin/minidump-stackwalk" ]]; then
+  STACKWALK="${PROJECT_ROOT}/_host_toolkit/bin/minidump-stackwalk"
+fi
 if [[ -z "${STACKWALK}" ]]; then
-  STACKWALK="$(find "${PROJECT_ROOT}/_dump_syms_build" -maxdepth 1 -name 'minidump_stackwalk' -type f 2>/dev/null | head -1 || true)"
+  STACKWALK="$(find "${BUILD_DIR}" -maxdepth 3 -name 'minidump-stackwalk' -type f 2>/dev/null | head -1 || true)"
 fi
 
-# dump_syms is a host binary built separately (see cmake/dump_syms_host/).
-# Resolution order: CLI arg > env var > co-located with minidump_stackwalk > _dump_syms_build/.
+# dump_syms: CLI arg > env var > host_toolkit bin/ > co-located with stackwalk.
 DUMP_SYMS="${2:-${CRASHOMON_DUMP_SYMS_EXECUTABLE:-}}"
+if [[ -z "${DUMP_SYMS}" ]] && [[ -x "${PROJECT_ROOT}/_host_toolkit/bin/dump_syms" ]]; then
+  DUMP_SYMS="${PROJECT_ROOT}/_host_toolkit/bin/dump_syms"
+fi
 if [[ -z "${DUMP_SYMS}" ]] && [[ -n "${STACKWALK}" ]]; then
   CANDIDATE="$(dirname "${STACKWALK}")/dump_syms"
   [[ -f "${CANDIDATE}" ]] && DUMP_SYMS="${CANDIDATE}"
-fi
-if [[ -z "${DUMP_SYMS}" ]] && [[ -f "${PROJECT_ROOT}/_dump_syms_build/dump_syms" ]]; then
-  DUMP_SYMS="${PROJECT_ROOT}/_dump_syms_build/dump_syms"
 fi
 
 for f in "${WATCHERD}" "${LIBCRASHOMON}" "${EXAMPLE}" "${ANALYZE}" "${SYMS}"; do
@@ -53,7 +55,7 @@ for f in "${WATCHERD}" "${LIBCRASHOMON}" "${EXAMPLE}" "${ANALYZE}" "${SYMS}"; do
 done
 if [[ -z "${DUMP_SYMS}" ]]; then
   echo "ERROR: dump_syms not found. Build the host tools with:" >&2
-  echo "  cmake -B _dump_syms_build -S cmake/dump_syms_host/ && cmake --build _dump_syms_build" >&2
+  echo "  cmake -B _host_toolkit -S cmake/host_toolkit/ && cmake --build _host_toolkit --target host_toolkit" >&2
   exit 1
 fi
 if [[ ! -f "${DUMP_SYMS}" ]]; then
@@ -61,7 +63,8 @@ if [[ ! -f "${DUMP_SYMS}" ]]; then
   exit 1
 fi
 if [[ -z "${STACKWALK}" ]]; then
-  echo "ERROR: minidump_stackwalk not found under ${BUILD_DIR}" >&2
+  echo "ERROR: minidump-stackwalk not found. Build the host tools with:" >&2
+  echo "  cmake -B _host_toolkit -S cmake/host_toolkit/ && cmake --build _host_toolkit --target host_toolkit" >&2
   exit 1
 fi
 
