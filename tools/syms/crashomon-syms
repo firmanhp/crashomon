@@ -99,12 +99,14 @@ def _iter_elfs(search_dir: Path) -> list[Path]:
     return sorted(results)
 
 
-_DEFAULT_SYSROOT_SEARCH = ("usr/lib",)
+_DEFAULT_SYSROOT_SEARCH = ("usr/lib", "usr/lib64", "lib", "lib64")
 
 
 def _iter_sysroot_elfs(sysroot: Path) -> list[Path]:
     """Return deduplicated .so files from well-known sysroot library paths.
 
+    Scans recursively within each lib directory to pick up plugin and
+    subsystem subdirs (e.g. usr/lib/systemd/, usr/lib/pulseaudio/).
     Resolves symlinks to handle merged-usr layouts (lib/ -> usr/lib)
     where multiple directory entries point to the same physical file.
     """
@@ -115,7 +117,7 @@ def _iter_sysroot_elfs(sysroot: Path) -> list[Path]:
         lib_dir = sysroot / rel
         if not lib_dir.is_dir():
             continue
-        for path in lib_dir.iterdir():
+        for path in lib_dir.rglob("*"):
             if not path.name.endswith(".so") and ".so." not in path.name:
                 continue
             if not path.is_file():

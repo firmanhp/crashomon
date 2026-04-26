@@ -302,10 +302,12 @@ if [[ -n "${DUMP_SYMS}" && -f "${CRASHOMON_SYMS}" ]]; then
   SYSROOT_STORE="${WORK_DIR}/sysroot_syms"
   mkdir -p "${SYSROOT_STORE}"
 
-  # Use the examples binary dir as a fake "sysroot/usr/lib/" for testing.
+  # Fake sysroot: one lib at usr/lib/ and one in a subdirectory (usr/lib/plugin/)
+  # to exercise recursive scanning.
   FAKE_SYSROOT="${WORK_DIR}/fake_sysroot"
-  mkdir -p "${FAKE_SYSROOT}/usr/lib"
+  mkdir -p "${FAKE_SYSROOT}/usr/lib/plugin"
   cp "${EXAMPLES_BIN}/crashomon-example-segfault" "${FAKE_SYSROOT}/usr/lib/libfake.so.1"
+  cp "${EXAMPLES_BIN}/crashomon-example-abort"    "${FAKE_SYSROOT}/usr/lib/plugin/libplugin.so.1"
 
   if "${CRASHOMON_SYMS}" add \
        --store "${SYSROOT_STORE}" \
@@ -317,10 +319,10 @@ if [[ -n "${DUMP_SYMS}" && -f "${CRASHOMON_SYMS}" ]]; then
   fi
 
   sym_count="$(find "${SYSROOT_STORE}" -name '*.sym' | wc -l)"
-  if [[ "${sym_count}" -ge 1 ]]; then
-    log_pass "sysroot store contains ${sym_count} .sym file(s)"
+  if [[ "${sym_count}" -ge 2 ]]; then
+    log_pass "sysroot store contains ${sym_count} .sym file(s) (top-level + subdir)"
   else
-    log_fail "sysroot store is empty after --sysroot add"
+    log_fail "sysroot store has ${sym_count} .sym file(s), expected ≥2 (top-level + subdir)"
   fi
 else
   echo "  SKIP: dump_syms or crashomon-syms not found"
