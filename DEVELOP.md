@@ -11,14 +11,13 @@ tools/
   syms/         crashomon-syms — symbol store management (Python)
 web/            crashomon-web — Flask UI + REST API (Python, imports tools.analyze)
 cmake/
-  breakpad.cmake            Breakpad CMake targets (processor, stackwalk, dump_syms IMPORTED)
+  breakpad.cmake            Breakpad CMake targets (processor, dump_syms IMPORTED)
   crashomon_symbols.cmake   crashomon_store_symbols() function
   fetch_breakpad_deps.cmake FetchContent population for zlib, Breakpad, LSS (shared by main build
-                            and dump_syms_host/)
-  rust_minidump.cmake       ExternalProject build of minidump-stackwalk (statically linked via
-                            +crt-static; exports MINIDUMP_STACKWALK_EXECUTABLE)
+                            and host_toolkit/)
   store_sym_impl.cmake      POST_BUILD cmake -P script that runs dump_syms and writes the store
-  dump_syms_host/           Standalone CMake project — builds the host dump_syms binary
+  host_toolkit/             Standalone CMake project — builds dump_syms, minidump-stackwalk,
+                            and stages crashomon-analyze into <build>/bin/
 bench/          Microbenchmarks (Google Benchmark, opt-in via -DENABLE_BENCHMARKS=ON)
 test/           C/C++ unit tests (GoogleTest) + integration + smoke test scripts
 examples/       Example crasher programs (segfault, abort, multithread)
@@ -62,17 +61,17 @@ C++ tests use CTest; Python tests use pytest directly — they are not mixed.
 
 ### Build first
 
-`ENABLE_TESTS=ON` adds the `examples/` targets, which call `crashomon_store_symbols()` and therefore require the host `dump_syms` binary. Build it once before configuring:
+`ENABLE_TESTS=ON` adds the `examples/` targets, which call `crashomon_store_symbols()` and therefore require the host `dump_syms` binary. Build the host toolkit once before configuring:
 
 ```bash
-# Build dump_syms for the host (one-time)
-cmake -B _dump_syms_build -S cmake/dump_syms_host/
-cmake --build _dump_syms_build -j$(nproc)
+# Build host tools once (dump_syms, minidump-stackwalk, crashomon-analyze)
+cmake -B _host_toolkit -S cmake/host_toolkit/
+cmake --build _host_toolkit --target host_toolkit -j$(nproc)
 
 # Configure and build with tests
 cmake -B build \
     -DENABLE_TESTS=ON \
-    -DCRASHOMON_DUMP_SYMS_EXECUTABLE="$(pwd)/_dump_syms_build/dump_syms"
+    -DCRASHOMON_HOST_TOOLKIT_DIR="$(pwd)/_host_toolkit/bin"
 cmake --build build -j$(nproc)
 ```
 
@@ -121,7 +120,7 @@ ctest --test-dir build -R MinidumpReader
 Standalone script — no running daemon required. Pass the host binary and any debug ELF:
 
 ```bash
-test/test_dump_syms_smoke.sh _dump_syms_build/dump_syms build/examples/crashomon-example-segfault
+test/test_dump_syms_smoke.sh _host_toolkit/bin/dump_syms build/examples/crashomon-example-segfault
 ```
 
 Checks: exit codes, MODULE line format, build ID encoding, FUNC/FILE record presence, stripped binary handling, self-processing, and error paths.
@@ -131,13 +130,13 @@ Checks: exit codes, MODULE line format, build ID encoding, FUNC/FILE record pres
 ```bash
 cmake -B build-ubsan \
     -DENABLE_UBSAN=ON -DENABLE_TESTS=ON \
-    -DCRASHOMON_DUMP_SYMS_EXECUTABLE="$(pwd)/_dump_syms_build/dump_syms"
+    -DCRASHOMON_HOST_TOOLKIT_DIR="$(pwd)/_host_toolkit/bin"
 cmake --build build-ubsan
 ctest --test-dir build-ubsan --output-on-failure
 
 cmake -B build-asan \
     -DENABLE_ASAN=ON -DENABLE_TESTS=ON \
-    -DCRASHOMON_DUMP_SYMS_EXECUTABLE="$(pwd)/_dump_syms_build/dump_syms"
+    -DCRASHOMON_HOST_TOOLKIT_DIR="$(pwd)/_host_toolkit/bin"
 cmake --build build-asan
 ctest --test-dir build-asan --output-on-failure
 ```

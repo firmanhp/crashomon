@@ -32,59 +32,38 @@ The watcher daemon uses ≤ 20 MB RSS at idle.
 
 ## Building
 
-`dump_syms` is a host tool that extracts DWARF debug info from ELF binaries into Breakpad `.sym` files. It must be built separately with the host compiler before the main build, whether you are cross-compiling or building natively:
+`cmake/host_toolkit/` builds all three host tools in one step — `dump_syms`, `minidump-stackwalk`, and `crashomon-analyze`. Build it once before the main project:
 
 ```bash
-# Build dump_syms for the host (once per machine)
-cmake -B _dump_syms_build -S cmake/dump_syms_host/
-cmake --build _dump_syms_build -j$(nproc)
-# Produces: _dump_syms_build/dump_syms
+# Build host tools (once per machine)
+cmake -B _host_toolkit -S cmake/host_toolkit/
+cmake --build _host_toolkit --target host_toolkit -j$(nproc)
+# Produces: _host_toolkit/bin/{dump_syms,minidump-stackwalk,crashomon-analyze}
 ```
 
-Then configure and build the main project, passing the result in:
+Then configure and build the main project:
 
 ```bash
-cmake -B build -DCRASHOMON_DUMP_SYMS_EXECUTABLE="$(pwd)/_dump_syms_build/dump_syms"
+cmake -B build -DCRASHOMON_HOST_TOOLKIT_DIR="$(pwd)/_host_toolkit/bin"
 cmake --build build -j$(nproc)
 
 # Install Python deps (web UI + syms script)
 uv sync
 ```
 
-If you do not need `crashomon_store_symbols()` (e.g. you are only building the client library and watcherd without symbol extraction), you can omit `CRASHOMON_DUMP_SYMS_EXECUTABLE`. Configure and build will succeed; `dump_syms` will not be installed.
+If you do not need `crashomon_store_symbols()` (e.g. you are only building the client library and watcherd without symbol extraction), you can omit `CRASHOMON_HOST_TOOLKIT_DIR`. Configure and build will succeed; `dump_syms` will not be installed.
 
 This produces:
 
 ```
-build/lib/libcrashomon.so       # LD_PRELOAD library
-build/lib/libcrashomon.a        # static library
-build/daemon/crashomon-watcherd # watcher daemon (also hosts crash handler)
-_dump_syms_build/dump_syms      # DWARF → .sym extraction tool (host binary)
-tools/analyze/crashomon-analyze # CLI symbolication (Python script, no build step)
-tools/syms/crashomon-syms       # symbol store management (Python script, no build step)
+build/lib/libcrashomon.so               # LD_PRELOAD library
+build/lib/libcrashomon.a                # static library
+build/daemon/crashomon-watcherd         # watcher daemon (also hosts crash handler)
+_host_toolkit/bin/dump_syms             # DWARF → .sym extraction tool (host binary)
+_host_toolkit/bin/minidump-stackwalk    # symbolication engine (host binary)
+_host_toolkit/bin/crashomon-analyze     # CLI symbolication (staged Python script)
+tools/syms/crashomon-syms               # symbol store management (Python script, no build step)
 ```
-
-### Building `minidump-stackwalk` (required for symbolication)
-
-`minidump-stackwalk` is the symbolication engine used by `crashomon-analyze` and `crashomon-web`. It is built from the [rust-minidump](https://github.com/rust-minidump/rust-minidump) crate and requires `cargo`. It is **not** built by default — pass `-DCRASHOMON_BUILD_ANALYZE=ON`:
-
-```bash
-cmake -B build -DCRASHOMON_DUMP_SYMS_EXECUTABLE="$(pwd)/_dump_syms_build/dump_syms" \
-               -DCRASHOMON_BUILD_ANALYZE=ON
-cmake --build build -j$(nproc)
-# Produces: build/rust_minidump_target/release/minidump-stackwalk
-```
-
-On `x86_64-unknown-linux-gnu` (glibc) hosts the binary links glibc dynamically. For a fully static binary use the `x86_64-unknown-linux-musl` Rust target:
-
-```bash
-rustup target add x86_64-unknown-linux-musl
-cmake -B build -DCRASHOMON_BUILD_ANALYZE=ON \
-               -DCRASHOMON_DUMP_SYMS_EXECUTABLE="$(pwd)/_dump_syms_build/dump_syms"
-cmake --build build -j$(nproc)
-```
-
-Either binary can be copied to any compatible x86-64 Linux host. To make it available to `crashomon-analyze` and `crashomon-web`, either add it to `PATH` or pass `--stackwalk-binary=` / bind-mount it into the Docker container.
 
 ### Optional build flags
 
@@ -95,7 +74,7 @@ cmake -B build-tsan  -DENABLE_TSAN=ON  && cmake --build build-tsan
 cmake -B build-ubsan -DENABLE_UBSAN=ON && cmake --build build-ubsan
 
 # Enable tests and benchmarks
-cmake -B build -DENABLE_TESTS=ON -DCRASHOMON_DUMP_SYMS_EXECUTABLE="$(pwd)/_dump_syms_build/dump_syms" && cmake --build build
+cmake -B build -DENABLE_TESTS=ON -DCRASHOMON_HOST_TOOLKIT_DIR="$(pwd)/_host_toolkit/bin" && cmake --build build
 
 # Static analysis (requires clang-tidy)
 cmake -B build-tidy -DENABLE_CLANG_TIDY=ON && cmake --build build-tidy
@@ -393,17 +372,22 @@ curl -X DELETE http://localhost:5000/symbols/my_binary/A1B2C3D4E5F60000
 
 This section shows how to build crashomon for a device with a different CPU architecture (e.g. aarch64) from an x86-64 host.
 
-### Step 1: Build `dump_syms` for the host
+### Step 1: Build the host toolkit
 
-`dump_syms` is the Breakpad tool that extracts DWARF debug info from ELF binaries into `.sym` files. It reads the binaries you built — it runs on the **build machine**, not the target device. Building it with a cross-compiler produces a target-architecture binary that cannot execute on the host, so it must be built separately with the host compiler before the cross-compilation step.
+The host toolkit (`dump_syms`, `minidump-stackwalk`, `crashomon-analyze`) runs on the
+**build machine**, not the target device. Building it with a cross-compiler produces
+target-architecture binaries that cannot execute on the host, so it must be built
+separately with the host compiler before the cross-compilation step.
 
 ```bash
-cmake -B _dump_syms_build -S cmake/dump_syms_host/
-cmake --build _dump_syms_build -j$(nproc)
-# Produces: _dump_syms_build/dump_syms
+cmake -B _host_toolkit -S cmake/host_toolkit/
+cmake --build _host_toolkit --target host_toolkit -j$(nproc)
+# Produces: _host_toolkit/bin/{dump_syms,minidump-stackwalk,crashomon-analyze}
 ```
 
-This only needs to be done once per host machine. The binary links zlib and libstdc++ statically and has no runtime dependencies beyond libc, so it can be copied to other machines or cached in CI without reinstalling libraries.
+This only needs to be done once per host machine. `dump_syms` links zlib and libstdc++
+statically and has no runtime dependencies beyond libc, so it can be copied to other
+machines or cached in CI without reinstalling libraries.
 
 ### Step 2: Write a toolchain file
 
@@ -438,19 +422,19 @@ For Buildroot, use `output/host/bin/<tuple>-gcc` and `output/host/<tuple>/sysroo
 
 ### Step 3: Build crashomon for the target
 
-Pass the `dump_syms` binary from Step 1 via `CRASHOMON_DUMP_SYMS_EXECUTABLE`:
+Pass the host toolkit bin/ directory from Step 1 via `CRASHOMON_HOST_TOOLKIT_DIR`:
 
 ```bash
 cmake -B build-cross \
     -DCMAKE_TOOLCHAIN_FILE=/path/to/toolchain-aarch64.cmake \
-    -DCRASHOMON_DUMP_SYMS_EXECUTABLE="$(pwd)/_dump_syms_build/dump_syms"
+    -DCRASHOMON_HOST_TOOLKIT_DIR="$(pwd)/_host_toolkit/bin"
 cmake --build build-cross -j$(nproc) \
     --target crashomon_client crashomon_watcherd
 ```
 
 FetchContent builds all C/C++ dependencies (Crashpad, Breakpad, Abseil, zlib) for the target. The first build takes longer; subsequent rebuilds are fast.
 
-`CRASHOMON_DUMP_SYMS_EXECUTABLE` is required whenever `crashomon_store_symbols()` is called. Configure will fail with an error if the function is used and the variable is not set.
+`CRASHOMON_HOST_TOOLKIT_DIR` (or `CRASHOMON_DUMP_SYMS_EXECUTABLE` directly) is required whenever `crashomon_store_symbols()` is called. Configure will fail with an error if the function is used and the variable is not set.
 
 ### Step 4: Option A — LD_PRELOAD (no code changes)
 
@@ -471,10 +455,10 @@ crashomon_store_symbols(my_app)
 ```
 
 ```bash
-# Build dump_syms for the host first (see Step 1 above), then:
+# Build host toolkit first (see Step 1 above), then:
 cmake -B build \
     -DCMAKE_TOOLCHAIN_FILE=/path/to/toolchain-aarch64.cmake \
-    -DCRASHOMON_DUMP_SYMS_EXECUTABLE="$(pwd)/_dump_syms_build/dump_syms" \
+    -DCRASHOMON_HOST_TOOLKIT_DIR="$(pwd)/_host_toolkit/bin" \
     -DCRASOMON_SYMBOL_STORE=/srv/crashomon/symbols
 cmake --build build -j$(nproc)
 ```
@@ -505,7 +489,7 @@ Useful when the target has a minimal rootfs. Requires static versions of all sys
 ```bash
 cmake -B build-cross \
     -DCMAKE_TOOLCHAIN_FILE=toolchain-aarch64.cmake \
-    -DCRASHOMON_DUMP_SYMS_EXECUTABLE="$(pwd)/_dump_syms_build/dump_syms" \
+    -DCRASHOMON_HOST_TOOLKIT_DIR="$(pwd)/_host_toolkit/bin" \
     -DCMAKE_EXE_LINKER_FLAGS="-static" \
     -DCMAKE_FIND_LIBRARY_SUFFIXES=".a"
 ```
