@@ -386,8 +386,20 @@ cmake --build _host_toolkit --target host_toolkit -j$(nproc)
 ```
 
 This only needs to be done once per host machine. `dump_syms` links zlib and libstdc++
-statically and has no runtime dependencies beyond libc, so it can be copied to other
-machines or cached in CI without reinstalling libraries.
+statically and has no runtime dependencies beyond libc. By default, `minidump-stackwalk`
+links glibc dynamically, so the glibc version on the CI cache host must match the machine
+that runs it. For a fully portable toolkit with no glibc dependency, use the musl Rust
+target:
+
+```bash
+rustup target add x86_64-unknown-linux-musl
+cmake -B _host_toolkit -S cmake/host_toolkit/ \
+    -DCARGO_BUILD_TARGET=x86_64-unknown-linux-musl
+cmake --build _host_toolkit --target host_toolkit -j$(nproc)
+```
+
+The resulting `minidump-stackwalk` binary is statically linked and can be cached in CI or
+copied to any x86-64 Linux host without reinstalling libraries.
 
 ### Step 2: Write a toolchain file
 
@@ -459,7 +471,7 @@ crashomon_store_symbols(my_app)
 cmake -B build \
     -DCMAKE_TOOLCHAIN_FILE=/path/to/toolchain-aarch64.cmake \
     -DCRASHOMON_HOST_TOOLKIT_DIR="$(pwd)/_host_toolkit/bin" \
-    -DCRASOMON_SYMBOL_STORE=/srv/crashomon/symbols
+    -DCRASHOMON_SYMBOL_STORE=/srv/crashomon/symbols
 cmake --build build -j$(nproc)
 ```
 
