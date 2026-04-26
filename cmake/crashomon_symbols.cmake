@@ -67,11 +67,11 @@ function(crashomon_store_symbols target)
   if(NOT TARGET breakpad_dump_syms)
     message(FATAL_ERROR
       "crashomon_store_symbols(${target}): dump_syms host binary not configured.\n"
-      "Build it once with the host compiler:\n"
-      "  cmake -B _dump_syms_build -S <crashomon>/cmake/dump_syms_host/\n"
-      "  cmake --build _dump_syms_build\n"
+      "Build the host toolkit:\n"
+      "  cmake -B _host_toolkit -S <crashomon>/cmake/host_toolkit/\n"
+      "  cmake --build _host_toolkit --target host_toolkit\n"
       "Then re-run configure with:\n"
-      "  -DCRASHOMON_DUMP_SYMS_EXECUTABLE=<path>/_dump_syms_build/dump_syms")
+      "  -DCRASHOMON_HOST_TOOLKIT_DIR=<path>/_host_toolkit/bin")
   endif()
 
   # Generator expressions ($<TARGET_FILE:...>) are evaluated at build time by

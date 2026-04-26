@@ -54,15 +54,16 @@ target_link_libraries(breakpad_processor PRIVATE Threads::Threads)
 # Used by crashomon_store_symbols() as a POST_BUILD step.
 #
 # dump_syms is a host tool — it reads the binaries you built and must run on the
-# build machine, not the target. Build it once with the host compiler via the
-# standalone sub-project, then pass the result here:
+# build machine, not the target. Build it via cmake/host_toolkit/ and pass the
+# result here via CRASHOMON_HOST_TOOLKIT_DIR (preferred) or directly:
 #
-#   cmake -B _dump_syms_build -S cmake/dump_syms_host/
-#   cmake --build _dump_syms_build
-#   cmake -B build -DCRASHOMON_DUMP_SYMS_EXECUTABLE=$(pwd)/_dump_syms_build/dump_syms
+#   cmake -B _host_toolkit -S cmake/host_toolkit/
+#   cmake --build _host_toolkit --target host_toolkit
+#   cmake -B build -DCRASHOMON_HOST_TOOLKIT_DIR=$(pwd)/_host_toolkit/bin
 #
-# For cross-compilation this step is required; for native builds it is only
-# needed if you use crashomon_store_symbols(). See INSTALL.md §Cross-compilation.
+# For cross-compilation: build cmake/host_toolkit/ with the host compiler, then
+# pass its bin/ directory as CRASHOMON_HOST_TOOLKIT_DIR in the cross build.
+# See INSTALL.md §Cross-compilation.
 #
 # When CRASHOMON_DUMP_SYMS_EXECUTABLE is not set, the breakpad_dump_syms target
 # is not defined and install rules that reference it are skipped.
