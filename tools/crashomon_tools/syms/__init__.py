@@ -29,13 +29,41 @@ def _run_dump_syms(dump_syms: str, binary: Path) -> tuple[str, str, str] | None:
             print(result.stderr.rstrip(), file=sys.stderr)
         return None
 
-    first_line = result.stdout.splitlines()[0]
+    lines = result.stdout.splitlines()
+    first_line = lines[0]
     parts = first_line.split()
     if len(parts) < 5 or parts[0] != "MODULE":
         print(f"dump_syms: unexpected MODULE line:\n  {first_line}", file=sys.stderr)
         return None
 
+    _warn_sym_quality(binary, lines)
+
     return parts[4], parts[3], result.stdout  # module_name, build_id, sym_text
+
+
+def _warn_sym_quality(binary: Path, sym_lines: list[str]) -> None:
+    """Emit diagnostic warnings when the sym file lacks useful debug information."""
+    has_func = any(ln.startswith("FUNC ") for ln in sym_lines)
+    if not has_func:
+        print(
+            f"warning: {binary.name}: no DWARF debug info — binary may be stripped. "
+            "Stack traces will show only addresses, not function names.",
+            file=sys.stderr,
+        )
+
+    # INFO CODE_ID is 32 hex chars when Breakpad computed the ID from ELF content
+    # (no .note.gnu.build-id section); a real GNU build ID (SHA-1) is 40 hex chars.
+    for ln in sym_lines:
+        if ln.startswith("INFO CODE_ID "):
+            code_id = ln.split()[2]
+            if len(code_id) <= 32:
+                print(
+                    f"warning: {binary.name}: no .note.gnu.build-id section — "
+                    "build ID is a computed fallback. Symbol matching may fail if "
+                    "the deployed binary is modified after symbol extraction.",
+                    file=sys.stderr,
+                )
+            break
 
 
 def _store_sym(store: Path, module_name: str, build_id: str, sym_text: str) -> Path:

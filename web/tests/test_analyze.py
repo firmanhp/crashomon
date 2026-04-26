@@ -426,3 +426,57 @@ def test_extract_sysroot_symbols_dump_syms_failure_is_silent(tmp_path: Path) -> 
         )
 
     assert not list(store.rglob("*.sym")) if store.exists() else True
+
+
+# ---------------------------------------------------------------------------
+# _warn_sym_quality
+# ---------------------------------------------------------------------------
+
+
+def _sym_lines(func_count: int = 3, code_id_hex: str = "A" * 40) -> list[str]:
+    lines = ["MODULE Linux x86_64 DEADBEEF0 mylib.so", f"INFO CODE_ID {code_id_hex}"]
+    if func_count:
+        lines.append("FILE 0 foo.cpp")
+    lines += [f"FUNC {i * 0x10:x} 10 0 func_{i}" for i in range(func_count)]
+    return lines
+
+
+def test_warn_sym_quality_no_warning_for_full_debug(capsys):
+    from crashomon_tools.syms import _warn_sym_quality
+
+    _warn_sym_quality(Path("libfoo.so"), _sym_lines(func_count=3))
+    assert capsys.readouterr().err == ""
+
+
+def test_warn_sym_quality_warns_no_dwarf(capsys):
+    from crashomon_tools.syms import _warn_sym_quality
+
+    _warn_sym_quality(Path("libfoo.so"), _sym_lines(func_count=0))
+    err = capsys.readouterr().err
+    assert "no DWARF" in err
+    assert "libfoo.so" in err
+
+
+def test_warn_sym_quality_warns_no_build_id(capsys):
+    from crashomon_tools.syms import _warn_sym_quality
+
+    _warn_sym_quality(Path("libfoo.so"), _sym_lines(func_count=3, code_id_hex="B" * 32))
+    err = capsys.readouterr().err
+    assert "no .note.gnu.build-id" in err
+    assert "libfoo.so" in err
+
+
+def test_warn_sym_quality_no_build_id_warning_for_sha1(capsys):
+    from crashomon_tools.syms import _warn_sym_quality
+
+    _warn_sym_quality(Path("libfoo.so"), _sym_lines(func_count=3, code_id_hex="C" * 40))
+    assert "build-id" not in capsys.readouterr().err
+
+
+def test_warn_sym_quality_both_warnings_for_stripped_no_build_id(capsys):
+    from crashomon_tools.syms import _warn_sym_quality
+
+    _warn_sym_quality(Path("libfoo.so"), _sym_lines(func_count=0, code_id_hex="D" * 32))
+    err = capsys.readouterr().err
+    assert "no DWARF" in err
+    assert "no .note.gnu.build-id" in err
