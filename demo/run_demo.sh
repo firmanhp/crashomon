@@ -81,30 +81,30 @@ fi
 # ═══════════════════════════════════════════════════════════════════════════════
 _step "Phase 1 · Build"
 
-# ── 1a. Host tools: dump_syms and minidump_stackwalk ──────────────────────────
-# dump_syms is a pre-built IMPORTED target in crashomon's CMake.  It must be
-# compiled for the host (not the target) so that CI pipelines can run it on the
-# build machine regardless of the target architecture.
-if [[ -x "$HOST_BUILD/dump_syms" ]]; then
-    _ok "Host tools already built (dump_syms, minidump_stackwalk)"
+# ── 1a. Host tools: dump_syms, minidump-stackwalk, crashomon-analyze ───────────
+# cmake/host_toolkit/ builds all three tools in one step.  Outputs land in
+# _host_build/bin/.  Built with the host compiler; safe to reuse across
+# cross-compilation builds.
+if [[ -x "$HOST_BUILD/bin/dump_syms" ]]; then
+    _ok "Host tools already built ($HOST_BUILD/bin/)"
 else
-    echo "  Building host tools (dump_syms, minidump_stackwalk)..."
-    cmake -S "$ROOT_DIR/cmake/dump_syms_host" -B "$HOST_BUILD" -Wno-dev \
+    echo "  Building host tools..."
+    cmake -S "$ROOT_DIR/cmake/host_toolkit" -B "$HOST_BUILD" -Wno-dev \
         2>&1 | grep -v '^--' | tail -8 || true
-    cmake --build "$HOST_BUILD" --parallel "$(nproc)"
-    _ok "Host tools built: $HOST_BUILD/dump_syms"
+    cmake --build "$HOST_BUILD" --target host_toolkit --parallel "$(nproc)"
+    _ok "Host tools built: $HOST_BUILD/bin/"
 fi
 
-DUMP_SYMS_BIN="$HOST_BUILD/dump_syms"
+DUMP_SYMS_BIN="$HOST_BUILD/bin/dump_syms"
 [[ -x "$DUMP_SYMS_BIN" ]] || _die "dump_syms not found at $DUMP_SYMS_BIN"
 
 # ── 1b. Full crashomon build + demo-crasher ────────────────────────────────────
 # The demo's CMakeLists.txt uses add_subdirectory(..) to pull in the full
-# crashomon tree, building crashomon_client, crashomon-watcherd, and
-# minidump_stackwalk alongside demo-crasher in a single build.
+# crashomon tree, building crashomon_client and crashomon-watcherd alongside
+# demo-crasher. Host tools are supplied via CRASHOMON_HOST_TOOLKIT_DIR.
 echo "  Configuring and building crashomon + demo-crasher..."
 cmake -S "$DEMO_DIR" -B "$DEMO_BUILD" -Wno-dev \
-    -DCRASHOMON_DUMP_SYMS_EXECUTABLE="$DUMP_SYMS_BIN" \
+    -DCRASHOMON_HOST_TOOLKIT_DIR="$HOST_BUILD/bin" \
     2>&1 | grep -v '^--' | tail -8 || true
 cmake --build "$DEMO_BUILD" --parallel "$(nproc)"
 
