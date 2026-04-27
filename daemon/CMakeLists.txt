@@ -3,6 +3,25 @@
 
 add_subdirectory(tombstone)
 
+# ── Minidump build-ID patcher library ────────────────────────────────────────
+
+add_library(crashomon_patcher STATIC minidump_patcher.cpp)
+target_link_libraries(crashomon_patcher
+  PUBLIC
+    absl::status
+  PRIVATE
+    crashomon_warnings
+    crashomon_spdlog
+    absl::statusor
+)
+target_include_directories(crashomon_patcher PUBLIC ${PROJECT_SOURCE_DIR})
+if(crashomon_absl_SOURCE_DIR)
+  target_include_directories(crashomon_patcher SYSTEM PRIVATE "${crashomon_absl_SOURCE_DIR}")
+endif()
+set_target_properties(crashomon_patcher PROPERTIES CXX_CLANG_TIDY "${CRASHOMON_CLANG_TIDY}")
+
+# ── Watcherd executable ───────────────────────────────────────────────────────
+
 add_executable(crashomon_watcherd
   main.cpp
   crash_socket.cpp
@@ -15,6 +34,7 @@ add_executable(crashomon_watcherd
 target_link_libraries(crashomon_watcherd
   PRIVATE
     crashomon_warnings
+    crashomon_patcher
     crashomon_tombstone
     crashpad_handler_lib
     crashpad_tools

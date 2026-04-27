@@ -34,3 +34,20 @@ endif()
 set_target_properties(crashomon_daemon_tests PROPERTIES CXX_CLANG_TIDY "${CRASHOMON_CLANG_TIDY}")
 
 gtest_discover_tests(crashomon_daemon_tests)
+
+# ── Minidump patcher tests ────────────────────────────────────────────────────
+
+add_executable(test_minidump_patcher test_minidump_patcher.cpp)
+target_link_libraries(test_minidump_patcher
+  PRIVATE
+    crashomon_patcher
+    crashomon_warnings
+    GTest::gtest_main
+)
+target_include_directories(test_minidump_patcher PRIVATE ${PROJECT_SOURCE_DIR})
+if(crashomon_absl_SOURCE_DIR)
+  target_include_directories(test_minidump_patcher SYSTEM PRIVATE "${crashomon_absl_SOURCE_DIR}")
+endif()
+set_target_properties(test_minidump_patcher PROPERTIES CXX_CLANG_TIDY "${CRASHOMON_CLANG_TIDY}")
+
+gtest_discover_tests(test_minidump_patcher)
