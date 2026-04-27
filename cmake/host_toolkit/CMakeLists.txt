@@ -10,6 +10,14 @@ set(CMAKE_CXX_STANDARD 17)
 set(CMAKE_CXX_STANDARD_REQUIRED ON)
 set(CMAKE_CXX_EXTENSIONS OFF)
 
+# ── Portability: ISA baseline ──────────────────────────────────────────────────
+# Pin to x86-64 baseline (SSE2 only) so precompiled binaries run on any x86-64
+# machine regardless of what the build host supports. Without this, a build on
+# a Haswell+ host can silently emit AVX2 from auto-vectorization.
+if(CMAKE_SYSTEM_PROCESSOR MATCHES "x86_64|AMD64")
+  add_compile_options(-march=x86-64 -mtune=generic)
+endif()
+
 # All executables land in bin/ so CRASHOMON_HOST_TOOLKIT_DIR can point at a
 # single flat directory containing dump_syms, minidump-stackwalk,
 # crashomon-analyze, and crashomon-syms.
@@ -107,6 +115,12 @@ string(TOUPPER  "${_RUST_HOST_TRIPLE}" _RUST_TRIPLE_UPPER)
 string(REPLACE  "-" "_" _RUST_TRIPLE_UPPER "${_RUST_TRIPLE_UPPER}")
 set(_RUSTFLAGS_VAR "CARGO_TARGET_${_RUST_TRIPLE_UPPER}_RUSTFLAGS")
 
+if(_RUST_HOST_TRIPLE MATCHES "^x86_64")
+  set(_RUST_EXTRA_FLAGS "-C target-cpu=x86-64")
+else()
+  set(_RUST_EXTRA_FLAGS "")
+endif()
+
 ExternalProject_Add(rust_minidump_build
   GIT_REPOSITORY https://github.com/rust-minidump/rust-minidump.git
   GIT_TAG        v0.26.1
@@ -114,7 +128,7 @@ ExternalProject_Add(rust_minidump_build
   CONFIGURE_COMMAND ""
   BUILD_COMMAND
     ${CMAKE_COMMAND} -E env
-      "${_RUSTFLAGS_VAR}=-C target-feature=+crt-static"
+      "${_RUSTFLAGS_VAR}=-C target-feature=+crt-static ${_RUST_EXTRA_FLAGS}"
     ${CARGO} build --release --bin minidump-stackwalk
     --target-dir ${CMAKE_BINARY_DIR}/rust_minidump_target
   BUILD_IN_SOURCE   TRUE
@@ -129,6 +143,7 @@ unset(_RUSTC)
 unset(_RUST_HOST_TRIPLE)
 unset(_RUST_TRIPLE_UPPER)
 unset(_RUSTFLAGS_VAR)
+unset(_RUST_EXTRA_FLAGS)
 
 # ── minidump-stackwalk staging ────────────────────────────────────────────────
 set(_STACKWALK_SRC "${CMAKE_BINARY_DIR}/rust_minidump_target/release/minidump-stackwalk")
