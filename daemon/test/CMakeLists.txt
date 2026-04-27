@@ -8,6 +8,7 @@ add_executable(crashomon_daemon_tests
 target_link_libraries(crashomon_daemon_tests
   PRIVATE
     crashomon_warnings
+    crashomon_patcher
     GTest::gmock_main
     absl::status
     absl::statusor

@@ -144,7 +144,7 @@ TEST(WorkerTest, PrunesEvenOnReadError) {
   EXPECT_CALL(tombstone, FormatTombstone(_)).Times(0);
 
   WorkerState state;
-  ProcessNewMinidump("/nonexistent/partial.dmp", state, cfg, "", tombstone);
+  ProcessNewMinidump("/nonexistent/partial.dmp", state, cfg, "", tombstone, /*patch_build_ids=*/false);
 
   EXPECT_EQ(dbt.CountDmpFiles(), 1U);
   EXPECT_TRUE(std::filesystem::exists(dbt.path / "pending" / "keep.dmp"));
@@ -165,7 +165,7 @@ TEST(WorkerTest, ReadErrorOnEmptyDbIsOk) {
   EXPECT_CALL(tombstone, FormatTombstone(_)).Times(0);
 
   WorkerState state;
-  ProcessNewMinidump("/nonexistent/partial.dmp", state, cfg, "", tombstone);
+  ProcessNewMinidump("/nonexistent/partial.dmp", state, cfg, "", tombstone, /*patch_build_ids=*/false);
 
   EXPECT_EQ(dbt.CountDmpFiles(), 0U);
 }
@@ -183,7 +183,7 @@ TEST(WorkerTest, ReadErrorWithNoLimitsIsOk) {
   EXPECT_CALL(tombstone, FormatTombstone(_)).Times(0);
 
   WorkerState state;
-  ProcessNewMinidump("/nonexistent/partial.dmp", state, cfg, "", tombstone);
+  ProcessNewMinidump("/nonexistent/partial.dmp", state, cfg, "", tombstone, /*patch_build_ids=*/false);
 
   EXPECT_EQ(dbt.CountDmpFiles(), 1U);
 }
@@ -207,7 +207,7 @@ TEST(WorkerTest, PrunesOnSuccessPath) {
   EXPECT_CALL(tombstone, FormatTombstone(_)).WillOnce(Return(""));
 
   WorkerState state;
-  ProcessNewMinidump("/fake.dmp", state, cfg, "", tombstone);
+  ProcessNewMinidump("/fake.dmp", state, cfg, "", tombstone, /*patch_build_ids=*/false);
 
   EXPECT_EQ(state.rate_limit_map.size(), 1U);
   EXPECT_EQ(dbt.CountDmpFiles(), 2U);
@@ -240,7 +240,7 @@ TEST(WorkerTest, PrunesOnRateLimitPath) {
   WorkerState state;
 
   // First call — processes normally, prunes db to 1 file.
-  ProcessNewMinidump("/fake.dmp", state, cfg, "", tombstone);
+  ProcessNewMinidump("/fake.dmp", state, cfg, "", tombstone, /*patch_build_ids=*/false);
   EXPECT_EQ(dbt.CountDmpFiles(), 1U);
 
   // Refill so the second call has something to prune.
@@ -250,7 +250,7 @@ TEST(WorkerTest, PrunesOnRateLimitPath) {
   TempDir::SetMtime(new2, now - kAge10s);
 
   // Second call within kRateLimitWindow — rate-limited, but pruning still runs.
-  ProcessNewMinidump("/fake.dmp", state, cfg, "", tombstone);
+  ProcessNewMinidump("/fake.dmp", state, cfg, "", tombstone, /*patch_build_ids=*/false);
   EXPECT_EQ(dbt.CountDmpFiles(), 1U);
 }
 

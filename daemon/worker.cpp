@@ -14,6 +14,7 @@
 #include <string_view>
 
 #include "daemon/disk_manager.h"
+#include "daemon/minidump_patcher.h"
 #include "spdlog/spdlog.h"
 
 namespace {
@@ -81,7 +82,14 @@ namespace crashomon {
 
 void ProcessNewMinidump(const std::string& path, WorkerState& state,
                         const DiskManagerConfig& prune_cfg, std::string_view export_path,
-                        ITombstone& tombstone) {
+                        ITombstone& tombstone, bool patch_build_ids) {
+  if (patch_build_ids) {
+    if (const auto patch_status = PatchMissingBuildIds(path); !patch_status.ok()) {
+      spdlog::warn("crashomon-watcherd: build-id patch failed for '{}': {}", path,
+                   patch_status.message());
+    }
+  }
+
   auto info_or = tombstone.ReadMinidump(path);
   if (!info_or.ok()) {
     spdlog::error("crashomon-watcherd: failed to read minidump '{}': {}", path,
@@ -116,7 +124,7 @@ void ProcessNewMinidump(const std::string& path, WorkerState& state,
 }
 
 void RunWorker(WorkerState& state, const DiskManagerConfig& prune_cfg, std::string_view export_path,
-               ITombstone& tombstone) {
+               ITombstone& tombstone, bool patch_build_ids) {
   while (true) {
     std::string path;
     {
@@ -129,7 +137,7 @@ void RunWorker(WorkerState& state, const DiskManagerConfig& prune_cfg, std::stri
       state.pending.pop();
     }
     // No lock held during processing — allows the poll loop to keep enqueuing.
-    ProcessNewMinidump(path, state, prune_cfg, export_path, tombstone);
+    ProcessNewMinidump(path, state, prune_cfg, export_path, tombstone, patch_build_ids);
   }
 }
 

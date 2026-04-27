@@ -251,7 +251,8 @@ void SetupSignalHandlers() {
 
 // NOLINTNEXTLINE(bugprone-easily-swappable-parameters)
 int RunWatcher(const std::string& db_path, const std::string& socket_path,
-               const DiskManagerConfig& prune_cfg, const std::string& export_path) {
+               const DiskManagerConfig& prune_cfg, const std::string& export_path,
+               bool patch_build_ids) {
   // ── Directory and database setup ──────────────────────────────────────────
 
   const std::string new_dir = db_path + "/new";
@@ -311,7 +312,7 @@ int RunWatcher(const std::string& db_path, const std::string& socket_path,
   WorkerState worker_state;
   RealTombstone tombstone;
   std::thread worker_thread(RunWorker, std::ref(worker_state), std::cref(prune_cfg),
-                            std::string_view{export_path}, std::ref(tombstone));
+                            std::string_view{export_path}, std::ref(tombstone), patch_build_ids);
 
   // ── Event loop ────────────────────────────────────────────────────────────
 

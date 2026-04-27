@@ -64,13 +64,15 @@ struct WorkerState {
 // Process one minidump file: read, log tombstone, export if configured, prune.
 // Pruning is unconditional — it runs even when the dump is unreadable, so a
 // full disk that produces partial writes doesn't wedge the pruning cycle.
+// When patch_build_ids is true, PatchMissingBuildIds() is called first so
+// modules without .note.gnu.build-id sections get a matching fallback ID.
 void ProcessNewMinidump(const std::string& path, WorkerState& state,
                         const DiskManagerConfig& prune_cfg, std::string_view export_path,
-                        ITombstone& tombstone);
+                        ITombstone& tombstone, bool patch_build_ids = true);
 
 // Worker thread entry point: dequeues and processes minidumps from `state`
 // until state.stop is true and the queue is empty.
 void RunWorker(WorkerState& state, const DiskManagerConfig& prune_cfg, std::string_view export_path,
-               ITombstone& tombstone);
+               ITombstone& tombstone, bool patch_build_ids = true);
 
 }  // namespace crashomon

@@ -12,19 +12,22 @@
 //   crashomon-watcherd [--db-path=PATH] [--socket-path=PATH]
 //                      [--max-size=SIZE] [--max-age=AGE]
 //                      [--export-path=PATH]
+//                      [--patch-build-ids=auto|never]
 //
-//   --db-path      Directory to watch / write minidumps to.
-//                  Default: $CRASHOMON_DB_PATH or /var/crashomon.
-//   --socket-path  Unix domain socket for crash handler connections.
-//                  Default: $CRASHOMON_SOCKET_PATH or /run/crashomon/handler.sock.
-//   --max-size     Maximum total size of .dmp files (e.g. 100M, 500K, 1G).
-//                  0 or omitted = unlimited.
-//   --max-age      Maximum age per file (e.g. 7d, 24h, 3600s).
-//                  0 or omitted = unlimited.
-//   --export-path  Directory to copy each new minidump into on arrival.
-//                  Files are named: {process}_{build_id8}_{YYYYMMDDHHmmss}.crashdump
-//                  Pruned by the same --max-size/--max-age limits as the db.
-//                  Default: $CRASHOMON_EXPORT_PATH or disabled.
+//   --db-path          Directory to watch / write minidumps to.
+//                      Default: $CRASHOMON_DB_PATH or /var/crashomon.
+//   --socket-path      Unix domain socket for crash handler connections.
+//                      Default: $CRASHOMON_SOCKET_PATH or /run/crashomon/handler.sock.
+//   --max-size         Maximum total size of .dmp files (e.g. 100M, 500K, 1G).
+//                      0 or omitted = unlimited.
+//   --max-age          Maximum age per file (e.g. 7d, 24h, 3600s).
+//                      0 or omitted = unlimited.
+//   --export-path      Directory to copy each new minidump into on arrival.
+//                      Files are named: {process}_{build_id8}_{YYYYMMDDHHmmss}.crashdump
+//                      Pruned by the same --max-size/--max-age limits as the db.
+//                      Default: $CRASHOMON_EXPORT_PATH or disabled.
+//   --patch-build-ids  'auto' (default) or 'never': whether to patch missing BpEL
+//                      build IDs in each new minidump before processing.
 
 #include <cstdlib>
 #include <cstring>
@@ -127,6 +130,7 @@ int main(int argc, char* argv[]) {
 
   uint64_t max_bytes = 0;
   uint32_t max_age_sec = 0;
+  bool patch_build_ids = true;
 
   // argv is a C array; pointer arithmetic is the only way to construct a range from it.
   // NOLINTNEXTLINE(cppcoreguidelines-pro-bounds-pointer-arithmetic)
@@ -144,6 +148,13 @@ int main(int argc, char* argv[]) {
       max_age_sec = ParseAge(arg_val);
     } else if (arg_val = GetArgValue(arg, "--export-path"); arg_val != nullptr) {
       export_path = arg_val;
+    } else if (arg_val = GetArgValue(arg, "--patch-build-ids"); arg_val != nullptr) {
+      if (strcmp(arg_val, "never") == 0) {
+        patch_build_ids = false;
+      } else if (strcmp(arg_val, "auto") != 0) {
+        spdlog::error("crashomon-watcherd: --patch-build-ids must be 'auto' or 'never'");
+        return 1;
+      }
     } else {
       spdlog::error("crashomon-watcherd: unknown argument: {}", arg);
       return 1;
@@ -158,5 +169,5 @@ int main(int argc, char* argv[]) {
   prune_cfg.max_bytes = max_bytes;
   prune_cfg.max_age_seconds = max_age_sec;
 
-  return crashomon::RunWatcher(db_path, socket_path, prune_cfg, export_path);
+  return crashomon::RunWatcher(db_path, socket_path, prune_cfg, export_path, patch_build_ids);
 }

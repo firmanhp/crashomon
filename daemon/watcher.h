@@ -16,7 +16,10 @@ namespace crashomon {
 void SetupSignalHandlers();
 
 // Run the main event loop.  Returns 0 on clean shutdown, 1 on startup error.
+// When patch_build_ids is true, each new minidump is patched with fallback
+// build IDs before tombstone generation.
 int RunWatcher(const std::string& db_path, const std::string& socket_path,
-               const DiskManagerConfig& prune_cfg, const std::string& export_path);
+               const DiskManagerConfig& prune_cfg, const std::string& export_path,
+               bool patch_build_ids = true);
 
 }  // namespace crashomon
