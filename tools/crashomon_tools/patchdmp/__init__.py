@@ -243,17 +243,25 @@ def _read_module_name(data: bytes, rva: int) -> str:
 # ── Minidump patcher ──────────────────────────────────────────────────────────
 
 
-def patch_minidump(data: bytearray, sysroot: Path | None = None) -> int:
+def patch_minidump(
+    data: bytearray,
+    sysroot: Path | None = None,
+    build_id_overrides: dict[str, bytes] | None = None,
+) -> int:
     """Patch modules with missing BpEL CodeView records in a minidump buffer.
 
-    For each module whose CV record is not already BpEL, resolves the ELF file
-    (via sysroot if provided, else the absolute path from the minidump), computes
-    the build ID (GNU note or XOR fallback), and overwrites the CV record
-    in-place.  The existing record must have DataSize >= 4 + len(build_id) (PDB70
-    always satisfies this: 4-byte sig + 16-byte GUID + 4-byte age + path >= 25).
+    For each module whose CV record is not already BpEL:
+    1. Check build_id_overrides for an explicit build ID (matched by exact module
+       path or basename).
+    2. Fall back to resolving the ELF on disk (via sysroot if provided) and
+       computing the build ID from the ELF (GNU note or XOR fallback).
+
+    The existing CV record must have DataSize >= 4 + len(build_id) (PDB70 always
+    satisfies this: 4-byte sig + 16-byte GUID + 4-byte age + path >= 25).
 
     Returns the number of modules patched.
     """
+    overrides = build_id_overrides or {}
     patched = 0
     for mod in _iter_modules(bytes(data)):
         if mod.cv_sig == _BPEL_SIGNATURE:
@@ -261,13 +269,14 @@ def patch_minidump(data: bytearray, sysroot: Path | None = None) -> int:
         if mod.cv_rva == 0 or mod.cv_size < 4:
             continue
 
-        elf_path = _resolve_elf(mod.name, sysroot)
-        if elf_path is None:
-            continue
-
-        build_id = compute_elf_build_id(elf_path)
+        build_id = _lookup_override(mod.name, overrides)
         if build_id is None:
-            continue
+            elf_path = _resolve_elf(mod.name, sysroot)
+            if elf_path is None:
+                continue
+            build_id = compute_elf_build_id(elf_path)
+            if build_id is None:
+                continue
 
         bpel_size = 4 + len(build_id)
         if mod.cv_size < bpel_size:
@@ -280,6 +289,17 @@ def patch_minidump(data: bytearray, sysroot: Path | None = None) -> int:
         patched += 1
 
     return patched
+
+
+def _lookup_override(module_path: str, overrides: dict[str, bytes]) -> bytes | None:
+    """Return the override build ID for module_path, or None if not present.
+
+    Checks exact path match first, then basename match.
+    """
+    if module_path in overrides:
+        return overrides[module_path]
+    basename = Path(module_path).name
+    return overrides.get(basename)
 
 
 def _resolve_elf(module_path: str, sysroot: Path | None) -> Path | None:

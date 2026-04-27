@@ -315,3 +315,101 @@ def test_cli_dry_run_no_write(tmp: Path) -> None:
     r = _run_patchdmp("--dry-run", str(dmp))
     assert r.returncode == 0, r.stderr
     assert dmp.read_bytes() == original  # file unchanged
+
+
+# ── Override build-ID tests ───────────────────────────────────────────────────
+
+
+def test_patch_with_build_id_override_by_basename(tmp: Path) -> None:
+    from crashomon_tools.patchdmp import patch_minidump
+
+    fake_bid = bytes(range(16))
+    cv = _pdb70_record("/nonexistent/libover.so")
+    data = _build_test_minidump("/nonexistent/libover.so", cv)
+
+    patched = patch_minidump(data, build_id_overrides={"libover.so": fake_bid})
+    assert patched == 1
+
+    cv_rva = struct.unpack_from("<I", data, _MOD_CV_RVA_OFF)[0]
+    sig = struct.unpack_from("<I", data, cv_rva)[0]
+    assert sig == _BPEL_SIG
+    assert bytes(data[cv_rva + 4 : cv_rva + 4 + 16]) == fake_bid
+
+
+def test_patch_with_build_id_override_by_full_path(tmp: Path) -> None:
+    from crashomon_tools.patchdmp import patch_minidump
+
+    fake_bid = bytes(range(16, 32))
+    cv = _pdb70_record("/nonexistent/libfull.so")
+    data = _build_test_minidump("/nonexistent/libfull.so", cv)
+
+    patched = patch_minidump(data, build_id_overrides={"/nonexistent/libfull.so": fake_bid})
+    assert patched == 1
+
+    cv_rva = struct.unpack_from("<I", data, _MOD_CV_RVA_OFF)[0]
+    bid_in_file = bytes(data[cv_rva + 4 : cv_rva + 4 + 16])
+    assert bid_in_file == fake_bid
+
+
+def test_patch_override_takes_priority_over_elf(tmp: Path) -> None:
+    from crashomon_tools.patchdmp import compute_elf_build_id, patch_minidump
+
+    src = tmp / "libpri.c"
+    src.write_text("int pri(void) { int x = 7; return x + 1; }\n")
+    lib = tmp / "libpri.so"
+    _gcc("-shared", "-fPIC", "-g", "-Wl,--build-id=none", str(src), "-o", str(lib))
+
+    real_bid = compute_elf_build_id(lib)
+    assert real_bid is not None
+
+    fake_bid = bytes([0xAB] * 16)
+    assert fake_bid != real_bid
+
+    cv = _pdb70_record(str(lib))
+    data = _build_test_minidump(str(lib), cv)
+
+    patched = patch_minidump(data, build_id_overrides={"libpri.so": fake_bid})
+    assert patched == 1
+
+    cv_rva = struct.unpack_from("<I", data, _MOD_CV_RVA_OFF)[0]
+    bid_in_file = bytes(data[cv_rva + 4 : cv_rva + 4 + 16])
+    assert bid_in_file == fake_bid  # override wins, not the real ELF build ID
+
+
+def test_cli_build_id_override(tmp: Path) -> None:
+    fake_bid = bytes(range(16))
+    cv = _pdb70_record("/nonexistent/libcliover.so")
+    dmp = tmp / "over.dmp"
+    dmp.write_bytes(bytes(_build_test_minidump("/nonexistent/libcliover.so", cv)))
+
+    r = _run_patchdmp(
+        "--build-id", f"libcliover.so={fake_bid.hex()}",
+        "--in-place", str(dmp),
+    )
+    assert r.returncode == 0, r.stderr
+
+    patched_data = dmp.read_bytes()
+    cv_rva = struct.unpack_from("<I", patched_data, _MOD_CV_RVA_OFF)[0]
+    sig = struct.unpack_from("<I", patched_data, cv_rva)[0]
+    assert sig == _BPEL_SIG
+    assert bytes(patched_data[cv_rva + 4 : cv_rva + 4 + 16]) == fake_bid
+
+
+def test_cli_build_id_invalid_hex(tmp: Path) -> None:
+    cv = _pdb70_record("/nonexistent/lib.so")
+    dmp = tmp / "bad.dmp"
+    dmp.write_bytes(bytes(_build_test_minidump("/nonexistent/lib.so", cv)))
+
+    r = _run_patchdmp("--build-id", "lib.so=ZZZZ", "--in-place", str(dmp))
+    assert r.returncode != 0
+    assert "valid hex" in r.stderr.lower() or "hex" in r.stderr.lower()
+
+
+def test_cli_build_id_odd_length(tmp: Path) -> None:
+    cv = _pdb70_record("/nonexistent/lib.so")
+    dmp = tmp / "odd.dmp"
+    dmp.write_bytes(bytes(_build_test_minidump("/nonexistent/lib.so", cv)))
+
+    r = _run_patchdmp("--build-id", "lib.so=abc", "--in-place", str(dmp))
+    assert r.returncode != 0
+    assert "odd" in r.stderr.lower()
