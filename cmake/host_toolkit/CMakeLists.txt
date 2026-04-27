@@ -115,10 +115,9 @@ string(TOUPPER  "${_RUST_HOST_TRIPLE}" _RUST_TRIPLE_UPPER)
 string(REPLACE  "-" "_" _RUST_TRIPLE_UPPER "${_RUST_TRIPLE_UPPER}")
 set(_RUSTFLAGS_VAR "CARGO_TARGET_${_RUST_TRIPLE_UPPER}_RUSTFLAGS")
 
+set(_RUST_EXTRA_FLAGS "")
 if(_RUST_HOST_TRIPLE MATCHES "^x86_64")
-  set(_RUST_EXTRA_FLAGS "-C target-cpu=x86-64")
-else()
-  set(_RUST_EXTRA_FLAGS "")
+  string(APPEND _RUST_EXTRA_FLAGS "-C target-cpu=x86-64")
 endif()
 
 ExternalProject_Add(rust_minidump_build
