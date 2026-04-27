@@ -62,9 +62,38 @@ def _apply_annotations(tombstone: ParsedTombstone, dmp: str) -> None:
     tombstone.terminate_type = annotations.get("terminate_type", "")
 
 
+def _warn_missing_build_ids(data: dict, dmp: str) -> None:
+    """Print a hint to stderr when any module has no BpEL build ID.
+
+    minidump-stackwalk reports code_id='id' for modules whose CodeView record
+    is PDB70 (no .note.gnu.build-id ELF note), which prevents symbol store
+    lookup.  crashomon-patchdmp can patch those records from the ELF on disk.
+    """
+    missing = [
+        Path(mod.get("filename") or "?").name
+        for mod in (data.get("modules") or [])
+        if mod.get("code_id") == "id"
+    ]
+    if not missing:
+        return
+    print(
+        f"crashomon-analyze: warning: {len(missing)} module(s) lack a build ID"
+        f" (code_id='id') — symbolication may fail:",
+        file=sys.stderr,
+    )
+    for name in missing:
+        print(f"  {name}", file=sys.stderr)
+    print(
+        f"  Hint: run 'crashomon-patchdmp --in-place {dmp}' to patch build IDs"
+        " from ELF files on disk.",
+        file=sys.stderr,
+    )
+
+
 def mode_minidump_store(stores: list[str], dmp: str, stackwalk: str, show_trust: bool = False) -> str:
     """Mode 1: symbolicate a minidump against one or more symbol stores."""
     data = _run_stackwalk_json(stackwalk, dmp, stores)
+    _warn_missing_build_ids(data, dmp)
     tombstone, symbols = parse_stackwalk_json(data)
     _apply_annotations(tombstone, dmp)
     return format_symbolicated(tombstone, symbols, show_trust)
@@ -84,6 +113,7 @@ def mode_sym_file_minidump(sym_file: str, dmp: str, stackwalk: str, show_trust: 
         sym_dir.mkdir(parents=True)
         shutil.copy2(sym_file, sym_dir / f"{module_name}.sym")
         data = _run_stackwalk_json(stackwalk, dmp, [tmp])
+    _warn_missing_build_ids(data, dmp)
     tombstone, symbols = parse_stackwalk_json(data)
     _apply_annotations(tombstone, dmp)
     return format_symbolicated(tombstone, symbols, show_trust)
@@ -92,6 +122,7 @@ def mode_sym_file_minidump(sym_file: str, dmp: str, stackwalk: str, show_trust: 
 def mode_raw_tombstone(dmp: str, stackwalk: str, show_trust: bool = False) -> str:
     """Mode 4: format a raw (unsymbolicated) tombstone from a minidump."""
     data = _run_stackwalk_json(stackwalk, dmp, [])
+    _warn_missing_build_ids(data, dmp)
     tombstone, _symbols = parse_stackwalk_json(data)
     _apply_annotations(tombstone, dmp)
     return format_raw_tombstone(tombstone, show_trust)
@@ -132,6 +163,7 @@ def mode_minidump_sysroot(
     primary_store.mkdir(parents=True, exist_ok=True)
 
     data = _run_stackwalk_json(stackwalk, dmp, stores)
+    _warn_missing_build_ids(data, dmp)
     tombstone, symbols = parse_stackwalk_json(data)
 
     resolved_modules = {
