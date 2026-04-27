@@ -108,6 +108,7 @@ def test_build_id_missing_file_returns_none(tmp: Path) -> None:
 
 _PDB70_SIG = 0x53445352  # MD_CVINFOPDB70_SIGNATURE; "RSDS" in memory
 _BPEL_SIG = 0x4270454C  # MD_CVINFOELF_SIGNATURE; "LEpB" in memory
+_MODULE_LIST_STREAM = 4  # MD_MODULE_LIST_STREAM
 
 
 def _pdb70_record(pdb_path: str = "") -> bytes:
@@ -138,7 +139,7 @@ def _build_test_minidump(module_path: str, cv_bytes: bytes) -> bytearray:
     struct.pack_into("<IIIIIIQ", buf, 0, 0x504D444D, 0x0000A793, 1, HEADER_SIZE, 0, 0, 0)
 
     # MINIDUMP_DIRECTORY[0]: StreamType(I), DataSize(I), Rva(I)
-    struct.pack_into("<III", buf, HEADER_SIZE, 3, stream_data_size, stream_rva)
+    struct.pack_into("<III", buf, HEADER_SIZE, 4, stream_data_size, stream_rva)
 
     # Module list: count
     struct.pack_into("<I", buf, stream_rva, 1)

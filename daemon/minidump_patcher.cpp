@@ -25,7 +25,7 @@ namespace {
 // ── Minidump layout constants ────────────────────────────────────────────────
 
 constexpr uint32_t kMdmpSignature = 0x504D444DU;
-constexpr uint32_t kModuleListStream = 3U;
+constexpr uint32_t kModuleListStream = 4U;
 constexpr uint32_t kBpElSignature = 0x4270454CU;  // MD_CVINFOELF_SIGNATURE
 
 // MDRawModule field offsets and size.
@@ -234,8 +234,8 @@ std::vector<uint8_t> ComputeElfBuildId(const std::string& elf_path) {
   }
 
   // XOR fallback: replicates Breakpad's HashElfTextSection().
-  // mmap is zero-padded to the next page boundary, so the last partial chunk
-  // yields zeros beyond text_size — matching Breakpad's mmap-backed behavior.
+  // ptr[j+k] is not clamped to text_size; the last partial chunk reads actual
+  // file bytes past text_size via mmap — matching Breakpad's unclamped behavior.
   std::vector<uint8_t> hash(kXorHashSize, 0);
   const auto* ptr = ubase + text_off;
   const size_t limit = std::min(static_cast<size_t>(text_size), kXorMaxBytes);

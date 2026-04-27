@@ -20,7 +20,7 @@ namespace {
 // ── Minidump layout constants ────────────────────────────────────────────────
 
 constexpr uint32_t kMdmpSig = 0x504D444DU;
-constexpr uint32_t kModuleListStream = 3U;
+constexpr uint32_t kModuleListStream = 4U;  // MD_MODULE_LIST_STREAM
 constexpr uint32_t kPdb70Sig = 0x53445352U;
 constexpr uint32_t kBpElSig = 0x4270454CU;
 constexpr size_t kModuleSize = 108;

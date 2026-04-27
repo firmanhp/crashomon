@@ -19,7 +19,7 @@ _NT_GNU_BUILD_ID = 3
 # ── Minidump constants ────────────────────────────────────────────────────────
 
 _MINIDUMP_SIGNATURE = 0x504D444D
-_MD_MODULE_LIST_STREAM = 3
+_MD_MODULE_LIST_STREAM = 4
 _BPEL_SIGNATURE = 0x4270454C  # MD_CVINFOELF_SIGNATURE; in-memory bytes: 4C 45 70 42
 _XOR_HASH_SIZE = 16  # kMDGUIDSize
 _XOR_MAX_BYTES = 4096
@@ -149,13 +149,17 @@ def _xor_text_hash(data: bytes, text_off: int, text_size: int) -> bytes:
     """Compute Breakpad's XOR-text-section fallback build ID.
 
     Replicates HashElfTextSection() from Breakpad's common/linux/file_id.cc:
-    XOR first min(text_size, 4096) bytes in 16-byte chunks.  Zero-pad the last
-    chunk to match Breakpad's mmap-backed behaviour (mmap is zero-padded to the
-    next page boundary, so reads past text_size within the chunk are zero).
+    XOR first min(text_size, 4096) bytes in 16-byte chunks.  When text_size is
+    not a multiple of 16, the final partial chunk reads actual file bytes past
+    text_size — matching Breakpad's mmap-backed ptr[j+k] without bounds clamping.
+    Zeros are used only if the file genuinely ends before the chunk boundary.
     """
     limit = min(text_size, _XOR_MAX_BYTES)
-    chunk = data[text_off : text_off + limit]
-    # Pad to a multiple of 16 to replicate Breakpad's zero-padded mmap read.
+    # Round up to the next 16-byte boundary to include real file bytes past
+    # text_size in the last chunk — matching Breakpad's unclamped ptr[j+k] read.
+    pad = (-limit) % _XOR_HASH_SIZE
+    chunk = data[text_off : text_off + limit + pad]
+    # Zero-pad only if the file ends before the chunk boundary.
     rem = len(chunk) % _XOR_HASH_SIZE
     if rem:
         chunk = chunk + bytes(_XOR_HASH_SIZE - rem)
