@@ -1,0 +1,20 @@
+#!/usr/bin/env python3
+"""crashomon-patchdmp — patch missing build IDs in Crashpad minidumps."""
+
+from __future__ import annotations
+
+import sys
+from pathlib import Path
+
+_SCRIPT_DIR = Path(__file__).resolve().parent
+
+try:
+    import crashomon_tools  # noqa: F401
+except ImportError:
+    sys.path.insert(0, str(_SCRIPT_DIR.parent))
+    import crashomon_tools  # noqa: F401
+
+from crashomon_tools.patchdmp.cli import main  # noqa: E402
+
+if __name__ == "__main__":
+    sys.exit(main(_SCRIPT_DIR))

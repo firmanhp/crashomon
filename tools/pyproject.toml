@@ -11,6 +11,7 @@ description = "Crashomon host toolkit: symbol ingestion and minidump symbolicati
 [project.scripts]
 crashomon-analyze = "crashomon_tools.analyze.cli:main"
 crashomon-syms = "crashomon_tools.syms.cli:main"
+crashomon-patchdmp = "crashomon_tools.patchdmp.cli:main"
 
 [tool.setuptools.packages.find]
 where = ["."]
