@@ -183,6 +183,19 @@ add_custom_command(
 )
 add_custom_target(host_toolkit_stage_syms DEPENDS "${_SYMS_OUT}")
 
+# ── crashomon-patchdmp staging ────────────────────────────────────────────────
+set(_PATCHDMP_SRC "${CMAKE_CURRENT_SOURCE_DIR}/../../tools/patchdmp/crashomon-patchdmp")
+set(_PATCHDMP_OUT "${CMAKE_BINARY_DIR}/bin/crashomon-patchdmp")
+
+add_custom_command(
+  OUTPUT  "${_PATCHDMP_OUT}"
+  COMMAND ${CMAKE_COMMAND} -E make_directory "${CMAKE_BINARY_DIR}/bin"
+  COMMAND ${CMAKE_COMMAND} -E copy "${_PATCHDMP_SRC}" "${_PATCHDMP_OUT}"
+  DEPENDS "${_PATCHDMP_SRC}"
+  VERBATIM
+)
+add_custom_target(host_toolkit_stage_patchdmp DEPENDS "${_PATCHDMP_OUT}")
+
 # ── crashomon_tools Python package staging ────────────────────────────────────
 # Staged alongside the scripts so Python's script-directory resolution finds it
 # without requiring a separate pip install step.
@@ -200,7 +213,7 @@ add_custom_target(host_toolkit_stage_pylib DEPENDS "${_PYLIB_OUT}")
 # ── host_toolkit aggregator ───────────────────────────────────────────────────
 add_custom_target(host_toolkit
   DEPENDS dump_syms host_toolkit_stage_stackwalk host_toolkit_stage_analyze
-          host_toolkit_stage_syms host_toolkit_stage_pylib
+          host_toolkit_stage_syms host_toolkit_stage_patchdmp host_toolkit_stage_pylib
 )
 
 # ── Install ────────────────────────────────────────────────────────────────────
@@ -209,4 +222,5 @@ install(TARGETS dump_syms RUNTIME DESTINATION ${CMAKE_INSTALL_BINDIR})
 install(PROGRAMS "${_STACKWALK_SRC}" DESTINATION ${CMAKE_INSTALL_BINDIR})
 install(PROGRAMS "${_ANALYZE_SRC}"   DESTINATION ${CMAKE_INSTALL_BINDIR})
 install(PROGRAMS "${_SYMS_SRC}"      DESTINATION ${CMAKE_INSTALL_BINDIR})
+install(PROGRAMS "${_PATCHDMP_SRC}"  DESTINATION ${CMAKE_INSTALL_BINDIR})
 install(DIRECTORY "${_PYLIB_SRC}"    DESTINATION ${CMAKE_INSTALL_BINDIR})
