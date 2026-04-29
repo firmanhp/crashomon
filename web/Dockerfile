@@ -28,6 +28,7 @@ RUN RUSTFLAGS="-C target-feature=+crt-static" \
     cargo install \
         --git https://github.com/rust-minidump/rust-minidump \
         --tag v0.26.1 \
+        --package minidump-stackwalk \
         --bin minidump-stackwalk \
     && strip /usr/local/cargo/bin/minidump-stackwalk
 
