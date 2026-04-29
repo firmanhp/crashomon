@@ -97,9 +97,21 @@ int ReceiveSharedSocket(int conn_fd, pid_t* out_pid) {
   return shared_fd;
 }
 
+// ── Static-link anchor ───────────────────────────────────────────────────────
+// crashomon.h takes the address of this symbol so the linker must include this
+// translation unit from libcrashomon.a even when no API function is called.
+// Without it, the constructor below is silently omitted when static-linking.
+// Not needed for shared-library usage: DSOs are fully loaded regardless.
+// NOLINTNEXTLINE(cppcoreguidelines-avoid-non-const-global-variables)
+extern "C" {
+int crashomon_autoinit_anchor = 1;
+}
+
 // ── Library constructor ──────────────────────────────────────────────────────
 // GCC/Clang constructor attribute fires automatically when the library is
-// loaded — for both LD_PRELOAD and explicit -lcrashomon usage.
+// loaded (shared) or when crashomon.o is included in the link (static).
+// For static linking, crashomon_link_anchor in crashomon.h ensures this
+// translation unit is always included — see crashomon.h for details.
 
 // CRASHOMON_TESTING_SKIP_AUTOINIT is defined by the client test binary so the
 // constructor does not burn 3s retrying against an absent watcherd at startup.

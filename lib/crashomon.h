@@ -52,4 +52,24 @@ void crashomon_set_abort_message(const char *message);
 }
 #endif
 
+// ── Static-link anchor ────────────────────────────────────────────────────────
+// Forces the linker to include crashomon.o from libcrashomon.a even when the
+// application calls no crashomon API function.  Without this, the linker skips
+// the object file and the __attribute__((constructor)) that runs DoInit() is
+// never placed in the binary.  The static pointer is per-TU (no ODR issue) and
+// __attribute__((used)) prevents the compiler from discarding it under LTO or
+// -ffunction-sections/--gc-sections.  Not needed for the shared library: DSOs
+// are loaded in full regardless.
+#ifdef __GNUC__
+#  ifdef __cplusplus
+extern "C" {
+#  endif
+extern int crashomon_autoinit_anchor;
+#  ifdef __cplusplus
+}
+#  endif
+// NOLINTNEXTLINE(cppcoreguidelines-avoid-non-const-global-variables, readability-identifier-naming)
+static int *const crashomon_link_anchor __attribute__((used)) = &crashomon_autoinit_anchor;
+#endif /* __GNUC__ */
+
 #endif /* CRASHOMON_CRASHOMON_H_ */
