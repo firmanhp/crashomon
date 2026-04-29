@@ -80,8 +80,8 @@ docker compose up --build
 The container exposes port 5000 and persists crash data and symbols in the
 `crashomon-data` Docker volume (mounted at `/data` inside the container).
 
-To enable auto-symbolication, build the native binaries from the project root
-and uncomment the bind-mount lines in `docker-compose.yml`.
+The image builds `dump_syms` and `minidump-stackwalk` from source during
+`docker build`, so auto-symbolication works out of the box with no bind-mounts.
 
 Environment variables (set in `.env` or via `docker compose run -e`):
 
