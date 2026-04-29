@@ -75,6 +75,10 @@ These are mandatory — run them whenever the described change is made.
 1. If you add or remove a top-level import in any `web/` or `tools/` file, verify the package is declared in `pyproject.toml` `[project.dependencies]`.
 2. After editing `pyproject.toml` dependencies, run `uv lock` to regenerate `uv.lock`. Both files must be committed together.
 3. Run `uv run pytest` to confirm tests still pass.
+4. If `_host_toolkit/` exists, re-stage the Python artifacts so the integration tests use fresh copies:
+   ```bash
+   cmake --build _host_toolkit --target host_toolkit_stage_analyze host_toolkit_stage_syms host_toolkit_stage_patchdmp host_toolkit_stage_pylib
+   ```
 
 ### Touching the Dockerfile or docker-compose.yml
 1. Run `docker build -f web/Dockerfile -t crashomon-web:test .` — the build must succeed.

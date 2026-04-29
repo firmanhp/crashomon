@@ -44,7 +44,6 @@ echo ""
 echo "-- ctest --"
 if ctest --test-dir "${BUILD_DIR}" \
          --output-on-failure \
-         --no-header \
          -j"${NPROC}" 2>&1 \
     | sed 's/^/  /'; then
   suite_pass "ctest"
@@ -61,6 +60,23 @@ if uv run --extra dev python -m pytest "${PROJECT_ROOT}/web/tests/" --tb=short -
   suite_pass "pytest"
 else
   suite_fail "pytest"
+fi
+
+# ── Host toolkit staging (re-sync Python scripts before integration tests) ────
+
+echo ""
+echo "-- host toolkit staging --"
+_HT_DIR="${PROJECT_ROOT}/_host_toolkit"
+if [[ -d "${_HT_DIR}" ]]; then
+  cmake --build "${_HT_DIR}" \
+    --target host_toolkit_stage_analyze \
+            host_toolkit_stage_syms \
+            host_toolkit_stage_patchdmp \
+            host_toolkit_stage_pylib \
+    2>&1 | sed 's/^/  /'
+  echo "  staging: ok"
+else
+  echo "  SKIP: _host_toolkit not present (integration tests will use tools/ fallback)"
 fi
 
 # ── Integration tests ─────────────────────────────────────────────────────────

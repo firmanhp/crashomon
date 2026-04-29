@@ -1,6 +1,8 @@
 # CMake build directories
 build/
 build-*/
+_host_toolkit/
+_dump_syms_build/
 
 # CMake user-specific files
 CMakeUserPresets.json

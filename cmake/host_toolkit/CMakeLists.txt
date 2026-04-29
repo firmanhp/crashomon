@@ -202,13 +202,10 @@ add_custom_target(host_toolkit_stage_patchdmp DEPENDS "${_PATCHDMP_OUT}")
 set(_PYLIB_SRC "${CMAKE_CURRENT_SOURCE_DIR}/../../tools/crashomon_tools")
 set(_PYLIB_OUT "${CMAKE_BINARY_DIR}/bin/crashomon_tools")
 
-add_custom_command(
-  OUTPUT  "${_PYLIB_OUT}"
+add_custom_target(host_toolkit_stage_pylib
   COMMAND ${CMAKE_COMMAND} -E copy_directory "${_PYLIB_SRC}" "${_PYLIB_OUT}"
-  DEPENDS "${_PYLIB_SRC}"
   VERBATIM
 )
-add_custom_target(host_toolkit_stage_pylib DEPENDS "${_PYLIB_OUT}")
 
 # ── host_toolkit aggregator ───────────────────────────────────────────────────
 add_custom_target(host_toolkit
