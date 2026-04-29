@@ -6,7 +6,11 @@ dependencies = [
     "flask>=3.0",
     "flask-wtf>=1.2",
     "gunicorn>=21.2",
+    "crashomon-tools",
 ]
+
+[tool.uv.sources]
+crashomon-tools = { path = "tools", editable = true }
 
 [project.optional-dependencies]
 dev = [

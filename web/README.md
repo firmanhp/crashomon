@@ -67,3 +67,28 @@ uv lock
 uv run ruff check web/
 uv run ruff format --check web/
 ```
+
+## Docker
+
+Build and run with Docker Compose from the `web/` directory:
+
+```bash
+cp .env.example .env   # then edit .env to set SECRET_KEY at minimum
+docker compose up --build
+```
+
+The container exposes port 5000 and persists crash data and symbols in the
+`crashomon-data` Docker volume (mounted at `/data` inside the container).
+
+To enable auto-symbolication, build the native binaries from the project root
+and uncomment the bind-mount lines in `docker-compose.yml`.
+
+Environment variables (set in `.env` or via `docker compose run -e`):
+
+| Variable | Default | Description |
+|---|---|---|
+| `SECRET_KEY` | *(required in production)* | Flask secret key |
+| `CRASHOMON_SYMBOL_STORE` | `/data/symbols` | Breakpad symbol store root |
+| `CRASHOMON_DB` | `/data/crashes.db` | SQLite crash history database |
+| `CRASHOMON_AUTH_USER` + `CRASHOMON_AUTH_PASS` | *(unset)* | HTTP Basic Auth for the web UI |
+| `CRASHOMON_API_KEY` | *(unset)* | API key for `/api/*` endpoints |

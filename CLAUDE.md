@@ -67,6 +67,24 @@ examples/     Example crasher programs
 systemd/      systemd unit files
 ```
 
+## Change checklists
+
+These are mandatory — run them whenever the described change is made.
+
+### Touching Python imports or dependencies (`web/`, `tools/`)
+1. If you add or remove a top-level import in any `web/` or `tools/` file, verify the package is declared in `pyproject.toml` `[project.dependencies]`.
+2. After editing `pyproject.toml` dependencies, run `uv lock` to regenerate `uv.lock`. Both files must be committed together.
+3. Run `uv run pytest` to confirm tests still pass.
+
+### Touching the Dockerfile or docker-compose.yml
+1. Run `docker build -f web/Dockerfile -t crashomon-web:test .` — the build must succeed.
+2. Start the container and hit at least one route: `docker run --rm -e SECRET_KEY=test crashomon-web:test` and verify workers boot without errors in the log.
+3. Confirm the app uses `/data/` for storage (env vars `CRASHOMON_SYMBOL_STORE` and `CRASHOMON_DB` are set in the Dockerfile).
+
+### Touching `web/README.md`
+- Verify every command block in the README actually works in the current repo state.
+- The Docker section must stay in sync with `web/Dockerfile` and `web/docker-compose.yml`.
+
 ## What NOT to do
 
 - Do not copy full process memory. Crashpad reads selectively via ptrace.

@@ -9,7 +9,6 @@ from pathlib import Path
 from unittest.mock import MagicMock, patch
 
 import pytest
-
 from crashomon_tools.analyze.analyze import (
     _extract_sysroot_symbols,
     mode_minidump_store,

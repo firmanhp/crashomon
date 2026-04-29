@@ -6,7 +6,6 @@ import struct
 from pathlib import Path
 
 import pytest
-
 from crashomon_tools.analyze.log_parser import ParsedFrame, ParsedThread, ParsedTombstone
 from crashomon_tools.analyze.symbolizer import format_symbolicated, read_minidump_annotations
 
