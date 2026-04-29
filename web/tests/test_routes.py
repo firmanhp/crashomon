@@ -194,6 +194,23 @@ def test_upload_empty_redirects(client):
     assert models.get_crashes
 
 
+def test_upload_crash_no_file_flashes_error(client):
+    resp = client.post("/crashes/upload", data={}, follow_redirects=True)
+    assert resp.status_code == 200
+    assert b"No file selected" in resp.data
+
+
+def test_upload_crash_invalid_filename_flashes_error(client):
+    resp = client.post(
+        "/crashes/upload",
+        data={"minidump": (io.BytesIO(b"data"), "@#$%")},
+        content_type="multipart/form-data",
+        follow_redirects=True,
+    )
+    assert resp.status_code == 200
+    assert b"Invalid filename" in resp.data
+
+
 # ---------------------------------------------------------------------------
 # Symbols
 # ---------------------------------------------------------------------------

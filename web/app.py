@@ -118,7 +118,8 @@ def create_app(
         if dmp_file and dmp_file.filename:
             safe_name = secure_filename(dmp_file.filename)
             if not safe_name:
-                return abort(400)
+                flash("Invalid filename.", "error")
+                return redirect(url_for("upload_form"))
             tmp_dir = app.config["DB_PATH"].parent / "tmp"
             tmp_dir.mkdir(parents=True, exist_ok=True)
             dmp_path = tmp_dir / safe_name
@@ -140,6 +141,7 @@ def create_app(
             )
             return redirect(url_for("crash_detail", crash_id=crash_id))
 
+        flash("No file selected.", "error")
         return redirect(url_for("upload_form"))
 
     @app.get("/symbols")

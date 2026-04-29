@@ -36,6 +36,22 @@
     <a href="{{ url_for('symbols') }}">symbols</a>
     <a href="{{ url_for('upload_form') }}">upload</a>
   </nav>
+  {% with messages = get_flashed_messages(with_categories=true) %}
+    {% if messages %}
+      <div style="padding: 0.5rem 2rem;">
+        {% for category, message in messages %}
+          <div style="
+            margin-bottom: 0.4rem;
+            padding: 0.4rem 0.8rem;
+            border: 1px solid {% if category == 'error' %}#7a2a2a{% elif category == 'success' %}#2a7a2a{% else %}#7a5a1a{% endif %};
+            background: {% if category == 'error' %}#3a1a1a{% elif category == 'success' %}#1a3a1a{% else %}#2a200a{% endif %};
+            color: {% if category == 'error' %}#e07070{% elif category == 'success' %}#7ec87e{% else %}#e0b870{% endif %};
+            font-size: 0.9em;
+          ">{{ message }}</div>
+        {% endfor %}
+      </div>
+    {% endif %}
+  {% endwith %}
   <main>
     {% block content %}{% endblock %}
   </main>
