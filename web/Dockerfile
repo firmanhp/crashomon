@@ -24,12 +24,10 @@ RUN apt-get update && apt-get install -y --no-install-recommends \
         git \
     && rm -rf /var/lib/apt/lists/*
 
-RUN RUSTFLAGS="-C target-feature=+crt-static" \
-    cargo install \
+RUN cargo install \
         --git https://github.com/rust-minidump/rust-minidump \
         --tag v0.26.1 \
-        --package minidump-stackwalk \
-        --bin minidump-stackwalk \
+        minidump-stackwalk \
     && strip /usr/local/cargo/bin/minidump-stackwalk
 
 # ── Final image ───────────────────────────────────────────────────────────────
