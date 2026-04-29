@@ -13,8 +13,6 @@
 #include <string_view>
 #include <typeinfo>
 
-#include "crashomon.h"
-
 namespace crashomon {
 
 constexpr std::string_view kDefaultDbPath = "/var/crashomon";
@@ -38,23 +36,18 @@ struct ResolvedConfig {
 };
 
 // Resolve db_path and socket_path by applying, in order:
-//   1. Explicit CrashomonConfig field (if config != nullptr and field != nullptr)
-//   2. Environment variable (CRASHOMON_DB_PATH / CRASHOMON_SOCKET_PATH)
-//   3. Compiled-in default (kDefaultDbPath / kDefaultSocketPath)
-[[nodiscard]] inline ResolvedConfig Resolve(const CrashomonConfig* config) {
+//   1. Environment variable (CRASHOMON_DB_PATH / CRASHOMON_SOCKET_PATH)
+//   2. Compiled-in default (kDefaultDbPath / kDefaultSocketPath)
+[[nodiscard]] inline ResolvedConfig Resolve() {
   ResolvedConfig resolved;
 
-  if (config != nullptr && config->db_path != nullptr) {
-    resolved.db_path = config->db_path;
-  } else if (auto env = GetEnv("CRASHOMON_DB_PATH")) {
+  if (auto env = GetEnv("CRASHOMON_DB_PATH")) {
     resolved.db_path = std::string{*env};
   } else {
     resolved.db_path = std::string{kDefaultDbPath};
   }
 
-  if (config != nullptr && config->socket_path != nullptr) {
-    resolved.socket_path = config->socket_path;
-  } else if (auto env = GetEnv("CRASHOMON_SOCKET_PATH")) {
+  if (auto env = GetEnv("CRASHOMON_SOCKET_PATH")) {
     resolved.socket_path = std::string{*env};
   } else {
     resolved.socket_path = std::string{kDefaultSocketPath};
@@ -62,6 +55,10 @@ struct ResolvedConfig {
 
   return resolved;
 }
+
+// Connect to watcherd and configure the Crashpad handler.  Exposed here so
+// tests can invoke it directly with a custom ResolvedConfig.
+int DoInit(const ResolvedConfig& cfg);
 
 // Formats an assert() failure annotation and writes it to abort_message using
 // a 512-byte stack buffer (no heap allocation).  Safe to call before DoInit()

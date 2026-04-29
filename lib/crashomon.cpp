@@ -3,9 +3,8 @@
 // The public interface (crashomon.h) is a pure C API with no C++ dependencies.
 // All C++ internals are confined to this translation unit and crashomon_internal.h.
 //
-// Integration modes:
-//   LD_PRELOAD   — constructor/destructor handle init and shutdown automatically.
-//   Explicit     — call crashomon_init() / crashomon_shutdown() at program start/end.
+// The library constructor initializes crash monitoring automatically for both
+// LD_PRELOAD and explicit -lcrashomon usage.
 
 #include "crashomon.h"
 
@@ -97,6 +96,19 @@ int ReceiveSharedSocket(int conn_fd, pid_t* out_pid) {
   *out_pid = pid;
   return shared_fd;
 }
+
+// ── Library constructor ──────────────────────────────────────────────────────
+// GCC/Clang constructor attribute fires automatically when the library is
+// loaded — for both LD_PRELOAD and explicit -lcrashomon usage.
+
+// CRASHOMON_TESTING_SKIP_AUTOINIT is defined by the client test binary so the
+// constructor does not burn 3s retrying against an absent watcherd at startup.
+// Tests that exercise the retry logic call crashomon::DoInit() directly.
+#ifndef CRASHOMON_TESTING_SKIP_AUTOINIT
+__attribute__((constructor)) void AutoInit() { DoInit(Resolve()); }
+#endif
+
+}  // namespace
 
 int DoInit(const ResolvedConfig& cfg) {
   // Silence Crashpad's harmless PR_SET_PTRACER EINVAL warning (from
@@ -200,8 +212,8 @@ int DoInit(const ResolvedConfig& cfg) {
   std::set_terminate([]() noexcept {
     constexpr size_t what_buf_size = 512;
     std::array<char, what_buf_size> what_buf{};
-    crashomon::CaptureCurrentExceptionMessage(what_buf.data(), what_buf_size);
-    crashomon::WriteTerminateAnnotation(abi::__cxa_current_exception_type(), what_buf.data());
+    CaptureCurrentExceptionMessage(what_buf.data(), what_buf_size);
+    WriteTerminateAnnotation(abi::__cxa_current_exception_type(), what_buf.data());
     std::abort();
   });
 
@@ -223,24 +235,6 @@ int DoInit(const ResolvedConfig& cfg) {
 
   return 0;
 }
-
-// ── LD_PRELOAD constructor / destructor ─────────────────────────────────────
-// GCC/Clang constructor/destructor attributes for shared library lifecycle.
-// These fire automatically when the library is loaded/unloaded — no code
-// changes are required in the monitored process.
-
-// CRASHOMON_TESTING_SKIP_AUTOINIT is defined by the client test binary so the
-// constructor does not burn 3 s retrying against an absent watcherd at startup.
-// Tests that exercise the retry logic call crashomon_init() directly.
-#ifndef CRASHOMON_TESTING_SKIP_AUTOINIT
-__attribute__((constructor)) void AutoInit() { DoInit(Resolve(nullptr)); }
-#endif
-
-__attribute__((destructor)) void AutoShutdown() {
-  // Crashpad handler runs as an independent process; no shutdown needed.
-}
-
-}  // namespace
 
 void WriteAssertAnnotation(const char* assertion, const char* file, unsigned int line,
                            const char* func) noexcept {
@@ -284,14 +278,6 @@ extern "C" [[noreturn]] void __assert_fail(const char* assertion, const char* fi
 
 // ── Public C API ─────────────────────────────────────────────────────────────
 // C-compatible names — GlobalFunctionCase: lower_case in .clang-tidy covers these.
-int crashomon_init(const CrashomonConfig* config) {
-  return crashomon::DoInit(crashomon::Resolve(config));
-}
-
-void crashomon_shutdown() {
-  // Crashpad handler runs as an independent process; no shutdown needed.
-}
-
 void crashomon_set_abort_message(const char* message) {
   crashomon_set_tag("abort_message", message);
 }

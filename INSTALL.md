@@ -128,24 +128,18 @@ Environment=CRASHOMON_SOCKET_PATH=/run/crashomon/handler.sock
 ## Explicit linking (optional)
 
 Use explicit linking when you want to attach tags or an abort message to crash reports.
-
-Link with `-lcrashomon` and call the C API:
+Link with `-lcrashomon` — the library constructor initializes crash monitoring automatically,
+so no explicit init call is needed.
 
 ```c
 #include "crashomon.h"
 
 int main(void) {
-    CrashomonConfig cfg = {
-        .socket_path = "/run/crashomon/handler.sock",
-    };
-    crashomon_init(&cfg);
-
     crashomon_set_tag("version", "1.2.3");
     crashomon_set_tag("env",     "production");
 
     /* ... your program ... */
 
-    crashomon_shutdown();
     return 0;
 }
 ```
@@ -156,8 +150,6 @@ Set an abort message before calling `abort()`:
 crashomon_set_abort_message("invariant violated: count >= 0");
 abort();
 ```
-
-`crashomon_init()` is not needed when using LD_PRELOAD — the library constructor handles initialization automatically.
 
 ---
 

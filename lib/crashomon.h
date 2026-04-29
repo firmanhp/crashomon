@@ -13,7 +13,8 @@ extern "C" {
  * ./my_program
  *
  * Usage (explicit linking):
- *   Link with -lcrashomon and call crashomon_init() at startup.
+ *   Link with -lcrashomon. The library constructor initializes crash monitoring
+ *   automatically — no explicit init call is needed.
  *
  * Environment variables:
  *   CRASHOMON_DB_PATH     Directory where minidumps are written (watcherd side).
@@ -22,37 +23,8 @@ extern "C" {
  *                         Default: /run/crashomon/handler.sock
  */
 
-/**
- * Configuration for explicit init (not needed for LD_PRELOAD).
- * Zero-initialize to use defaults.
- */
-#ifdef __cplusplus
-struct CrashomonConfig {
-  const char *db_path;     /* Minidump database path  (NULL = use env/default) */
-  const char *socket_path; /* crashomon-watcherd socket path (NULL = use env/default) */
-};
-#else
-typedef struct CrashomonConfig {
-  const char *db_path;     /* Minidump database path  (NULL = use env/default) */
-  const char *socket_path; /* crashomon-watcherd socket path (NULL = use env/default) */
-} CrashomonConfig;
-#endif
-
 // The functions below use snake_case C naming — this is a C public API.
 // GlobalFunctionCase: lower_case in .clang-tidy covers extern "C" functions.
-
-/**
- * Initialize crash monitoring with explicit config.
- * Not needed when using LD_PRELOAD — the constructor handles init automatically.
- * Returns 0 on success, non-zero on failure.
- */
-int crashomon_init(const CrashomonConfig *config);
-
-/**
- * Shut down crash monitoring.
- * Not needed when using LD_PRELOAD — the destructor handles shutdown automatically.
- */
-void crashomon_shutdown(void);
 
 /**
  * Attach a key-value tag to all crash reports from this process.

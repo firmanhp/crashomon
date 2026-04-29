@@ -1,13 +1,10 @@
 // test/test_connect_retry.cpp — unit tests for the 3-second connection retry
-// behavior added to DoInit() in lib/crashomon.cpp.
+// behavior in DoInit() (lib/crashomon.cpp).
 //
-// Each test calls crashomon_init() against a temporary AF_UNIX/SOCK_SEQPACKET
-// socket in /tmp and checks timing, return value, and stderr output.
-//
-// The test binary also incurs a ~3s startup delay: crashomon.cpp is compiled in
-// via target_sources and its AutoInit() constructor runs the same retry loop
-// against the default socket path (which is absent in the test environment).
-// The TimeoutTest below adds another ~3s.  Total overhead: ~6s.
+// Each test calls crashomon::DoInit() directly against a temporary
+// AF_UNIX/SOCK_SEQPACKET socket in /tmp and checks timing, return value, and
+// stderr output.  CRASHOMON_TESTING_SKIP_AUTOINIT suppresses the library
+// constructor so startup doesn't burn 3s against an absent watcherd.
 
 #include <fcntl.h>
 #include <sys/socket.h>
@@ -22,7 +19,7 @@
 #include <thread>
 
 #include "gtest/gtest.h"
-#include "lib/crashomon.h"
+#include "lib/crashomon_internal.h"
 
 namespace {
 
@@ -108,21 +105,18 @@ int MakeListeningSocket(const std::string& path) {
 
 // ── ConnectRetry tests ────────────────────────────────────────────────────────
 
-// When the socket never appears, crashomon_init() should retry for ~3 seconds,
-// print a one-time "waiting" notice on the first retry, then print a "not
-// available after 3s" error and return non-zero.  The process continues — no
-// abort or crash.
+// When the socket never appears, DoInit() should retry for ~3 seconds, print a
+// one-time "waiting" notice on the first retry, then print a "not available
+// after 3s" error and return non-zero.  The process continues — no abort or crash.
 //
 // This test takes ~3 seconds to complete by design.
 TEST(ConnectRetryTest, TimeoutPrintsMessagesAndReturnsFailure) {
   const std::string path = SocketPath("timeout");
   ::unlink(path.c_str());
 
-  const CrashomonConfig cfg{nullptr, path.c_str()};
-
   StderrCapture cap;
   const auto start = std::chrono::steady_clock::now();
-  const int result = crashomon_init(&cfg);
+  const int result = crashomon::DoInit(crashomon::ResolvedConfig{"", path});
   const auto elapsed = std::chrono::steady_clock::now() - start;
   const std::string output = cap.Drain();
 
@@ -137,10 +131,9 @@ TEST(ConnectRetryTest, TimeoutPrintsMessagesAndReturnsFailure) {
       << output;
 }
 
-// When the socket becomes available partway through the retry window,
-// crashomon_init() should connect before the 3s deadline.  The one-time
-// "waiting" notice should appear (a retry did occur), but the "not available"
-// error should not.
+// When the socket becomes available partway through the retry window, DoInit()
+// should connect before the 3s deadline.  The one-time "waiting" notice should
+// appear (a retry did occur), but the "not available" error should not.
 TEST(ConnectRetryTest, SocketAppearsBeforeTimeoutConnectsEarly) {
   const std::string path = SocketPath("late");
   ::unlink(path.c_str());
@@ -164,11 +157,9 @@ TEST(ConnectRetryTest, SocketAppearsBeforeTimeoutConnectsEarly) {
     }
   });
 
-  const CrashomonConfig cfg{nullptr, path.c_str()};
-
   StderrCapture cap;
   const auto start = std::chrono::steady_clock::now();
-  const int result = crashomon_init(&cfg);
+  const int result = crashomon::DoInit(crashomon::ResolvedConfig{"", path});
   const auto elapsed = std::chrono::steady_clock::now() - start;
   const std::string output = cap.Drain();
 
@@ -190,8 +181,8 @@ TEST(ConnectRetryTest, SocketAppearsBeforeTimeoutConnectsEarly) {
       << output;
 }
 
-// When the socket is already listening before crashomon_init() is called, the
-// first connect() succeeds — no retry, so no "waiting" message should appear.
+// When the socket is already listening before DoInit() is called, the first
+// connect() succeeds — no retry, so no "waiting" message should appear.
 TEST(ConnectRetryTest, ImmediateConnectPrintsNoWaitingMessage) {
   const std::string path = SocketPath("immediate");
   ::unlink(path.c_str());
@@ -209,11 +200,9 @@ TEST(ConnectRetryTest, ImmediateConnectPrintsNoWaitingMessage) {
     }
   });
 
-  const CrashomonConfig cfg{nullptr, path.c_str()};
-
   StderrCapture cap;
   const auto start = std::chrono::steady_clock::now();
-  const int result = crashomon_init(&cfg);
+  const int result = crashomon::DoInit(crashomon::ResolvedConfig{"", path});
   const auto elapsed = std::chrono::steady_clock::now() - start;
   const std::string output = cap.Drain();
 

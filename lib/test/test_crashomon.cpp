@@ -112,21 +112,11 @@ TEST(GetEnvTest, ReturnsStringViewNotOwningCopy) {
   EXPECT_EQ(std::string{*val}, "test_value");
 }
 
-// ── Resolve: defaults (no config, no env vars) ───────────────────────────────
+// ── Resolve: defaults (no env vars) ─────────────────────────────────────────
 
-TEST(ResolveTest, NullConfigNoEnvYieldsDefaults) {
+TEST(ResolveTest, NoEnvYieldsDefaults) {
   const ClearCrashomonEnv clear;
-  const auto cfg = Resolve(nullptr);
-  EXPECT_EQ(cfg.db_path, kDefaultDbPath);
-  EXPECT_EQ(cfg.socket_path, kDefaultSocketPath);
-}
-
-TEST(ResolveTest, EmptyConfigNoEnvYieldsDefaults) {
-  const ClearCrashomonEnv clear;
-  // CrashomonConfig comes via crashomon_internal.h which is included; include-cleaner FP.
-  // NOLINTNEXTLINE(misc-include-cleaner)
-  const CrashomonConfig config{nullptr, nullptr};
-  const auto cfg = Resolve(&config);
+  const auto cfg = Resolve();
   EXPECT_EQ(cfg.db_path, kDefaultDbPath);
   EXPECT_EQ(cfg.socket_path, kDefaultSocketPath);
 }
@@ -136,7 +126,7 @@ TEST(ResolveTest, EmptyConfigNoEnvYieldsDefaults) {
 TEST(ResolveTest, EnvDbPathOverridesDefault) {
   const ClearCrashomonEnv clear;
   const ScopedEnv env{"CRASHOMON_DB_PATH", "/tmp/crashes"};
-  const auto cfg = Resolve(nullptr);
+  const auto cfg = Resolve();
   EXPECT_EQ(cfg.db_path, "/tmp/crashes");
   EXPECT_EQ(cfg.socket_path, kDefaultSocketPath);
 }
@@ -144,7 +134,7 @@ TEST(ResolveTest, EnvDbPathOverridesDefault) {
 TEST(ResolveTest, EnvHandlerPathOverridesDefault) {
   const ClearCrashomonEnv clear;
   const ScopedEnv env{"CRASHOMON_SOCKET_PATH", "/opt/myhandler"};
-  const auto cfg = Resolve(nullptr);
+  const auto cfg = Resolve();
   EXPECT_EQ(cfg.db_path, kDefaultDbPath);
   EXPECT_EQ(cfg.socket_path, "/opt/myhandler");
 }
@@ -153,54 +143,9 @@ TEST(ResolveTest, BothEnvVarsApplied) {
   const ClearCrashomonEnv clear;
   const ScopedEnv db_env{"CRASHOMON_DB_PATH", "/data/crashes"};
   const ScopedEnv handler_env{"CRASHOMON_SOCKET_PATH", "/bin/handler"};
-  const auto cfg = Resolve(nullptr);
+  const auto cfg = Resolve();
   EXPECT_EQ(cfg.db_path, "/data/crashes");
   EXPECT_EQ(cfg.socket_path, "/bin/handler");
-}
-
-// ── Resolve: explicit config takes highest precedence ────────────────────────
-
-TEST(ResolveTest, ExplicitConfigOverridesEnvAndDefault) {
-  const ScopedEnv db_env{"CRASHOMON_DB_PATH", "/env/crashes"};
-  const ScopedEnv handler_env{"CRASHOMON_SOCKET_PATH", "/env/handler"};
-  const CrashomonConfig config{"/explicit/db", "/explicit/handler"};
-  const auto cfg = Resolve(&config);
-  EXPECT_EQ(cfg.db_path, "/explicit/db");
-  EXPECT_EQ(cfg.socket_path, "/explicit/handler");
-}
-
-TEST(ResolveTest, ExplicitDbPathOnlyLeavesHandlerToEnv) {
-  const ClearCrashomonEnv clear;
-  const ScopedEnv env{"CRASHOMON_SOCKET_PATH", "/env/handler"};
-  const CrashomonConfig config{"/explicit/db", nullptr};
-  const auto cfg = Resolve(&config);
-  EXPECT_EQ(cfg.db_path, "/explicit/db");
-  EXPECT_EQ(cfg.socket_path, "/env/handler");
-}
-
-TEST(ResolveTest, ExplicitHandlerPathOnlyLeavesDbToEnv) {
-  const ClearCrashomonEnv clear;
-  const ScopedEnv env{"CRASHOMON_DB_PATH", "/env/db"};
-  const CrashomonConfig config{nullptr, "/explicit/handler"};
-  const auto cfg = Resolve(&config);
-  EXPECT_EQ(cfg.db_path, "/env/db");
-  EXPECT_EQ(cfg.socket_path, "/explicit/handler");
-}
-
-TEST(ResolveTest, ExplicitDbPathOnlyLeavesHandlerToDefault) {
-  const ClearCrashomonEnv clear;
-  const CrashomonConfig config{"/explicit/db", nullptr};
-  const auto cfg = Resolve(&config);
-  EXPECT_EQ(cfg.db_path, "/explicit/db");
-  EXPECT_EQ(cfg.socket_path, kDefaultSocketPath);
-}
-
-TEST(ResolveTest, ExplicitHandlerPathOnlyLeavesDbToDefault) {
-  const ClearCrashomonEnv clear;
-  const CrashomonConfig config{nullptr, "/explicit/handler"};
-  const auto cfg = Resolve(&config);
-  EXPECT_EQ(cfg.db_path, kDefaultDbPath);
-  EXPECT_EQ(cfg.socket_path, "/explicit/handler");
 }
 
 // ── Resolve: result is an owned copy ─────────────────────────────────────────
@@ -208,23 +153,10 @@ TEST(ResolveTest, ExplicitHandlerPathOnlyLeavesDbToDefault) {
 TEST(ResolveTest, ResultIsIndependentOfEnvAfterResolve) {
   const ClearCrashomonEnv clear;
   const ScopedEnv env{"CRASHOMON_DB_PATH", "/original"};
-  const auto cfg = Resolve(nullptr);
+  const auto cfg = Resolve();
   // Modify the env after resolving — result must not change.
   ::setenv("CRASHOMON_DB_PATH", "/modified", 1);
   EXPECT_EQ(cfg.db_path, "/original");
-}
-
-TEST(ResolveTest, ResultIsIndependentOfConfigPointerAfterResolve) {
-  const ClearCrashomonEnv clear;
-  std::string db_path = "/owned/db";
-  std::string hdlr_path = "/owned/handler";
-  const CrashomonConfig config{db_path.c_str(), hdlr_path.c_str()};
-  const auto cfg = Resolve(&config);
-  // Mutate original strings — result must not change.
-  db_path = "/mutated";
-  hdlr_path = "/mutated";
-  EXPECT_EQ(cfg.db_path, "/owned/db");
-  EXPECT_EQ(cfg.socket_path, "/owned/handler");
 }
 
 }  // namespace
