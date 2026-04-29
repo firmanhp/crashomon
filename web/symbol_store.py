@@ -8,8 +8,13 @@ from __future__ import annotations
 
 import shutil
 import subprocess
+import tarfile
+import tempfile
+import zipfile
 from pathlib import Path
 from typing import NamedTuple
+
+MAX_ARCHIVE_BYTES = 512 * 1024 * 1024  # 512 MB total extracted
 
 
 class SymbolEntry(NamedTuple):
@@ -140,3 +145,94 @@ def find_sym(store_path: str | Path, module: str, build_id: str) -> Path | None:
     """Return path to .sym file or None if not present."""
     sym = Path(store_path) / module / build_id / f"{module}.sym"
     return sym if sym.exists() else None
+
+
+def add_archive(
+    store_path: str | Path,
+    archive_path: str | Path,
+) -> tuple[list[Path], list[str]]:
+    """Extract an archive and import every *.sym file found inside.
+
+    Accepted extensions: .zip, .tar.gz, .tgz, .tar.bz2
+
+    Returns (stored_paths, error_messages). Partial success is allowed —
+    invalid .sym entries are recorded in error_messages; valid ones are stored.
+
+    Raises:
+        ValueError: unsupported extension, archive too large, or no .sym found.
+        RuntimeError: corrupted/unreadable archive.
+    """
+    archive = Path(archive_path)
+    name_lower = archive.name.lower()
+
+    if name_lower.endswith(".zip"):
+        fmt = "zip"
+    elif name_lower.endswith((".tar.gz", ".tgz")):
+        fmt = "tar:gz"
+    elif name_lower.endswith(".tar.bz2"):
+        fmt = "tar:bz2"
+    else:
+        raise ValueError(f"unsupported archive format: {archive.name}")
+
+    with tempfile.TemporaryDirectory() as tmp_str:
+        tmp = Path(tmp_str)
+        try:
+            if fmt == "zip":
+                _extract_zip(archive, tmp)
+            else:
+                _extract_tar(archive, tmp, fmt)
+        except (zipfile.BadZipFile, tarfile.TarError, OSError) as exc:
+            raise RuntimeError(f"failed to read archive {archive.name}: {exc}") from exc
+
+        sym_files = list(tmp.glob("**/*.sym"))
+        if not sym_files:
+            raise ValueError("no .sym files in archive")
+
+        stored: list[Path] = []
+        errors: list[str] = []
+        for sym_file in sym_files:
+            try:
+                text = sym_file.read_text(encoding="utf-8", errors="replace")
+                dest = add_sym_text(store_path, text)
+                stored.append(dest)
+            except (ValueError, OSError) as exc:
+                errors.append(f"{sym_file.name}: {exc}")
+
+    return stored, errors
+
+
+def _safe_member_path(base: Path, member_name: str) -> Path | None:
+    """Return resolved path for member inside base, or None if it escapes."""
+    candidate = (base / member_name).resolve()
+    if str(candidate).startswith(str(base.resolve()) + "/") or candidate == base.resolve():
+        return candidate
+    return None
+
+
+def _extract_zip(archive: Path, dest: Path) -> None:
+    total = 0
+    with zipfile.ZipFile(archive) as zf:
+        for info in zf.infolist():
+            total += info.file_size
+            if total > MAX_ARCHIVE_BYTES:
+                raise ValueError("archive too large")
+            if _safe_member_path(dest, info.filename) is None:
+                continue  # skip path-traversal entries
+            zf.extract(info, dest)
+
+
+def _extract_tar(archive: Path, dest: Path, fmt: str) -> None:
+    mode = f"r:{fmt.split(':')[1]}"
+    total = 0
+    with tarfile.open(archive, mode) as tf:
+        safe_members = []
+        for member in tf.getmembers():
+            if member.issym() or member.isdev():
+                continue
+            total += member.size
+            if total > MAX_ARCHIVE_BYTES:
+                raise ValueError("archive too large")
+            if _safe_member_path(dest, member.name) is None:
+                continue
+            safe_members.append(member)
+        tf.extractall(dest, members=safe_members, filter="data")

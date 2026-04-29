@@ -149,7 +149,29 @@ def create_app(
 
     @app.post("/symbols/upload")
     def upload_symbols():
-        """Accept a debug binary, extract symbols, store in symbol store."""
+        """Accept a symbol archive or debug binary; store in symbol store."""
+        arc = request.files.get("archive")
+        if arc and arc.filename:
+            safe_name = secure_filename(arc.filename)
+            if not safe_name:
+                flash("Invalid filename.", "error")
+                return redirect(url_for("symbols"))
+            tmp_dir = app.config["DB_PATH"].parent / "tmp"
+            tmp_dir.mkdir(parents=True, exist_ok=True)
+            arc_path = tmp_dir / safe_name
+            arc.save(str(arc_path))
+            try:
+                stored, errors = symbol_store.add_archive(app.config["SYMBOL_STORE"], arc_path)
+                if stored:
+                    flash(f"Imported {len(stored)} symbol(s).", "success")
+                for err in errors:
+                    flash(err, "error")
+            except (ValueError, RuntimeError) as exc:
+                flash(str(exc), "error")
+            finally:
+                arc_path.unlink(missing_ok=True)
+            return redirect(url_for("symbols"))
+
         f = request.files.get("binary")
         if f and f.filename:
             safe_name = secure_filename(f.filename)
@@ -199,7 +221,27 @@ def create_app(
     @app.post("/api/symbols/upload")
     @csrf.exempt
     def api_upload_symbols():
-        """CI/CD REST endpoint: POST multipart with 'sym' or 'binary' field."""
+        """CI/CD REST endpoint: POST multipart with 'archive', 'sym', or 'binary' field."""
+        arc = request.files.get("archive")
+        if arc and arc.filename:
+            safe_name = secure_filename(arc.filename)
+            if not safe_name:
+                return {"status": "error", "message": "invalid filename"}, 400
+            tmp_dir = app.config["DB_PATH"].parent / "tmp"
+            tmp_dir.mkdir(parents=True, exist_ok=True)
+            arc_path = tmp_dir / safe_name
+            arc.save(str(arc_path))
+            try:
+                stored, errors = symbol_store.add_archive(app.config["SYMBOL_STORE"], arc_path)
+                rels = [str(p.relative_to(app.config["SYMBOL_STORE"])) for p in stored]
+                return {"status": "ok", "stored": rels, "errors": errors}, 201
+            except ValueError as exc:
+                return {"status": "error", "message": str(exc)}, 400
+            except RuntimeError as exc:
+                return {"status": "error", "message": str(exc)}, 500
+            finally:
+                arc_path.unlink(missing_ok=True)
+
         sym_file = request.files.get("sym")
         if sym_file:
             text = sym_file.read().decode("utf-8", errors="replace")

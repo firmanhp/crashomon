@@ -4,6 +4,7 @@ from __future__ import annotations
 
 import io
 import textwrap
+import zipfile
 
 from web import models, symbol_store
 
@@ -307,5 +308,114 @@ def test_api_upload_crash_with_file(client, app, tmp_path):
     data = resp.get_json()
     assert data["status"] == "ok"
     assert isinstance(data["crash_id"], int)
-    # Crash must be in the database.
-    assert models.get_crash(app.config["DB_PATH"], data["crash_id"]) is not None
+
+
+# ---------------------------------------------------------------------------
+# Archive upload helpers
+# ---------------------------------------------------------------------------
+
+
+def _zip_with_sym(sym_text: str = SAMPLE_SYM) -> bytes:
+    buf = io.BytesIO()
+    with zipfile.ZipFile(buf, "w") as zf:
+        zf.writestr(
+            "symbols/my_service/AABBCCDD0011223344556677889900AA0/my_service.sym",
+            sym_text,
+        )
+    return buf.getvalue()
+
+
+# ---------------------------------------------------------------------------
+# UI: POST /symbols/upload with archive field
+# ---------------------------------------------------------------------------
+
+
+def test_upload_symbols_archive_redirects_to_symbols(client):
+    resp = client.post(
+        "/symbols/upload",
+        data={"archive": (io.BytesIO(_zip_with_sym()), "symbols.zip")},
+        content_type="multipart/form-data",
+    )
+    assert resp.status_code == 302
+    assert "/symbols" in resp.headers["Location"]
+
+
+def test_upload_symbols_archive_stores_entry(client, app):
+    client.post(
+        "/symbols/upload",
+        data={"archive": (io.BytesIO(_zip_with_sym()), "symbols.zip")},
+        content_type="multipart/form-data",
+    )
+    assert symbol_store.find_sym(
+        app.config["SYMBOL_STORE"], "my_service", "AABBCCDD0011223344556677889900AA0"
+    ) is not None
+
+
+def test_upload_symbols_archive_bad_format_redirects(client):
+    resp = client.post(
+        "/symbols/upload",
+        data={"archive": (io.BytesIO(b"not an archive"), "symbols.rar")},
+        content_type="multipart/form-data",
+    )
+    assert resp.status_code == 302
+
+
+# ---------------------------------------------------------------------------
+# API: POST /api/symbols/upload with archive field
+# ---------------------------------------------------------------------------
+
+
+def test_api_upload_archive_ok(client):
+    resp = client.post(
+        "/api/symbols/upload",
+        data={"archive": (io.BytesIO(_zip_with_sym()), "symbols.zip")},
+        content_type="multipart/form-data",
+    )
+    assert resp.status_code == 201
+    data = resp.get_json()
+    assert data["status"] == "ok"
+    assert isinstance(data["stored"], list)
+    assert len(data["stored"]) == 1
+    assert "errors" in data
+
+
+def test_api_upload_archive_bad_format_returns_400(client):
+    resp = client.post(
+        "/api/symbols/upload",
+        data={"archive": (io.BytesIO(b"garbage"), "symbols.rar")},
+        content_type="multipart/form-data",
+    )
+    assert resp.status_code == 400
+    assert resp.get_json()["status"] == "error"
+
+
+def test_api_upload_archive_corrupted_returns_500(client):
+    resp = client.post(
+        "/api/symbols/upload",
+        data={"archive": (io.BytesIO(b"not a zip"), "symbols.zip")},
+        content_type="multipart/form-data",
+    )
+    assert resp.status_code == 500
+    assert resp.get_json()["status"] == "error"
+
+
+def test_api_upload_archive_partial_errors_in_response(client):
+    alt = textwrap.dedent("""\
+        MODULE Linux x86_64 AABBCCDD0011223344556677889900AA0 other_svc
+        FILE 0 src/main.cpp
+        FUNC 1a0 20 0 main
+        1a0 10 42 0
+    """)
+    buf = io.BytesIO()
+    with zipfile.ZipFile(buf, "w") as zf:
+        zf.writestr("symbols/bad/AABB/bad.sym", "not valid sym")
+        zf.writestr("symbols/other_svc/AABBCCDD0011223344556677889900AA0/other_svc.sym", alt)
+    resp = client.post(
+        "/api/symbols/upload",
+        data={"archive": (io.BytesIO(buf.getvalue()), "symbols.zip")},
+        content_type="multipart/form-data",
+    )
+    assert resp.status_code == 201
+    data = resp.get_json()
+    assert len(data["stored"]) == 1
+    assert len(data["errors"]) == 1

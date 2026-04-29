@@ -3,6 +3,14 @@
 {% block content %}
 <h1>Symbol Store</h1>
 
+<h2>Upload symbol archive</h2>
+<p class="muted">Accepts <code>.tar.gz</code>, <code>.tar.bz2</code>, <code>.zip</code> archives containing <code>*.sym</code> files.</p>
+<form method="post" action="{{ url_for('upload_symbols') }}" enctype="multipart/form-data" style="display:flex; gap:0.5rem; align-items:center; margin-bottom:1.5rem;">
+  <input type="hidden" name="csrf_token" value="{{ csrf_token() }}">
+  <input type="file" name="archive" accept=".zip,.tar.gz,.tgz,.tar.bz2" required>
+  <button class="btn" type="submit">Import archive</button>
+</form>
+
 <h2>Upload debug binary</h2>
 <form method="post" action="{{ url_for('upload_symbols') }}" enctype="multipart/form-data" style="display:flex; gap:0.5rem; align-items:center; margin-bottom:1.5rem;">
   <input type="hidden" name="csrf_token" value="{{ csrf_token() }}">
