@@ -211,10 +211,10 @@ def test_symbols_page_shows_entry(client, app):
     assert b"my_service" in client.get("/symbols").data
 
 
-def test_delete_symbol_via_http_delete(client, app):
+def test_delete_symbol_via_post(client, app):
     symbol_store.add_sym_text(app.config["SYMBOL_STORE"], SAMPLE_SYM)
-    resp = client.delete("/symbols/my_service/AABBCCDD0011223344556677889900AA0")
-    assert resp.status_code == 204
+    resp = client.post("/symbols/my_service/AABBCCDD0011223344556677889900AA0/delete")
+    assert resp.status_code in (302, 303)
     assert (
         symbol_store.find_sym(
             app.config["SYMBOL_STORE"], "my_service", "AABBCCDD0011223344556677889900AA0"
@@ -224,8 +224,8 @@ def test_delete_symbol_via_http_delete(client, app):
 
 
 def test_delete_symbol_nonexistent_is_ok(client):
-    resp = client.delete("/symbols/no_module/DEADBEEF")
-    assert resp.status_code == 204
+    resp = client.post("/symbols/no_module/DEADBEEF/delete")
+    assert resp.status_code in (302, 303)
 
 
 # ---------------------------------------------------------------------------

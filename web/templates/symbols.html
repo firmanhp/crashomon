@@ -21,8 +21,7 @@
     <td class="muted">{{ (e.size_bytes // 1024) }} KB</td>
     <td>
       <form class="inline" method="post"
-            action="{{ url_for('delete_symbol', module=e.module, build_id=e.build_id) }}"
-            onsubmit="this.method='delete'">
+            action="{{ url_for('delete_symbol', module=e.module, build_id=e.build_id) }}">
         <input type="hidden" name="csrf_token" value="{{ csrf_token() }}">
         <button class="btn btn-danger" type="submit">remove</button>
       </form>

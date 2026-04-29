@@ -172,13 +172,14 @@ def create_app(
                 bin_path.unlink(missing_ok=True)
         return redirect(url_for("symbols"))
 
-    @app.delete("/symbols/<module>/<build_id>")
+    @app.post("/symbols/<module>/<build_id>/delete")
     def delete_symbol(module: str, build_id: str):
         """Remove a specific symbol version."""
-        sym_dir = app.config["SYMBOL_STORE"] / module / build_id
-        if sym_dir.is_dir():
+        store_root = app.config["SYMBOL_STORE"].resolve()
+        sym_dir = (app.config["SYMBOL_STORE"] / module / build_id).resolve()
+        if str(sym_dir).startswith(str(store_root) + "/") and sym_dir.is_dir():
             shutil.rmtree(sym_dir)
-        return "", 204
+        return redirect(url_for("symbols"))
 
     @app.get("/symbols/<module>/<build_id>/<filename>")
     def serve_symbol(module: str, build_id: str, filename: str) -> object:

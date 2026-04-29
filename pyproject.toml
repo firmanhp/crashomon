@@ -17,6 +17,10 @@ dev = [
     "pytest>=8.0",
     "ruff>=0.4",
 ]
+e2e = [
+    "playwright>=1.40",
+    "pytest-playwright>=0.4",
+]
 
 [tool.ruff]
 line-length = 100
@@ -41,3 +45,6 @@ ignore = [
 [tool.pytest.ini_options]
 testpaths = ["web/tests"]
 pythonpath = [".", "tools"]
+markers = [
+    "e2e: end-to-end browser tests (require playwright — run: uv pip install -e '.[e2e]' && playwright install chromium)",
+]
