@@ -17,10 +17,14 @@ extern "C" {
  *   automatically — no explicit init call is needed.
  *
  * Environment variables:
- *   CRASHOMON_DB_PATH     Directory where minidumps are written (watcherd side).
- *                         Default: /var/crashomon
- *   CRASHOMON_SOCKET_PATH Path to the crashomon-watcherd Unix domain socket.
- *                         Default: /run/crashomon/handler.sock
+ *   CRASHOMON_DB_PATH            Directory where minidumps are written (watcherd side).
+ *                                Default: /var/crashomon
+ *   CRASHOMON_SOCKET_PATH        Path to the crashomon-watcherd Unix domain socket.
+ *                                Default: /run/crashomon/handler.sock
+ *   CRASHOMON_CONNECT_TIMEOUT_SEC How long to retry connecting to watcherd on startup.
+ *                                Set to 0 to try once with no retry (useful for
+ *                                programs that may run without watcherd present).
+ *                                Default: 3
  */
 
 // The functions below use snake_case C naming — this is a C public API.

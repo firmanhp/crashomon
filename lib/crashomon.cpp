@@ -128,15 +128,15 @@ int DoInit(const ResolvedConfig& cfg) {
   strncpy(addr.sun_path, cfg.socket_path.c_str(), sizeof(addr.sun_path) - 1);
   addr.sun_path[sizeof(addr.sun_path) - 1] = '\0';
 
-  // Retry connecting for up to 3 seconds to tolerate watcherd still starting up.
+  // Retry connecting for up to connect_timeout_sec seconds to tolerate watcherd
+  // still starting up.  A timeout of 0 means try once with no retry.
   // ENOENT  — socket file not yet created.
   // ECONNREFUSED — socket exists but watcherd not yet listening.
-  static constexpr int kConnectTimeoutSec = 3;
   static constexpr long kRetryIntervalNs = 100'000'000L;  // 100 ms
 
   struct timespec deadline {};
   clock_gettime(CLOCK_MONOTONIC, &deadline);
-  deadline.tv_sec += kConnectTimeoutSec;
+  deadline.tv_sec += cfg.connect_timeout_sec;
 
   bool connected = false;
   bool waiting_printed = false;
@@ -160,9 +160,14 @@ int DoInit(const ResolvedConfig& cfg) {
       break;  // Deadline reached.
     }
     if (!waiting_printed) {
+      constexpr size_t wait_suffix_size = 32;
+      std::array<char, wait_suffix_size> wait_suffix{};
+      // NOLINTNEXTLINE(cppcoreguidelines-pro-type-vararg)
+      std::snprintf(wait_suffix.data(), wait_suffix.size(), " (up to %ds)...\n",
+                    cfg.connect_timeout_sec);
       std::fputs("crashomon: waiting for watcherd at ", stderr);
       std::fputs(cfg.socket_path.c_str(), stderr);
-      std::fputs(" (up to 3s)...\n", stderr);
+      std::fputs(wait_suffix.data(), stderr);
       waiting_printed = true;
     }
     const struct timespec interval {
@@ -177,7 +182,13 @@ int DoInit(const ResolvedConfig& cfg) {
     std::fputs("crashomon: could not connect to watcherd at ", stderr);
     std::fputs(cfg.socket_path.c_str(), stderr);
     if (connect_errno == ENOENT || connect_errno == ECONNREFUSED) {
-      std::fputs(": not available after 3s, running without crash monitoring\n", stderr);
+      constexpr size_t err_suffix_size = 64;
+      std::array<char, err_suffix_size> err_suffix{};
+      // NOLINTNEXTLINE(cppcoreguidelines-pro-type-vararg)
+      std::snprintf(err_suffix.data(), err_suffix.size(),
+                    ": not available after %ds, running without crash monitoring\n",
+                    cfg.connect_timeout_sec);
+      std::fputs(err_suffix.data(), stderr);
     } else {
       std::fputs(": ", stderr);
       std::fputs(strerror(connect_errno), stderr);

@@ -56,12 +56,13 @@ class ScopedEnv {
   std::string old_value_;
 };
 
-// Ensure both crashomon env vars are absent for tests that rely on defaults.
+// Ensure all crashomon env vars are absent for tests that rely on defaults.
 class ClearCrashomonEnv {
  public:
   ClearCrashomonEnv() {
     ::unsetenv("CRASHOMON_DB_PATH");
     ::unsetenv("CRASHOMON_SOCKET_PATH");
+    ::unsetenv("CRASHOMON_CONNECT_TIMEOUT_SEC");
   }
 
   ~ClearCrashomonEnv() = default;
@@ -78,6 +79,8 @@ TEST(DefaultsTest, DbPathDefault) { EXPECT_EQ(kDefaultDbPath, "/var/crashomon");
 TEST(DefaultsTest, SocketPathDefault) {
   EXPECT_EQ(kDefaultSocketPath, "/run/crashomon/handler.sock");
 }
+
+TEST(DefaultsTest, ConnectTimeoutDefault) { EXPECT_EQ(kDefaultConnectTimeoutSec, 3); }
 
 // ── GetEnv ───────────────────────────────────────────────────────────────────
 
@@ -146,6 +149,37 @@ TEST(ResolveTest, BothEnvVarsApplied) {
   const auto cfg = Resolve();
   EXPECT_EQ(cfg.db_path, "/data/crashes");
   EXPECT_EQ(cfg.socket_path, "/bin/handler");
+}
+
+// ── Resolve: CRASHOMON_CONNECT_TIMEOUT_SEC ───────────────────────────────────
+
+TEST(ResolveTest, ConnectTimeoutDefaultWhenAbsent) {
+  const ClearCrashomonEnv clear;
+  EXPECT_EQ(Resolve().connect_timeout_sec, kDefaultConnectTimeoutSec);
+}
+
+TEST(ResolveTest, ConnectTimeoutZeroDisablesRetry) {
+  const ClearCrashomonEnv clear;
+  const ScopedEnv env{"CRASHOMON_CONNECT_TIMEOUT_SEC", "0"};
+  EXPECT_EQ(Resolve().connect_timeout_sec, 0);
+}
+
+TEST(ResolveTest, ConnectTimeoutCustomValue) {
+  const ClearCrashomonEnv clear;
+  const ScopedEnv env{"CRASHOMON_CONNECT_TIMEOUT_SEC", "10"};
+  EXPECT_EQ(Resolve().connect_timeout_sec, 10);
+}
+
+TEST(ResolveTest, ConnectTimeoutInvalidIgnored) {
+  const ClearCrashomonEnv clear;
+  const ScopedEnv env{"CRASHOMON_CONNECT_TIMEOUT_SEC", "abc"};
+  EXPECT_EQ(Resolve().connect_timeout_sec, kDefaultConnectTimeoutSec);
+}
+
+TEST(ResolveTest, ConnectTimeoutNegativeIgnored) {
+  const ClearCrashomonEnv clear;
+  const ScopedEnv env{"CRASHOMON_CONNECT_TIMEOUT_SEC", "-1"};
+  EXPECT_EQ(Resolve().connect_timeout_sec, kDefaultConnectTimeoutSec);
 }
 
 // ── Resolve: result is an owned copy ─────────────────────────────────────────

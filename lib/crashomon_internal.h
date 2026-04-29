@@ -17,6 +17,7 @@ namespace crashomon {
 
 constexpr std::string_view kDefaultDbPath = "/var/crashomon";
 constexpr std::string_view kDefaultSocketPath = "/run/crashomon/handler.sock";
+constexpr int kDefaultConnectTimeoutSec = 3;
 
 // Returns the value of environment variable `name`, or std::nullopt if unset.
 // The returned string_view is valid only as long as the environment is not
@@ -33,11 +34,13 @@ constexpr std::string_view kDefaultSocketPath = "/run/crashomon/handler.sock";
 struct ResolvedConfig {
   std::string db_path;
   std::string socket_path;
+  int connect_timeout_sec = kDefaultConnectTimeoutSec;
 };
 
-// Resolve db_path and socket_path by applying, in order:
-//   1. Environment variable (CRASHOMON_DB_PATH / CRASHOMON_SOCKET_PATH)
-//   2. Compiled-in default (kDefaultDbPath / kDefaultSocketPath)
+// Resolve configuration by applying, in order:
+//   1. Environment variable (CRASHOMON_DB_PATH / CRASHOMON_SOCKET_PATH /
+//      CRASHOMON_CONNECT_TIMEOUT_SEC)
+//   2. Compiled-in default
 [[nodiscard]] inline ResolvedConfig Resolve() {
   ResolvedConfig resolved;
 
@@ -51,6 +54,15 @@ struct ResolvedConfig {
     resolved.socket_path = std::string{*env};
   } else {
     resolved.socket_path = std::string{kDefaultSocketPath};
+  }
+
+  if (auto env = GetEnv("CRASHOMON_CONNECT_TIMEOUT_SEC")) {
+    const std::string val_str{*env};
+    char* end = nullptr;
+    const long val = std::strtol(val_str.c_str(), &end, 10);
+    if (end != val_str.c_str() && *end == '\0' && val >= 0) {
+      resolved.connect_timeout_sec = static_cast<int>(val);
+    }
   }
 
   return resolved;

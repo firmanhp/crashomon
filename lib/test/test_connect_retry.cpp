@@ -105,28 +105,27 @@ int MakeListeningSocket(const std::string& path) {
 
 // ── ConnectRetry tests ────────────────────────────────────────────────────────
 
-// When the socket never appears, DoInit() should retry for ~3 seconds, print a
-// one-time "waiting" notice on the first retry, then print a "not available
-// after 3s" error and return non-zero.  The process continues — no abort or crash.
-//
-// This test takes ~3 seconds to complete by design.
+// When the socket never appears, DoInit() should retry until the deadline,
+// print a one-time "waiting" notice on the first retry, then print a "not
+// available after Ns" error and return non-zero.  The process continues —
+// no abort or crash.
 TEST(ConnectRetryTest, TimeoutPrintsMessagesAndReturnsFailure) {
   const std::string path = SocketPath("timeout");
   ::unlink(path.c_str());
 
   StderrCapture cap;
   const auto start = std::chrono::steady_clock::now();
-  const int result = crashomon::DoInit(crashomon::ResolvedConfig{"", path});
+  const int result = crashomon::DoInit(crashomon::ResolvedConfig{"", path, 1});
   const auto elapsed = std::chrono::steady_clock::now() - start;
   const std::string output = cap.Drain();
 
   EXPECT_NE(result, 0);
-  EXPECT_GE(elapsed, std::chrono::seconds(3));
-  EXPECT_LT(elapsed, std::chrono::seconds(5));
+  EXPECT_GE(elapsed, std::chrono::seconds(1));
+  EXPECT_LT(elapsed, std::chrono::seconds(3));
   EXPECT_NE(output.find("waiting for watcherd"), std::string::npos)
       << "expected 'waiting' notice in stderr; got:\n"
       << output;
-  EXPECT_NE(output.find("not available after 3s"), std::string::npos)
+  EXPECT_NE(output.find("not available after 1s"), std::string::npos)
       << "expected timeout error in stderr; got:\n"
       << output;
 }
@@ -217,6 +216,28 @@ TEST(ConnectRetryTest, ImmediateConnectPrintsNoWaitingMessage) {
       << output;
   EXPECT_EQ(output.find("not available after 3s"), std::string::npos)
       << "unexpected timeout error on immediate connect; got:\n"
+      << output;
+}
+
+// With connect_timeout_sec=0 DoInit() tries once and returns immediately on
+// ENOENT/ECONNREFUSED — no 3-second retry, no "waiting" message.
+TEST(ConnectRetryTest, ZeroTimeoutReturnsImmediately) {
+  const std::string path = SocketPath("zero_timeout");
+  ::unlink(path.c_str());
+
+  StderrCapture cap;
+  const auto start = std::chrono::steady_clock::now();
+  const int result = crashomon::DoInit(crashomon::ResolvedConfig{"", path, 0});
+  const auto elapsed = std::chrono::steady_clock::now() - start;
+  const std::string output = cap.Drain();
+
+  EXPECT_NE(result, 0);
+  EXPECT_LT(elapsed, std::chrono::milliseconds(500));
+  EXPECT_EQ(output.find("waiting for watcherd"), std::string::npos)
+      << "unexpected 'waiting' message with zero timeout; got:\n"
+      << output;
+  EXPECT_NE(output.find("not available after 0s"), std::string::npos)
+      << "expected 'not available after 0s' in stderr; got:\n"
       << output;
 }
 
