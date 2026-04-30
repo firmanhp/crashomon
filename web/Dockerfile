@@ -33,7 +33,9 @@ RUN cargo install \
 # ── Final image ───────────────────────────────────────────────────────────────
 FROM python:3.12-slim
 
-RUN useradd --system --create-home crashomon
+RUN useradd --system --create-home crashomon \
+    && apt-get update && apt-get install -y --no-install-recommends gosu \
+    && rm -rf /var/lib/apt/lists/*
 
 WORKDIR /app
 
@@ -48,15 +50,16 @@ RUN pip install --no-cache-dir uv && \
     pip uninstall -y uv
 
 COPY web/ web/
+COPY web/entrypoint.sh /entrypoint.sh
+RUN chmod +x /entrypoint.sh
 
 ENV PATH="/app/.venv/bin:$PATH"
 ENV CRASHOMON_SYMBOL_STORE=/data/symbols
 ENV CRASHOMON_DB=/data/crashes.db
 
-RUN mkdir -p /data && chown crashomon:crashomon /data
-
-USER crashomon
+RUN mkdir -p /data
 
 EXPOSE 5000
 
+ENTRYPOINT ["/entrypoint.sh"]
 CMD ["gunicorn", "web.app:create_app()", "--bind", "0.0.0.0:5000", "--workers", "2", "--timeout", "120"]
