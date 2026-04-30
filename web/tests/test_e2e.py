@@ -17,8 +17,10 @@ the default test run.
 
 from __future__ import annotations
 
+import io
 import textwrap
 import threading
+import zipfile
 
 import pytest
 
@@ -68,7 +70,7 @@ def live_server(tmp_path_factory):
 
 
 @pytest.fixture
-def base_url(live_server):
+def server_url(live_server):
     _, url = live_server
     return url
 
@@ -83,20 +85,20 @@ def app_and_url(live_server):
 # ---------------------------------------------------------------------------
 
 
-def test_e2e_dashboard_loads(page, base_url):
+def test_e2e_dashboard_loads(page, server_url):
     """Browser can reach the dashboard."""
-    page.goto(base_url)
+    page.goto(server_url)
     assert "crashomon" in page.title().lower()
 
 
-def test_e2e_upload_form_has_csrf_token(page, base_url):
+def test_e2e_upload_form_has_csrf_token(page, server_url):
     """The upload form renders a non-empty CSRF hidden input."""
-    page.goto(f"{base_url}/upload")
+    page.goto(f"{server_url}/upload")
     token = page.get_attribute('input[name="csrf_token"]', "value")
     assert token and len(token) > 10
 
 
-def test_e2e_delete_crash_via_browser(page, app_and_url):
+def test_e2e_delete_crash_via_browser(page, app_and_url):  # noqa: F811
     """Clicking Delete on crash detail submits the CSRF-protected POST and deletes the crash."""
     app, base_url = app_and_url
     crash_id = models.insert_crash(
@@ -131,12 +133,12 @@ def test_e2e_delete_symbol_via_browser(page, app_and_url):
     )
 
 
-def test_e2e_csrf_blocks_direct_post_without_token(page, base_url):
+def test_e2e_csrf_blocks_direct_post_without_token(page, server_url):
     """Verify the server returns 400 when a DELETE-crash request has no CSRF token.
 
     This uses the browser's fetch API to bypass the form, sending a raw POST.
     """
-    page.goto(base_url)  # establish a session context
+    page.goto(server_url)  # establish a session context
 
     status = page.evaluate(
         """async () => {
@@ -145,3 +147,47 @@ def test_e2e_csrf_blocks_direct_post_without_token(page, base_url):
         }"""
     )
     assert status == 400
+
+
+def test_e2e_archive_upload_shows_success_flash(page, app_and_url, tmp_path):
+    """Uploading a valid symbol archive shows a success flash message.
+
+    This guards against the multi-worker SECRET_KEY bug where flash messages
+    are silently lost when the POST and redirect-GET hit different workers.
+    """
+    _, base_url = app_and_url
+
+    buf = io.BytesIO()
+    with zipfile.ZipFile(buf, "w") as zf:
+        zf.writestr("e2e_service.sym", SAMPLE_SYM)
+    archive = tmp_path / "syms.zip"
+    archive.write_bytes(buf.getvalue())
+
+    page.goto(f"{base_url}/symbols")
+    page.set_input_files('input[name="archive"]', str(archive))
+    page.click("button:has-text('Import archive')")
+    page.wait_for_url(f"{base_url}/symbols")
+
+    flash = page.locator("div[style*='padding: 0.4rem']")
+    assert flash.count() > 0
+    assert "Imported 1 symbol" in flash.first.inner_text()
+
+
+def test_e2e_archive_upload_invalid_sym_shows_error_flash(page, app_and_url, tmp_path):
+    """Uploading an archive whose .sym file has a bad MODULE line shows an error flash."""
+    _, base_url = app_and_url
+
+    buf = io.BytesIO()
+    with zipfile.ZipFile(buf, "w") as zf:
+        zf.writestr("bad.sym", "NOT A VALID MODULE LINE\n")
+    archive = tmp_path / "bad.zip"
+    archive.write_bytes(buf.getvalue())
+
+    page.goto(f"{base_url}/symbols")
+    page.set_input_files('input[name="archive"]', str(archive))
+    page.click("button:has-text('Import archive')")
+    page.wait_for_url(f"{base_url}/symbols")
+
+    flash = page.locator("div[style*='padding: 0.4rem']")
+    assert flash.count() > 0
+    assert "Invalid MODULE line" in flash.first.inner_text()
